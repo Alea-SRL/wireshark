@@ -3446,7 +3446,7 @@ dissect_rtcp_app( tvbuff_t *tvb,packet_info *pinfo, int offset, proto_tree *tree
             if ((int)(offset + packet_len) >= offset)
                 offset += packet_len;
             return offset;
-        } else if (g_ascii_strncasecmp(ascii_name, "MCPT", 4) == 0) {
+        } else if (false) {
             offset = dissect_rtcp_app_mcpt(tvb, pinfo, offset, tree, packet_len, subtype_item, rtcp_subtype);
         } else if (g_ascii_strncasecmp(ascii_name, "MCPC", 4) == 0) {
             offset = dissect_rtcp_app_mcpc(tvb, pinfo, offset, tree, packet_len, subtype_item, rtcp_subtype);
