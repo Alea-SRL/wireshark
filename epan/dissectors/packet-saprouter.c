@@ -24,9 +24,8 @@
 #include <epan/expert.h>
 #include <wsutil/wmem/wmem.h>
 #include <epan/conversation.h>
-
+#include <epan/credentials.h>
 #include <epan/tap.h>
-#include <ui/tap-credentials.h>
 
 #include "packet-sapni.h"
 #include "packet-sapsnc.h"
@@ -305,7 +304,7 @@ dissect_routestring(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, uint32_
 			auth->num = pinfo->num;
 			auth->password_hf_id = hf_saprouter_route_string_password;
 			auth->proto = "SAP Router Route String password";
-			auth->username = wmem_strdup(pinfo->pool, TAP_CREDENTIALS_PLACEHOLDER);
+			auth->username = wmem_strdup(pinfo->pool, CREDENTIALS_PLACEHOLDER);
 			tap_queue_packet(credentials_tap, pinfo, auth);
 		}
 		offset += len;
@@ -509,7 +508,7 @@ dissect_saprouter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 					auth->num = pinfo->num;
 					auth->password_hf_id = hf_saprouter_admin_password;
 					auth->proto = "SAP Router Info Request password";
-					auth->username = wmem_strdup(pinfo->pool, TAP_CREDENTIALS_PLACEHOLDER);
+					auth->username = wmem_strdup(pinfo->pool, CREDENTIALS_PLACEHOLDER);
 					tap_queue_packet(credentials_tap, pinfo, auth);
 				}
 				break;

@@ -757,7 +757,7 @@ dcm_init(void)
 
     /* Create three hash tables for quick lookups */
     /* XXX - These are constant hashmaps based on constant structs,
-     * produced by tools/make-packet-dcm.py
+     * produced by tools/dissector_generators/generate-dcm.py
      * The two with integer keys could use binary search (alter the
      * Python script to sort). If a hash table is desired, GNU gperf
      * or some perfect hash function generator should be used instead
@@ -1857,15 +1857,13 @@ dissect_dcm_assoc_user_identify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     proto_tree_add_item(assoc_item_user_identify_tree, hf_dcm_assoc_item_len, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
-    type = tvb_get_uint8(tvb, offset);
-    proto_tree_add_item(assoc_item_user_identify_tree, hf_dcm_info_user_identify_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(assoc_item_user_identify_tree, hf_dcm_info_user_identify_type, tvb, offset, 1, ENC_BIG_ENDIAN, &type);
     offset += 1;
 
     proto_tree_add_item(assoc_item_user_identify_tree, hf_dcm_info_user_identify_response_requested, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    primary_field_length = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(assoc_item_user_identify_tree, hf_dcm_info_user_identify_primary_field_length, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint16(assoc_item_user_identify_tree, hf_dcm_info_user_identify_primary_field_length, tvb, offset, 2, ENC_BIG_ENDIAN, &primary_field_length);
     offset += 2;
 
     proto_tree_add_item(assoc_item_user_identify_tree, hf_dcm_info_user_identify_primary_field, tvb, offset, primary_field_length, ENC_UTF_8);
@@ -1873,8 +1871,8 @@ dissect_dcm_assoc_user_identify(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     offset += primary_field_length;
 
     if (type == 2) {
-        secondary_field_length = tvb_get_ntohs(tvb, offset);
-        proto_tree_add_item(assoc_item_user_identify_tree, hf_dcm_info_user_identify_secondary_field_length, tvb, offset, 2, ENC_BIG_ENDIAN);
+        proto_tree_add_item_ret_uint16(assoc_item_user_identify_tree, hf_dcm_info_user_identify_secondary_field_length, tvb, offset, 2,
+                                       ENC_BIG_ENDIAN, &secondary_field_length);
         offset += 2;
 
         proto_tree_add_item(assoc_item_user_identify_tree, hf_dcm_info_user_identify_secondary_field, tvb, offset, secondary_field_length, ENC_UTF_8);
@@ -2706,7 +2704,7 @@ dissect_dcm_tag_value(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, dcm_s
             at_elm = tvb_get_uint16(tvb, offset+ i*vm_item_len+2, encoding);
 
             proto_tree_add_uint_format_value(tree, hf_dcm_tag_value_32u, tvb, offset + i*vm_item_len, vm_item_len,
-                (at_grp << 16) | at_elm, "%04x,%04x", at_grp, at_elm);
+                ((unsigned)at_grp << 16) | at_elm, "%04x,%04x", at_grp, at_elm);
 
             at_value = wmem_strdup_printf(pinfo->pool,"%s(%04x,%04x)", at_value, at_grp, at_elm);
 
@@ -3202,7 +3200,7 @@ dissect_dcm_tag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     */
 
     proto_tree_add_uint_format_value(tag_ptree, hf_dcm_tag, tvb, offset_tag, 4,
-        (grp << 16) | elm, "%04x,%04x (%s)", grp, elm, tag_def->description);
+        ((unsigned)grp << 16) | elm, "%04x,%04x (%s)", grp, elm, tag_def->description);
 
     /* Add VR to tag detail, except for sequence items */
     if (!is_item)  {
@@ -3994,12 +3992,10 @@ dissect_dcm_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, uint32_t of
     dcm_ptree = proto_item_add_subtree(dcm_pitem, ett_dcm);
 
     /* PDU type is only one byte, then one byte reserved */
-    pdu_type = tvb_get_uint8(tvb, offset);
-    proto_tree_add_item(dcm_ptree, hf_dcm_pdu_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(dcm_ptree, hf_dcm_pdu_type, tvb, offset, 1, ENC_BIG_ENDIAN, &pdu_type);
     offset += 2;
 
-    pdu_len = tvb_get_ntohl(tvb, offset);
-    proto_tree_add_item(dcm_ptree, hf_dcm_pdu_len, tvb, offset, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint(dcm_ptree, hf_dcm_pdu_len, tvb, offset, 4, ENC_BIG_ENDIAN, &pdu_len);
     offset += 4;
 
     /* Find previously detected association, else create a new one object*/

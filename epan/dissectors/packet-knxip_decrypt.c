@@ -10,7 +10,6 @@
  */
 
 #include "config.h"
-
 #define WS_LOG_DOMAIN "packet-knxip"
 
 #include <wsutil/file_util.h>
@@ -162,6 +161,7 @@ uint8_t* knx_ccm_encrypt(wmem_allocator_t* scope, uint8_t* p_result, const uint8
     // Encrypt ctr_0 for mac
     memcpy( ctr, ctr_0, KNX_KEY_LENGTH );
     if (!encrypt_block( key, ctr, mask_0 )) {
+      if (!p_result) wmem_free(scope, result);
       return NULL;
     }
 
@@ -179,6 +179,7 @@ uint8_t* knx_ccm_encrypt(wmem_allocator_t* scope, uint8_t* p_result, const uint8
       // Increment and encrypt ctr
       ++ctr[ KNX_KEY_LENGTH - 1 ];
       if (!encrypt_block( key, ctr, mask )) {
+        if (!p_result) wmem_free(scope, result);
         return NULL;
       }
 

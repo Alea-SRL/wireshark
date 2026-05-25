@@ -297,7 +297,7 @@ static expert_field ei_mongo_msg_checksum;
 static int
 dissect_fullcollectionname(tvbuff_t *tvb, unsigned offset, proto_tree *tree)
 {
-  int32_t fcn_length, dbn_length;
+  uint32_t fcn_length, dbn_length;
   proto_item *ti;
   proto_tree *fcn_tree;
 
@@ -305,7 +305,8 @@ dissect_fullcollectionname(tvbuff_t *tvb, unsigned offset, proto_tree *tree)
   ti = proto_tree_add_item(tree, hf_mongo_fullcollectionname, tvb, offset, fcn_length, ENC_ASCII);
 
   /* If this doesn't find anything, we'll just throw an exception below */
-  dbn_length = tvb_find_uint8(tvb, offset, fcn_length, '.') - offset;
+  tvb_find_uint8_length(tvb, offset, fcn_length, '.', &dbn_length);
+  dbn_length = dbn_length -offset;
 
   fcn_tree = proto_item_add_subtree(ti, ett_mongo_fcn);
 
@@ -521,7 +522,7 @@ dissect_mongo_reply(tvbuff_t *tvb, packet_info *pinfo, unsigned offset, proto_tr
 {
   proto_item *ti;
   proto_tree *flags_tree;
-  int i, number_returned;
+  uint32_t i, number_returned;
 
   ti = proto_tree_add_item(tree, hf_mongo_reply_flags, tvb, offset, 4, ENC_NA);
   flags_tree = proto_item_add_subtree(ti, ett_mongo_flags);
@@ -537,8 +538,7 @@ dissect_mongo_reply(tvbuff_t *tvb, packet_info *pinfo, unsigned offset, proto_tr
   proto_tree_add_item(tree, hf_mongo_starting_from, tvb, offset, 4, ENC_LITTLE_ENDIAN);
   offset += 4;
 
-  proto_tree_add_item(tree, hf_mongo_number_returned, tvb, offset, 4, ENC_LITTLE_ENDIAN);
-  number_returned = tvb_get_letohl(tvb, offset);
+  proto_tree_add_item_ret_uint(tree, hf_mongo_number_returned, tvb, offset, 4, ENC_LITTLE_ENDIAN, &number_returned);
   offset += 4;
 
   for (i=0; i < number_returned; i++)
@@ -905,7 +905,7 @@ dissect_mongo_op_msg(tvbuff_t *tvb, packet_info *pinfo, unsigned offset, proto_t
 
   offset += 4;
 
-  while (tvb_reported_length_remaining(tvb, offset) > (checksum_present ? 4 : 0)){
+  while (tvb_reported_length_remaining(tvb, offset) > (checksum_present ? 4U : 0U)){
     offset += dissect_op_msg_section(tvb, pinfo, offset, tree, command_name);
   }
 
@@ -1182,7 +1182,7 @@ proto_register_mongo(void)
     },
     { &hf_mongo_number_returned,
       { "Number Returned", "mongo.number_returned",
-      FT_INT32, BASE_DEC, NULL, 0x0,
+      FT_UINT32, BASE_DEC, NULL, 0x0,
       "Number of documents in the reply", HFILL }
     },
     { &hf_mongo_document,

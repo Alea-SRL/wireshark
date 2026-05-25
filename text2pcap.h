@@ -23,8 +23,25 @@ typedef enum {
     T_EOL
 } token_t;
 
+/**
+ * @brief Parses a token from a string.
+ *
+ * This function takes a token type and a string as input and processes the token accordingly.
+ *
+ * @param token The type of token to parse.
+ * @param str The string containing the token data.
+ * @return int 0 on success, -1 on failure.
+ */
 int parse_token(token_t token, char *str);
 
+/**
+ * @brief Scans for text2pcap utility functionality.
+ *
+ * This function is used to scan and identify the capabilities of the text2pcap utility,
+ * which converts an ASCII hexdump into a libpcap-format capture file.
+ *
+ * @return 0 on success, -1 on failure.
+ */
 int text2pcap_scan(void);
 
 #endif

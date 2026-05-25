@@ -7,10 +7,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __FRAME_DATA_H__
-#define __FRAME_DATA_H__
-
+#pragma once
 #include <ws_diag_control.h>
 #include <ws_symbol_export.h>
 #include <wsutil/nstime.h>
@@ -44,11 +41,6 @@ typedef enum {
   PACKET_CHAR_ENC_CHAR_EBCDIC    = 1  /* EBCDIC */
 } packet_char_enc;
 
-typedef struct _aggregation_key {
-  char*  field;
-  GSList* values;
-  int     values_num;
-} aggregation_key;
 
 /** The frame number is the ordinal number of the frame in the capture, so
    it's 1-origin.  In various contexts, 0 as a frame number means "frame
@@ -102,54 +94,135 @@ typedef struct _frame_data {
    * record that has_ts (or if somehow a record without a TS is a reference
    * time frame, the first frame after that with has_ts == true.) */
   uint32_t     prev_dis_num; /**< Previous displayed frame (0 if first one) */
-  GSList*      aggregation_keys; /**< Holds the aggregation_key values used for rendering the aggregation view. */
+  gchar*       aggregation_key; /**< Holds the aggregation_key values used for rendering the aggregation view. */
+  bool         aggregated; /**<  * True if this frame is not displayed individually because it is represented
+   * by another frame sharing the same aggregation_key. */
 } frame_data;
 DIAG_ON_PEDANTIC
 
-/** compare two frame_datas */
+/** @brief Compare two frame_data structs by a given field.
+ *  @param epan   The epan session context.
+ *  @param fdata1 The first frame_data to compare.
+ *  @param fdata2 The second frame_data to compare.
+ *  @param field  The field ID to compare on.
+ *  @return Negative if @p fdata1 < @p fdata2, 0 if equal, positive if
+ *          @p fdata1 > @p fdata2. */
 WS_DLL_PUBLIC int frame_data_compare(const struct epan_session *epan, const frame_data *fdata1, const frame_data *fdata2, int field);
 
-/** compare two frame_aggregation_field_datas */
-WS_DLL_PUBLIC int frame_data_aggregation_compare(const frame_data* fdata1, const frame_data* fdata2);
-
+/**
+ * @brief Reset a frame_data struct to its initial state without freeing it.
+ *
+ * @param fdata The frame_data to reset.
+ */
 WS_DLL_PUBLIC void frame_data_reset(frame_data *fdata);
 
+/**
+ * @brief Free all resources owned by a frame_data struct.
+ *
+ * @param fdata The frame_data to destroy.
+ */
 WS_DLL_PUBLIC void frame_data_destroy(frame_data *fdata);
 
-WS_DLL_PUBLIC void free_aggregation_key(void *key);
-
+/**
+ * @brief Free the aggregation data associated with a frame_data struct.
+ *
+ * @param fdata The frame_data whose aggregation data to free.
+ */
 WS_DLL_PUBLIC void frame_data_aggregation_free(frame_data *fdata);
 
+/**
+ * @brief Initialize a frame_data struct for a newly read frame.
+ *
+ * @param fdata     The frame_data to initialize.
+ * @param num       The frame number.
+ * @param rec       The wtap record for this frame.
+ * @param offset    The file offset of this frame.
+ * @param cum_bytes The cumulative byte count before this frame.
+ */
 WS_DLL_PUBLIC void frame_data_init(frame_data *fdata, uint32_t num,
                 const wtap_rec *rec, int64_t offset,
                 uint32_t cum_bytes);
 
+/**
+ * @brief Compute the time delta from the first frame to this frame.
+ *
+ * @param epan  The epan session context.
+ * @param fdata The frame_data for the current frame.
+ * @param delta Output pointer for the computed time delta.
+ * @return true if the delta was computed successfully, false otherwise.
+ */
 extern bool frame_rel_first_frame_time(const struct epan_session *epan,
                                        const frame_data *fdata,
                                        nstime_t *delta);
 
+/**
+ * @brief Compute the time delta from the capture start to this frame.
+ *
+ * @param epan  The epan session context.
+ * @param fdata The frame_data for the current frame.
+ * @param delta Output pointer for the computed time delta.
+ * @return true if the delta was computed successfully, false otherwise.
+ */
 extern bool frame_rel_time(const struct epan_session *epan,
                            const frame_data *fdata, nstime_t *delta);
 
+/**
+ * @brief Compute the time delta from the first displayed frame to this frame.
+ *
+ * @param epan  The epan session context.
+ * @param fdata The frame_data for the current frame.
+ * @param delta Output pointer for the computed time delta.
+ * @return true if the delta was computed successfully, false otherwise.
+ */
 extern bool frame_rel_start_time(const struct epan_session *epan,
                                  const frame_data *fdata, nstime_t *delta);
 
+/**
+ * @brief Compute the time delta from the previous captured frame to this frame.
+ *
+ * @param epan  The epan session context.
+ * @param fdata The frame_data for the current frame.
+ * @param delta Output pointer for the computed time delta.
+ * @return true if the delta was computed successfully, false otherwise.
+ */
 extern bool frame_delta_time_prev_captured(const struct epan_session *epan,
                                            const frame_data *fdata,
                                            nstime_t *delta);
 
+/**
+ * @brief Compute the time delta from the previous displayed frame to this frame.
+ *
+ * @param epan  The epan session context.
+ * @param fdata The frame_data for the current frame.
+ * @param delta Output pointer for the computed time delta.
+ * @return true if the delta was computed successfully, false otherwise.
+ */
 extern bool frame_delta_time_prev_displayed(const struct epan_session *epan,
                                             const frame_data *fdata,
                                             nstime_t *delta);
 
 /**
- * Sets the frame data struct values before dissection.
+ * @brief Set frame_data fields before dissection.
+ *
+ * @param fdata        The frame_data to update.
+ * @param elapsed_time The elapsed capture time; updated with this frame's
+ *                     timestamp.
+ * @param frame_ref    Pointer to the reference frame pointer; updated if
+ *                     this frame becomes the new reference.
+ * @param prev_dis     The most recently displayed frame, or NULL if none.
  */
 WS_DLL_PUBLIC void frame_data_set_before_dissect(frame_data *fdata,
                 nstime_t *elapsed_time,
                 const frame_data **frame_ref,
                 const frame_data *prev_dis);
 
+/**
+ * @brief Set frame_data fields after dissection.
+ *
+ * @param fdata     The frame_data to update.
+ * @param cum_bytes The running cumulative byte count; updated to include
+ *                  this frame.
+ */
 WS_DLL_PUBLIC void frame_data_set_after_dissect(frame_data *fdata,
                 uint32_t *cum_bytes);
 
@@ -158,8 +231,6 @@ WS_DLL_PUBLIC void frame_data_set_after_dissect(frame_data *fdata,
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif  /* __FRAME_DATA__ */
 
 /*
  * Editor modelines  -  https://www.wireshark.org/tools/modelines.html

@@ -55,14 +55,12 @@ ADD: Additional generic (non-checked) ICV length of 128, 192 and 256.
 
 */
 
-#define WS_LOG_DOMAIN "packet-ipsec"
-
 #include "config.h"
+#define WS_LOG_DOMAIN "packet-ipsec"
 #include <wireshark.h>
 
 #include <epan/packet.h>
 #include <epan/addr_resolv.h>
-#include <epan/ipproto.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/tap.h>
@@ -74,6 +72,7 @@ ADD: Additional generic (non-checked) ICV length of 128, 192 and 256.
 #include <wiretap/secrets-types.h>
 #include <stdio.h>    /* for sscanf() */
 #include <epan/uat-int.h>
+#include <epan/iana-info.h>
 #include <wsutil/str_util.h>
 #include <wsutil/wsgcrypt.h>
 #include <wsutil/pint.h>
@@ -2171,10 +2170,11 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
           esp_block_len = 1;
 
           /* Allocate buffer for decrypted data  */
+          if (esp_encr_data_len < esp_icv_len) {
+            return esp_packet_len;
+          }
           esp_decr_data_len = esp_encr_data_len - esp_icv_len;
-          esp_decr_data = (uint8_t *)wmem_alloc(pinfo->pool, esp_decr_data_len);
-
-          tvb_memcpy(tvb, esp_decr_data, ESP_HEADER_LEN, esp_decr_data_len);
+          esp_decr_data = tvb_memdup(pinfo->pool, tvb, ESP_HEADER_LEN, esp_decr_data_len);
 
           decrypt_ok = true;
 
@@ -2255,10 +2255,8 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
           /*
            * Allocate buffer for decrypted data.
            */
-          esp_decr_data = (unsigned char*)wmem_alloc(pinfo->pool, esp_encr_data_len);
           esp_decr_data_len = esp_encr_data_len;
-
-          tvb_memcpy(tvb, esp_decr_data, ESP_HEADER_LEN,  esp_encr_data_len);
+          esp_decr_data = tvb_memdup(pinfo->pool, tvb, ESP_HEADER_LEN, esp_decr_data_len);
 
           /* (Lazily) create the cipher_hd */
           if (!(*cipher_hd_created)) {
@@ -2681,7 +2679,7 @@ esp_export_secret_count(void)
 }
 
 static bool
-esp_export_dsb(capture_file *cf)
+esp_export_dsb(wtap* wth)
 {
   wtap_block_t block;
   wtapng_dsb_mandatory_t *dsb;
@@ -2700,8 +2698,7 @@ esp_export_dsb(capture_file *cf)
   dsb->secrets_data = (uint8_t*)wmem_strbuf_finalize(secrets);
   dsb->secrets_len = (uint32_t)strlen((char*)dsb->secrets_data);
 
-  wtap_file_add_decryption_secrets(cf->provider.wth, block);
-  cf->unsaved_changes = TRUE;
+  wtap_file_add_decryption_secrets(wth, block);
   return true;
 }
 

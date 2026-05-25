@@ -7,10 +7,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __TIMESTAMP_H__
-#define __TIMESTAMP_H__
-
+#pragma once
 #include "ws_symbol_export.h"
 
 #include <wsutil/nstime.h>
@@ -73,17 +70,48 @@ typedef enum {
 	TS_SECONDS_NOT_SET
 } ts_seconds_type;
 
+/**
+ * @brief Get the current timestamp type.
+ *
+ * @return ts_type The current timestamp type.
+ */
 WS_DLL_PUBLIC ts_type timestamp_get_type(void);
-WS_DLL_PUBLIC void timestamp_set_type(ts_type);
 
+/**
+ * @brief Set the timestamp type.
+ *
+ * @param ts_t The timestamp type to set.
+ */
+WS_DLL_PUBLIC void timestamp_set_type(ts_type ts_t);
+
+/**
+ * @brief Get the current timestamp precision.
+ *
+ * @return The current timestamp precision.
+ */
 WS_DLL_PUBLIC int timestamp_get_precision(void);
+
+/**
+ * @brief Set the timestamp precision.
+ *
+ * @param tsp The timestamp precision to set.
+ */
 WS_DLL_PUBLIC void timestamp_set_precision(int tsp);
 
+/**
+ * @brief Get the current timestamp seconds type.
+ *
+ * @return ts_seconds_type The current timestamp seconds type.
+ */
 WS_DLL_PUBLIC ts_seconds_type timestamp_get_seconds_type(void);
-WS_DLL_PUBLIC void timestamp_set_seconds_type(ts_seconds_type);
+
+/**
+ * @brief Set the timestamp seconds type.
+ *
+ * @param ts_t The timestamp seconds type to set.
+ */
+WS_DLL_PUBLIC void timestamp_set_seconds_type(ts_seconds_type ts_t);
 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* timestamp.h */

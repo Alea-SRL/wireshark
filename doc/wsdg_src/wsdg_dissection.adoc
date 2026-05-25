@@ -33,8 +33,9 @@ the finished code may make more sense as a built-in dissector.
 [NOTE]
 .Read README.dissector
 ====
-The file _doc/README.dissector_ contains detailed information about writing
-a dissector. In many cases it is more up to date than this document.
+The file wsrepofile:doc/README.dissector[] contains
+detailed information about writing a dissector. In many cases it is more up to
+date than this document.
 ====
 
 [#ChDissectAdd]
@@ -679,7 +680,7 @@ dissect_foo(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 
     proto_item *ti = proto_tree_add_item(tree, proto_foo, tvb, 0, -1, ENC_NA);
     proto_item_append_text(ti, ", Type %s",
-        val_to_str(packet_type, packettypenames, "Unknown (0x%02x)"));
+        val_to_str(pinfo->pool, packet_type, packettypenames, "Unknown (0x%02x)"));
     proto_tree *foo_tree = proto_item_add_subtree(ti, ett_foo);
     proto_tree_add_item(foo_tree, hf_foo_pdu_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
@@ -908,7 +909,7 @@ arrived and then start the dissection.
 
 The following sections will guide you through two common cases. For a
 description of all possible functions, structures and parameters, see
-_epan/reassemble.h_.
+wsrepofile:epan/reassemble.h[].
 
 [#ChDissectReassembleUdp]
 
@@ -1037,12 +1038,12 @@ Now the mysterious data we passed into the `fragment_add_seq_check()`.
 .Reassembling fragments - Initialisation
 [source,c]
 ----
-static reassembly_table reassembly_table;
+static reassembly_table msg_reassembly_table;
 
 static void
 proto_register_msg(void)
 {
-    reassembly_table_register(&msg_reassemble_table,
+    reassembly_table_register(&msg_reassembly_table,
         &addresses_ports_reassembly_table_functions);
 }
 ----
@@ -1168,7 +1169,7 @@ so that a message can start at an arbitrary position within a packet.
 
 This sounds complicated, but there is a simple solution.
 `tcp_dissect_pdus()` does all this tcp packet reassembling for you.
-This function is implemented in _epan/dissectors/packet-tcp.h_.
+This function is implemented in wsrepofile:epan/dissectors/packet-tcp.h[].
 
 .Reassembling TCP fragments
 [source,c]
@@ -1520,8 +1521,8 @@ their arguments, return types, and what they do.
 
 === How to use conversations
 
-Some info about how to use conversations in a dissector can be found in the file
-_doc/README.dissector_, chapter 2.2.
+Some info about how to use conversations in a dissector can be found in the
+file wsrepofile:doc/README.dissector[], chapter 2.2.
 
 [#ChDissectIdl2wrs]
 
@@ -1546,10 +1547,10 @@ It consists of 4 main files.
 README.idl2wrs::
 This document
 
-wireshark_be.py::
+idl2wrs_be.py::
 The main compiler backend
 
-wireshark_gen.py::
+idl2wrs_gen.py::
 A helper class, that generates the C code.
 
 idl2wrs::
@@ -1614,13 +1615,13 @@ If you don't want to use the shell script wrapper, then try steps 3 or 4 instead
 +
 --
 ----
-$ omniidl  -p ./ -b wireshark_be <your file.idl>
+$ omniidl  -p ./ -b idl2wrs_be <your file.idl>
 ----
 
 e.g.:
 
 ----
-$ omniidl  -p ./ -b wireshark_be echo.idl
+$ omniidl  -p ./ -b idl2wrs_be echo.idl
 ----
 --
 
@@ -1628,7 +1629,7 @@ $ omniidl  -p ./ -b wireshark_be echo.idl
 +
 --
 ----
-$ omniidl  -p ./ -b wireshark_be echo.idl > packet-test-idl.c
+$ omniidl  -p ./ -b idl2wrs_be echo.idl > packet-test-idl.c
 ----
 
 You may wish to comment out the register_giop_user_module() code and that will
@@ -1709,8 +1710,8 @@ See the TODO list inside _packet-giop.c_
 
 ==== Notes
 
-The `-p ./` option passed to omniidl indicates that the wireshark_be.py and
-wireshark_gen.py are residing in the current directory. This may need tweaking
+The `-p ./` option passed to omniidl indicates that the idl2wrs_be.py and
+idl2wrs_gen.py are residing in the current directory. This may need tweaking
 if you place these files somewhere else.
 
 If it complains about being unable to find some modules (e.g. tempfile.py), you

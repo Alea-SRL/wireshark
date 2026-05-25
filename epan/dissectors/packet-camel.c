@@ -50,9 +50,8 @@
 #include "packet-inap.h"
 #include "packet-tcap.h"
 
-#define PNAME  "Camel"
-#define PSNAME "CAMEL"
-#define PFNAME "camel"
+void proto_reg_handoff_camel(void);
+void proto_register_camel(void);
 
 /* Initialize the protocol and registered fields */
 static int proto_camel;
@@ -848,8 +847,8 @@ static dissector_handle_t  camel_v4_handle;
 
 static uint8_t PDPTypeOrganization;
 static uint8_t PDPTypeNumber;
-const char *camel_obj_id;
-bool is_ExtensionField;
+static const char *camel_obj_id;
+static bool is_ExtensionField;
 
 /* Global hash tables*/
 static wmem_map_t *srt_calls;
@@ -1349,6 +1348,21 @@ dissect_RP_cause_ie(tvbuff_t *tvb, uint32_t offset, _U_ unsigned len,
 }
 
 static unsigned dissect_camel_InitialDPArgExtensionV2(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/*--- Cyclic dependencies ---*/
+
+/* ExtensionField/value -> ExtensionField/value */
+static unsigned dissect_camel_T_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* Invoke/argument -> Invoke/argument */
+static unsigned dissect_camel_T_argument(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ReturnResult/result/result -> ReturnResult/result/result */
+static unsigned dissect_camel_ResultArgument(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ReturnError/parameter -> ReturnError/parameter */
+static unsigned dissect_camel_T_parameter(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
 
 
 
@@ -2375,6 +2389,8 @@ dissect_camel_Code(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_
 
 static unsigned
 dissect_camel_T_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ExtensionField/value -> ExtensionField/value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   /*XXX handle local form here */
   if(camel_obj_id){
     offset=call_ber_oid_callback(camel_obj_id, tvb, offset, actx->pinfo, tree, NULL);
@@ -2382,6 +2398,7 @@ dissect_camel_T_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset 
   is_ExtensionField = false;
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -6615,9 +6632,12 @@ dissect_camel_T_linkedId(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offs
 
 static unsigned
 dissect_camel_T_argument(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // Invoke/argument -> Invoke/argument
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	offset = dissect_invokeData(tree, tvb, offset, actx);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -6644,9 +6664,12 @@ dissect_camel_Invoke(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _
 
 static unsigned
 dissect_camel_ResultArgument(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ReturnResult/result/result -> ReturnResult/result/result
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	offset = dissect_returnResultData(tree, tvb, offset, actx);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -6686,10 +6709,13 @@ dissect_camel_ReturnResult(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned of
 
 static unsigned
 dissect_camel_T_parameter(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ReturnError/parameter -> ReturnError/parameter
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	offset = dissect_returnErrorData(tree, tvb, offset, actx);
 
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -7403,8 +7429,8 @@ static unsigned dissect_invokeData(proto_tree *tree, tvbuff_t *tvb, unsigned off
       offset= dissect_ResetTimerSMSArg_PDU(tvb, actx->pinfo , tree , NULL);
       break;
     default:
-      proto_tree_add_expert_format(tree, actx->pinfo, &ei_camel_unknown_invokeData,
-                                   tvb, offset, -1, "Unknown invokeData %d", opcode);
+      proto_tree_add_expert_format_remaining(tree, actx->pinfo, &ei_camel_unknown_invokeData,
+                                   tvb, offset, "Unknown invokeData %d", opcode);
       /* todo call the asn.1 dissector */
       break;
   }
@@ -7422,8 +7448,8 @@ static unsigned dissect_returnResultData(proto_tree *tree, tvbuff_t *tvb, unsign
 	  offset= dissect_InitiateCallAttemptRes_PDU(tvb, actx->pinfo , tree , NULL);
       break;
   default:
-    proto_tree_add_expert_format(tree, actx->pinfo, &ei_camel_unknown_returnResultData,
-	                             tvb, offset, -1, "Unknown returnResultData %d",opcode);
+    proto_tree_add_expert_format_remaining(tree, actx->pinfo, &ei_camel_unknown_returnResultData,
+	                             tvb, offset, "Unknown returnResultData %d",opcode);
   }
   return offset;
 }
@@ -7445,8 +7471,8 @@ static unsigned dissect_returnErrorData(proto_tree *tree, tvbuff_t *tvb, unsigne
       dissect_PAR_taskRefused_PDU(tvb, actx->pinfo , tree , NULL);
       break;
   default:
-    proto_tree_add_expert_format(tree, actx->pinfo, &ei_camel_unknown_returnErrorData,
-                                 tvb, offset, -1, "Unknown returnErrorData %d",errorCode);
+    proto_tree_add_expert_format_remaining(tree, actx->pinfo, &ei_camel_unknown_returnErrorData,
+                                 tvb, offset, "Unknown returnErrorData %d",errorCode);
   }
   return offset;
 }
@@ -10668,7 +10694,7 @@ void proto_register_camel(void) {
   static stat_tap_table_ui camel_stat_table = {
     REGISTER_TELEPHONY_GROUP_GSM,
     "CAMEL Messages and Response Status",
-    PSNAME,
+    "CAMEL",
     "camel,counter",
     camel_stat_init,
     camel_stat_packet,
@@ -10682,7 +10708,7 @@ void proto_register_camel(void) {
   };
 
   /* Register protocol */
-  proto_camel = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_camel = proto_register_protocol("Camel", "CAMEL", "camel");
 
   camel_handle = register_dissector("camel", dissect_camel, proto_camel);
   camel_v1_handle = register_dissector("camel-v1", dissect_camel_v1, proto_camel);
@@ -10734,9 +10760,9 @@ void proto_register_camel(void) {
   /* create new hash-table for SRT */
   srt_calls = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), camelsrt_call_hash, camelsrt_call_equal);
 
-  camel_tap=register_tap(PSNAME);
+  camel_tap=register_tap("CAMEL");
 
-  register_srt_table(proto_camel, PSNAME, 1, camelstat_packet, camelstat_init, NULL);
+  register_srt_table(proto_camel, "CAMEL", 1, camelstat_packet, camelstat_init, NULL);
   register_stat_tap_table_ui(&camel_stat_table);
 
   register_external_value_string("camelSRTtype_naming", camelSRTtype_naming);

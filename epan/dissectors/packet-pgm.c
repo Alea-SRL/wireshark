@@ -14,14 +14,14 @@
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/afn.h>
-#include <epan/ipproto.h>
 #include <epan/in_cksum.h>
 #include <epan/prefs.h>
 #include <epan/ptvcursor.h>
 #include <epan/expert.h>
 #include <epan/tfs.h>
+#include <epan/iana-info.h>
 #include <wsutil/array.h>
+
 /*
  * RFC 3208
  *
@@ -582,11 +582,11 @@ dissect_pgmopts(ptvcursor_t* cursor, packet_info *pinfo, const char *pktname)
 
 			switch (optdata_afi) {
 
-			case AFNUM_INET:
+			case AFNUM_IP:
 				ptvcursor_add(cursor, hf_pgm_opt_ccdata_acker, 4, ENC_BIG_ENDIAN);
 				break;
 
-			case AFNUM_INET6:
+			case AFNUM_IP6:
 				ptvcursor_add(cursor, hf_pgm_opt_ccdata_acker6, 16, ENC_NA);
 				break;
 
@@ -623,11 +623,11 @@ dissect_pgmopts(ptvcursor_t* cursor, packet_info *pinfo, const char *pktname)
 
 			switch (optdata_afi) {
 
-			case AFNUM_INET:
+			case AFNUM_IP:
 				ptvcursor_add(cursor, hf_pgm_opt_ccfeedbk_acker, 4, ENC_BIG_ENDIAN);
 				break;
 
-			case AFNUM_INET6:
+			case AFNUM_IP6:
 				ptvcursor_add(cursor, hf_pgm_opt_ccfeedbk_acker6, 16, ENC_NA);
 				break;
 
@@ -707,11 +707,11 @@ dissect_pgmopts(ptvcursor_t* cursor, packet_info *pinfo, const char *pktname)
 
 			switch (optdata_afi) {
 
-			case AFNUM_INET:
+			case AFNUM_IP:
 				ptvcursor_add(cursor, hf_pgm_opt_redirect_dlr, 4, ENC_BIG_ENDIAN);
 				break;
 
-			case AFNUM_INET6:
+			case AFNUM_IP6:
 				ptvcursor_add(cursor, hf_pgm_opt_redirect_dlr6, 16, ENC_NA);
 				break;
 
@@ -922,11 +922,11 @@ dissect_pgm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 		ptvcursor_add(cursor, hf_pgm_spm_res, 2, ENC_BIG_ENDIAN);
 
 		switch (afi) {
-		case AFNUM_INET:
+		case AFNUM_IP:
 			ptvcursor_add(cursor, hf_pgm_spm_path, 4, ENC_BIG_ENDIAN);
 			break;
 
-		case AFNUM_INET6:
+		case AFNUM_IP6:
 			ptvcursor_add(cursor, hf_pgm_spm_path6, 16, ENC_NA);
 			break;
 
@@ -961,11 +961,11 @@ dissect_pgm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 		ptvcursor_add(cursor, hf_pgm_nak_srcres, 2, ENC_BIG_ENDIAN);
 
 		switch (afi) {
-		case AFNUM_INET:
+		case AFNUM_IP:
 			ptvcursor_add(cursor, hf_pgm_nak_src, 4, ENC_BIG_ENDIAN);
 			break;
 
-		case AFNUM_INET6:
+		case AFNUM_IP6:
 			ptvcursor_add(cursor, hf_pgm_nak_src6, 16, ENC_NA);
 			break;
 
@@ -979,11 +979,11 @@ dissect_pgm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 		ptvcursor_add(cursor, hf_pgm_nak_grpres, 2, ENC_BIG_ENDIAN);
 
 		switch (afi) {
-		case AFNUM_INET:
+		case AFNUM_IP:
 			ptvcursor_add(cursor, hf_pgm_nak_grp, 4, ENC_BIG_ENDIAN);
 			break;
 
-		case AFNUM_INET6:
+		case AFNUM_IP6:
 			ptvcursor_add(cursor, hf_pgm_nak_grp6, 16, ENC_NA);
 			break;
 
@@ -1011,11 +1011,11 @@ dissect_pgm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 		ptvcursor_add(cursor, hf_pgm_poll_res, 2, ENC_BIG_ENDIAN);
 
 		switch (afi) {
-		case AFNUM_INET:
+		case AFNUM_IP:
 			ptvcursor_add(cursor, hf_pgm_poll_path, 4, ENC_BIG_ENDIAN);
 			break;
 
-		case AFNUM_INET6:
+		case AFNUM_IP6:
 			ptvcursor_add(cursor, hf_pgm_poll_path6, 16, ENC_NA);
 			break;
 

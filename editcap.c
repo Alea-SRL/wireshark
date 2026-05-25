@@ -15,7 +15,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#include <config.h>
+#include "config.h"
 #define WS_LOG_DOMAIN  LOG_DOMAIN_MAIN
 
 #include <stdio.h>
@@ -35,6 +35,7 @@
 
 #include <ws_exit_codes.h>
 #include <wsutil/ws_getopt.h>
+#include <wsutil/nstime.h>
 
 #include <wiretap/secrets-types.h>
 #include <wiretap/wtap.h>
@@ -50,7 +51,7 @@
 #include <wsutil/clopts_common.h>
 #include <wsutil/cmdarg_err.h>
 #include <wsutil/filesystem.h>
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>
 #include <wsutil/file_util.h>
 #include <wsutil/file_compressed.h>
 #include <wsutil/plugins.h>
@@ -74,8 +75,6 @@
 #define CANT_EXTRACT_PREFIX 2
 #define WRITE_ERROR         2
 #define DUMP_ERROR          2
-
-#define NANOSECS_PER_SEC 1000000000
 
 /*
  * Some globals so we can pass things to various routines
@@ -135,11 +134,11 @@ typedef struct _chop_t {
 
 
 /* Table of user comments */
-GTree *frames_user_comments;
-GPtrArray *capture_comments;
+static GTree *frames_user_comments;
+static GPtrArray *capture_comments;
 
 /* Table of replacement timestamps */
-GTree *frames_replace_timestamp;
+static GTree *frames_replace_timestamp;
 
 #define MAX_SELECTIONS 512
 static struct select_item     selectfrm[MAX_SELECTIONS];
@@ -193,15 +192,7 @@ abs_time_to_str_with_sec_resolution(const nstime_t *abs_time)
 
     tmp = localtime(&abs_time->secs);
 
-    if (tmp) {
-        snprintf(buf, 16, "%d%02d%02d%02d%02d%02d",
-            tmp->tm_year + 1900,
-            tmp->tm_mon+1,
-            tmp->tm_mday,
-            tmp->tm_hour,
-            tmp->tm_min,
-            tmp->tm_sec);
-    } else {
+    if (!(tmp && strftime(buf, 16, "%Y%m%d%H%M%S", tmp))) {
         buf[0] = '\0';
     }
 
@@ -596,15 +587,24 @@ struct sll2_header {
 #define VLAN_SIZE 4
 static void
 sll_remove_vlan_info(uint8_t* fd, uint32_t* len) {
-    if (pntohu16(fd + offsetof(struct sll_header, sll_protocol)) == ETHERTYPE_VLAN) {
-        int rest_len;
-        /* point to start of vlan */
-        fd = fd + offsetof(struct sll_header, sll_protocol);
+    unsigned rest_len;
+    if (ckd_sub(&rest_len, *len, offsetof(struct sll_header, sll_protocol))) {
+        /* This shouldn't happen. */
+        return;
+    }
+    /* point to protocol header */
+    fd = fd + offsetof(struct sll_header, sll_protocol);
+    if (pntohu16(fd) == ETHERTYPE_VLAN) {
         /* bytes to read after vlan info */
-        rest_len = *len - (offsetof(struct sll_header, sll_protocol) + VLAN_SIZE);
-        /* remove vlan info from packet */
-        memmove(fd, fd + VLAN_SIZE, rest_len);
-        *len -= 4;
+        if (rest_len <= VLAN_SIZE) {
+            /* There's no data past the VLAN tag, if the whole tag is present. */
+            *len -= rest_len;
+        } else {
+            /* remove vlan info from packet */
+            rest_len -= VLAN_SIZE;
+            memmove(fd, fd + VLAN_SIZE, rest_len);
+            *len -= 4;
+        }
     }
 }
 
@@ -1495,7 +1495,7 @@ main(int argc, char *argv[])
     }
 
     /* Initialize the version information. */
-    ws_init_version_info("Editcap", NULL, get_ws_vcs_version_info, NULL, NULL);
+    ws_init_version_info("Editcap", NULL, application_get_vcs_version_info, NULL, NULL);
 
     init_report_failure_message("editcap");
 
@@ -1815,7 +1815,7 @@ main(int argc, char *argv[])
             double spb_int, spb_frac;
             spb_frac = modf(spb, &spb_int);
             secs_per_block.secs = (time_t) spb_int;
-            secs_per_block.nsecs = (int) (NANOSECS_PER_SEC * spb_frac);
+            secs_per_block.nsecs = (int) (WS_NSECS_PER_SEC * spb_frac);
         }
             break;
 
@@ -2498,6 +2498,7 @@ main(int argc, char *argv[])
                 }
 
                 /* remove vlan info */
+                /* XXX - Should this adjust reported length if adjlen is set? */
                 if (rem_vlan) {
                     remove_vlan_info(&read_rec);
                 }
@@ -2648,7 +2649,6 @@ main(int argc, char *argv[])
         count++;
         wtap_rec_reset(&read_rec);
     }
-    wtap_rec_cleanup(&read_rec);
 
     if (verbose)
         fprintf(stderr, "Total selected: %" PRIu64 "\n", written_count);
@@ -2741,7 +2741,7 @@ clean_exit:
     wtap_dump_params_cleanup(&params);
     if (wth != NULL)
         wtap_close(wth);
-    wtap_rec_reset(&read_rec);
+    wtap_rec_cleanup(&read_rec);
     wtap_cleanup();
     free_progdirs();
     if (capture_comments != NULL) {

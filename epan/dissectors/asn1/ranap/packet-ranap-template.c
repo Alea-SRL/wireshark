@@ -32,16 +32,7 @@
 #include "packet-s1ap.h"
 #include "packet-rtp.h"
 
-#ifdef _MSC_VER
-/* disable: "warning C4146: unary minus operator applied to unsigned type, result still unsigned" */
-#pragma warning(disable:4146)
-#endif
-
 #define SCCP_SSN_RANAP 142
-
-#define PNAME  "Radio Access Network Application Part"
-#define PSNAME "RANAP"
-#define PFNAME "ranap"
 
 /* Highest Ranap_ProcedureCode_value, use in heuristics */
 #define RANAP_MAX_PC  49 /* id_RerouteNASRequest =  49 */
@@ -164,7 +155,7 @@ static dissector_handle_t ranap_handle;
 #define SOUT (2U<<16)
 #define SPECIAL (4U<<16)
 
-int pdu_type; /* 0 means wildcard */
+static int pdu_type; /* 0 means wildcard */
 
 /* Dissector tables */
 static dissector_table_t ranap_ies_dissector_table;
@@ -418,7 +409,7 @@ void proto_register_ranap(void) {
 
 
   /* Register protocol */
-  proto_ranap = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_ranap = proto_register_protocol("Radio Access Network Application Part", "RANAP", "ranap");
   /* Register fields and subtrees */
   proto_register_field_array(proto_ranap, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));

@@ -12,7 +12,6 @@
 #include "config.h"
 
 #include <stdbool.h>
-#include <stdio.h>
 #include <epan/packet.h>
 #include <epan/tfs.h>
 #include <wsutil/array.h>
@@ -1547,19 +1546,22 @@ void proto_reg_handoff_rf4ce_profile(void)
 static int dissect_rf4ce_profile_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     unsigned offset = 0;
+    char *profile_str = (char*)data;
+    if (!profile_str)
+        return 0;
+
     proto_item *ti = proto_tree_add_item(tree, proto_rf4ce_profile, tvb, 0, -1, ENC_LITTLE_ENDIAN);
     proto_tree *rf4ce_profile_tree = proto_item_add_subtree(ti, ett_rf4ce_profile);
 
     uint8_t fcf = tvb_get_uint8(tvb, offset);
     uint8_t cmd_id = fcf & RF4CE_PROFILE_FCF_CMD_ID_MASK;
     bool is_cmd_frame = fcf & RF4CE_PROFILE_FCF_CMD_FRAME_MASK;
-    bool is_gdp = !strncmp("GDP", (char *)data, 3);
-    bool is_zrc20 = !strncmp("ZRC 2.0", (char *)data, 7);
-    bool is_zrc10 = !strncmp("ZRC 1.0", (char *)data, 7);
-
-    char protocol_str[14] = {0};
+    bool is_gdp = !strncmp("GDP", profile_str, 3);
+    bool is_zrc20 = !strncmp("ZRC 2.0", profile_str, 7);
+    bool is_zrc10 = !strncmp("ZRC 1.0", profile_str, 7);
 
     /* Clear the info column */
+    col_add_fstr(pinfo->cinfo, COL_PROTOCOL, "RF4CE %s", profile_str);
     col_clear(pinfo->cinfo, COL_INFO);
 
     if (is_gdp || (is_zrc20 && is_cmd_frame))
@@ -1599,17 +1601,14 @@ static int dissect_rf4ce_profile_common(tvbuff_t *tvb, packet_info *pinfo, proto
         cmd_id = fcf & RF4CE_ZRC10_FCF_CMD_ID_MASK;
     }
 
-    snprintf(protocol_str, sizeof(protocol_str), "%s %s", "RF4CE", (char *)data);
-    col_add_str(pinfo->cinfo, COL_PROTOCOL, protocol_str);
-
     if (is_gdp || is_zrc20 || is_zrc10)
     {
-        dissect_rf4ce_profile_cmd(tvb, pinfo, rf4ce_profile_tree, &offset, cmd_id, (char *)data, is_cmd_frame);
+        dissect_rf4ce_profile_cmd(tvb, pinfo, rf4ce_profile_tree, &offset, cmd_id, profile_str, is_cmd_frame);
     }
 
-    if (offset < tvb_captured_length(tvb))
+    unsigned unparsed_length = tvb_reported_length_remaining(tvb, offset);
+    if (unparsed_length)
     {
-        unsigned unparsed_length = tvb_captured_length(tvb) - offset;
         proto_tree_add_item(rf4ce_profile_tree, hf_rf4ce_profile_unparsed_payload, tvb, offset, unparsed_length, ENC_NA);
         offset += unparsed_length;
     }
@@ -1623,7 +1622,7 @@ static void dissect_rf4ce_profile_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_t
     bool is_zrc10 = !strncmp("ZRC 1.0", profile_str, 7);
     bool is_zrc20 = !strncmp("ZRC 2.0", profile_str, 7);
 
-    profile_cmd_tree = proto_tree_add_subtree(tree, tvb, *offset, tvb_captured_length(tvb) - *offset, ett_rf4ce_profile_cmd_frame, NULL, "Profile Command Frame");
+    profile_cmd_tree = proto_tree_add_subtree(tree, tvb, *offset, tvb_captured_length_remaining(tvb, *offset), ett_rf4ce_profile_cmd_frame, NULL, "Profile Command Frame");
 
     if (is_cmd_frame)
     {
@@ -1747,17 +1746,14 @@ static bool dissect_rf4ce_profile_gdp_attrs(tvbuff_t *tvb, proto_tree *tree, uns
             &hf_rf4ce_profile_gdp_poll_constraints_polling_rec_polling_trig_cap_reserved,
             NULL};
 
-        proto_tree_add_item(tree, hf_rf4ce_profile_gdp_poll_constraints_methods_num, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
-        methods_num = tvb_get_uint8(tvb, *offset);
+        proto_tree_add_item_ret_uint8(tree, hf_rf4ce_profile_gdp_poll_constraints_methods_num, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &methods_num);
         *offset += 1;
 
         for (methods_index = 1; methods_index <= methods_num; methods_index++)
         {
-            char subtree_name[40];
             proto_tree *record_subtree;
 
-            snprintf(subtree_name, sizeof(subtree_name), "Polling Constraint Record %d:", methods_index);
-            record_subtree = proto_tree_add_subtree(tree, tvb, *offset, tvb_captured_length(tvb) - *offset, ett_rf4ce_profile_gdp_poll_constraints_polling_rec, NULL, subtree_name);
+            record_subtree = proto_tree_add_subtree_format(tree, tvb, *offset, tvb_captured_length_remaining(tvb, *offset), ett_rf4ce_profile_gdp_poll_constraints_polling_rec, NULL, "Polling Constraint Record %d:", methods_index);
 
             proto_tree_add_item(record_subtree, hf_rf4ce_profile_gdp_poll_constraints_polling_rec_method_id, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
             *offset += 1;
@@ -1830,13 +1826,11 @@ static bool dissect_rf4ce_profile_zrc20_attrs(tvbuff_t *tvb, proto_tree *tree, u
     if (attr_id == RF4CE_ZRC20_ATTR_MAPPABLE_ACTIONS)
     {
         proto_tree *entry_subtree;
-        char entry_subtree_name[11];
         unsigned entries_num = attr_length / 3;
 
         for (unsigned i = 1; i <= entries_num; i++)
         {
-            snprintf(entry_subtree_name, sizeof(entry_subtree_name), "Entry %d:", i);
-            entry_subtree = proto_tree_add_subtree(tree, tvb, *offset, tvb_captured_length(tvb) - *offset, ett_rf4ce_profile_zrc20_mappable_actions_entry, NULL, entry_subtree_name);
+            entry_subtree = proto_tree_add_subtree_format(tree, tvb, *offset, tvb_captured_length_remaining(tvb, *offset), ett_rf4ce_profile_zrc20_mappable_actions_entry, NULL, "Entry %d:", i);
 
             proto_tree_add_item(entry_subtree, hf_rf4ce_profile_zrc20_mappable_actions_action_dev_type, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
             *offset += 1;
@@ -1869,7 +1863,7 @@ static bool dissect_rf4ce_profile_zrc20_attrs(tvbuff_t *tvb, proto_tree *tree, u
 
         if (rf_specified && !use_default)
         {
-            proto_tree *rf_desc_subtree = proto_tree_add_subtree(tree, tvb, *offset, tvb_captured_length(tvb) - *offset, ett_rf4ce_profile_zrc20_action_mappings_rf_descr, NULL, "RF Descriptor");
+            proto_tree *rf_desc_subtree = proto_tree_add_subtree(tree, tvb, *offset, tvb_captured_length_remaining(tvb, *offset), ett_rf4ce_profile_zrc20_action_mappings_rf_descr, NULL, "RF Descriptor");
             uint8_t action_data_len;
 
             static int *const rf_conf_bits[] = {
@@ -1897,8 +1891,7 @@ static bool dissect_rf4ce_profile_zrc20_attrs(tvbuff_t *tvb, proto_tree *tree, u
             proto_tree_add_bitmask(rf_desc_subtree, tvb, *offset, hf_rf4ce_profile_zrc20_action_mappings_rf_descr_tx_opts, ett_rf4ce_profile_zrc20_action_mappings_rf_descr_tx_opts, tx_opts_bits, ENC_LITTLE_ENDIAN);
             *offset += 1;
 
-            proto_tree_add_item(rf_desc_subtree, hf_rf4ce_profile_zrc20_action_mappings_rf_descr_action_data_len, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
-            action_data_len = tvb_get_uint8(tvb, *offset);
+            proto_tree_add_item_ret_uint8(rf_desc_subtree, hf_rf4ce_profile_zrc20_action_mappings_rf_descr_action_data_len, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &action_data_len);
             *offset += 1;
 
             if (action_data_len > 0)
@@ -1909,7 +1902,7 @@ static bool dissect_rf4ce_profile_zrc20_attrs(tvbuff_t *tvb, proto_tree *tree, u
 
         if (ir_specified && !use_default)
         {
-            proto_tree *ir_desc_subtree = proto_tree_add_subtree(tree, tvb, *offset, tvb_captured_length(tvb) - *offset, ett_rf4ce_profile_zrc20_action_mappings_ir_descr, NULL, "IR Descriptor");
+            proto_tree *ir_desc_subtree = proto_tree_add_subtree(tree, tvb, *offset, tvb_captured_length_remaining(tvb, *offset), ett_rf4ce_profile_zrc20_action_mappings_ir_descr, NULL, "IR Descriptor");
             uint8_t ir_config;
             bool vendor_specific;
             uint8_t ir_code_len;
@@ -1930,8 +1923,7 @@ static bool dissect_rf4ce_profile_zrc20_attrs(tvbuff_t *tvb, proto_tree *tree, u
                 *offset += 2;
             }
 
-            proto_tree_add_item(ir_desc_subtree, hf_rf4ce_profile_zrc20_action_mappings_ir_descr_ir_code_len, tvb, *offset, 1, ENC_NA);
-            ir_code_len = tvb_get_uint8(tvb, *offset);
+            proto_tree_add_item_ret_uint8(ir_desc_subtree, hf_rf4ce_profile_zrc20_action_mappings_ir_descr_ir_code_len, tvb, *offset, 1, ENC_NA, &ir_code_len);
             *offset += 1;
 
             if (ir_code_len > 0)
@@ -1965,18 +1957,14 @@ static void dissect_rf4ce_profile_attrs(tvbuff_t *tvb, proto_tree *tree, unsigne
     uint8_t attr_id = 0xff;
     uint8_t attr_status = RF4CE_PROFILE_ATTR_STATUS_ATTRIBUTE_SUCCESSFULLY_READ_AND_INCLUDED;
     uint8_t attr_length = 0xff;
-    proto_tree *attrs_tree = proto_tree_add_subtree(tree, tvb, *offset, tvb_captured_length(tvb) - *offset, ett_rf4ce_profile_attrs, NULL, "Attributes List");
+    proto_tree *attrs_tree = proto_tree_add_subtree(tree, tvb, *offset, tvb_reported_length_remaining(tvb, *offset), ett_rf4ce_profile_attrs, NULL, "Attributes List");
     unsigned prev_offset = *offset;
 
-    while (tvb_captured_length(tvb) - *offset)
+    while (tvb_reported_length_remaining(tvb, *offset))
     {
-        char attr_subtree_name[14];
         proto_tree *attrs_subtree;
 
-        snprintf(attr_subtree_name, sizeof(attr_subtree_name), "Attribute %d:", attr_counter);
-        attr_counter++;
-
-        attrs_subtree = proto_tree_add_subtree(attrs_tree, tvb, *offset, tvb_captured_length(tvb) - *offset, ett_rf4ce_profile_attrs_sub, NULL, attr_subtree_name);
+        attrs_subtree = proto_tree_add_subtree_format(attrs_tree, tvb, *offset, tvb_reported_length_remaining(tvb, *offset), ett_rf4ce_profile_attrs_sub, NULL, "Attribute %d:", attr_counter++);
 
         if (dissection_mask & RF4CE_PROFILE_ATTR_DISSECT_ATTR_ID_MASK)
         {
@@ -2000,15 +1988,13 @@ static void dissect_rf4ce_profile_attrs(tvbuff_t *tvb, proto_tree *tree, unsigne
 
         if (dissection_mask & RF4CE_PROFILE_ATTR_DISSECT_ATTR_STATUS_MASK)
         {
-            proto_tree_add_item(attrs_subtree, hf_rf4ce_profile_attr_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
-            attr_status = tvb_get_uint8(tvb, *offset);
+            proto_tree_add_item_ret_uint8(attrs_subtree, hf_rf4ce_profile_attr_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &attr_status);
             *offset += 1;
         }
 
         if (attr_status == RF4CE_PROFILE_ATTR_STATUS_ATTRIBUTE_SUCCESSFULLY_READ_AND_INCLUDED && dissection_mask & RF4CE_PROFILE_ATTR_DISSECT_ATTR_LENGTH_MASK)
         {
-            proto_tree_add_item(attrs_subtree, hf_rf4ce_profile_attr_length, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
-            attr_length = tvb_get_uint8(tvb, *offset);
+            proto_tree_add_item_ret_uint8(attrs_subtree, hf_rf4ce_profile_attr_length, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &attr_length);
             *offset += 1;
         }
 
@@ -2034,7 +2020,7 @@ static void dissect_rf4ce_profile_attrs(tvbuff_t *tvb, proto_tree *tree, unsigne
 
         if (dissection_mask == RF4CE_PROFILE_ATTR_DISSECT_NOT_SET || prev_offset == *offset)
         {
-            attr_length = tvb_captured_length(tvb) - *offset;
+            attr_length = tvb_captured_length_remaining(tvb, *offset);
             proto_tree_add_item(attrs_subtree, hf_rf4ce_profile_attr_value, tvb, *offset, attr_length, ENC_NA);
             *offset += attr_length;
         }
@@ -2305,16 +2291,12 @@ static void dissect_rf4ce_profile_zrc20_cmd(tvbuff_t *tvb, proto_tree *tree, uns
 
 static void dissect_rf4ce_profile_zrc20_action_data(tvbuff_t *tvb, proto_tree *tree, unsigned *offset, bool dissect_action_control)
 {
-    char record_tree_name[10];
     proto_tree *record_tree;
     uint8_t payload_length;
     int remaining_length;
     int attr_counter = 1;
 
-    snprintf(record_tree_name, sizeof(record_tree_name), "Record %d:", attr_counter);
-    attr_counter++;
-
-    record_tree = proto_tree_add_subtree(tree, tvb, *offset, tvb_reported_length_remaining(tvb, *offset), ett_rf4ce_profile_action_records_sub, NULL, record_tree_name);
+    record_tree = proto_tree_add_subtree_format(tree, tvb, *offset, tvb_reported_length_remaining(tvb, *offset), ett_rf4ce_profile_action_records_sub, NULL, "Record %d:", attr_counter++);
 
     if (dissect_action_control)
     {
@@ -2331,8 +2313,7 @@ static void dissect_rf4ce_profile_zrc20_action_data(tvbuff_t *tvb, proto_tree *t
         *offset += 1;
     }
 
-    proto_tree_add_item(record_tree, hf_rf4ce_zrc20_cmd_actions_action_data_payload_length, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
-    payload_length = tvb_get_uint8(tvb, *offset);
+    proto_tree_add_item_ret_uint8(record_tree, hf_rf4ce_zrc20_cmd_actions_action_data_payload_length, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &payload_length);
     *offset += 1;
 
     proto_tree_add_item(record_tree, hf_rf4ce_zrc20_cmd_actions_action_data_action_bank, tvb, *offset, 1, ENC_LITTLE_ENDIAN);

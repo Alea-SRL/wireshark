@@ -31,10 +31,6 @@
 #include "packet-e164.h"
 #include "packet-e212.h"
 
-#define PNAME  "OMA Internal Location Protocol"
-#define PSNAME "ILP"
-#define PFNAME "ilp"
-
 void proto_register_ilp(void);
 
 static dissector_handle_t rrlp_handle;
@@ -378,12 +374,12 @@ static int hf_ilp_locationValue;                  /* OCTET_STRING_SIZE_1_128 */
 static int hf_ilp_lciLocData;                     /* LciLocData */
 static int hf_ilp_locationDataLCI;                /* LocationDataLCI */
 static int hf_ilp_latitudeResolution;             /* BIT_STRING_SIZE_6 */
-static int hf_ilp_LocationDataLCI_latitude;       /* BIT_STRING_SIZE_34 */
+static int hf_ilp_locationDataLCI_latitude;       /* BIT_STRING_SIZE_34 */
 static int hf_ilp_longitudeResolution;            /* BIT_STRING_SIZE_6 */
-static int hf_ilp_LocationDataLCI_longitude;      /* BIT_STRING_SIZE_34 */
+static int hf_ilp_locationDataLCI_longitude;      /* BIT_STRING_SIZE_34 */
 static int hf_ilp_altitudeType;                   /* BIT_STRING_SIZE_4 */
 static int hf_ilp_altitudeResolution;             /* BIT_STRING_SIZE_6 */
-static int hf_ilp_LocationDataLCI_altitude;       /* BIT_STRING_SIZE_30 */
+static int hf_ilp_locationDataLCI_altitude;       /* BIT_STRING_SIZE_30 */
 static int hf_ilp_datum;                          /* BIT_STRING_SIZE_8 */
 static int hf_ilp_wimaxBsID;                      /* WimaxBsID */
 static int hf_ilp_wimaxRTD;                       /* WimaxRTD */
@@ -2242,12 +2238,12 @@ dissect_ilp_BIT_STRING_SIZE_8(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t
 
 static const per_sequence_t LocationDataLCI_sequence[] = {
   { &hf_ilp_latitudeResolution, ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_ilp_BIT_STRING_SIZE_6 },
-  { &hf_ilp_LocationDataLCI_latitude, ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_ilp_BIT_STRING_SIZE_34 },
+  { &hf_ilp_locationDataLCI_latitude, ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_ilp_BIT_STRING_SIZE_34 },
   { &hf_ilp_longitudeResolution, ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_ilp_BIT_STRING_SIZE_6 },
-  { &hf_ilp_LocationDataLCI_longitude, ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_ilp_BIT_STRING_SIZE_34 },
+  { &hf_ilp_locationDataLCI_longitude, ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_ilp_BIT_STRING_SIZE_34 },
   { &hf_ilp_altitudeType    , ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_ilp_BIT_STRING_SIZE_4 },
   { &hf_ilp_altitudeResolution, ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_ilp_BIT_STRING_SIZE_6 },
-  { &hf_ilp_LocationDataLCI_altitude, ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_ilp_BIT_STRING_SIZE_30 },
+  { &hf_ilp_locationDataLCI_altitude, ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_ilp_BIT_STRING_SIZE_30 },
   { &hf_ilp_datum           , ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_ilp_BIT_STRING_SIZE_8 },
   { NULL, 0, 0, NULL }
 };
@@ -4657,7 +4653,7 @@ dissect_ilp_ILP_PDU(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_
   it = proto_tree_add_item(tree, proto_ilp, tvb, 0, -1, ENC_NA);
   ilp_tree = proto_item_add_subtree(it, ett_ilp);
 
-  col_set_str(actx->pinfo->cinfo, COL_PROTOCOL, PSNAME);
+  col_set_str(actx->pinfo->cinfo, COL_PROTOCOL, "ILP");
   col_clear(actx->pinfo->cinfo, COL_INFO);
   offset = dissect_per_sequence(tvb, offset, actx, ilp_tree, hf_index,
                                    ett_ilp_ILP_PDU, ILP_PDU_sequence);
@@ -5994,7 +5990,7 @@ void proto_register_ilp(void) {
       { "latitudeResolution", "ilp.latitudeResolution",
         FT_BYTES, BASE_NONE, NULL, 0,
         "BIT_STRING_SIZE_6", HFILL }},
-    { &hf_ilp_LocationDataLCI_latitude,
+    { &hf_ilp_locationDataLCI_latitude,
       { "latitude", "ilp.locationdatalci.latitude",
         FT_BYTES, BASE_NONE, NULL, 0,
         "BIT_STRING_SIZE_34", HFILL }},
@@ -6002,7 +5998,7 @@ void proto_register_ilp(void) {
       { "longitudeResolution", "ilp.longitudeResolution",
         FT_BYTES, BASE_NONE, NULL, 0,
         "BIT_STRING_SIZE_6", HFILL }},
-    { &hf_ilp_LocationDataLCI_longitude,
+    { &hf_ilp_locationDataLCI_longitude,
       { "longitude", "ilp.locationdatalci.longitude",
         FT_BYTES, BASE_NONE, NULL, 0,
         "BIT_STRING_SIZE_34", HFILL }},
@@ -6014,7 +6010,7 @@ void proto_register_ilp(void) {
       { "altitudeResolution", "ilp.altitudeResolution",
         FT_BYTES, BASE_NONE, NULL, 0,
         "BIT_STRING_SIZE_6", HFILL }},
-    { &hf_ilp_LocationDataLCI_altitude,
+    { &hf_ilp_locationDataLCI_altitude,
       { "altitude", "ilp.locationdatalci.altitude",
         FT_BYTES, BASE_NONE, NULL, 0,
         "BIT_STRING_SIZE_30", HFILL }},
@@ -6621,7 +6617,7 @@ void proto_register_ilp(void) {
 
 
   /* Register protocol */
-  proto_ilp = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_ilp = proto_register_protocol("OMA Internal Location Protocol", "ILP", "ilp");
   ilp_tcp_handle = register_dissector("ilp", dissect_ilp_tcp, proto_ilp);
 
   /* Register fields and subtrees */

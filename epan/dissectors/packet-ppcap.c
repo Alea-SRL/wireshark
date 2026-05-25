@@ -488,10 +488,8 @@ static int
 dissect_ppcap_sctp_assoc(tvbuff_t *tvb _U_, proto_tree * tree _U_, int offset)
 {
 	uint16_t length;
-	length = tvb_get_ntohs(tvb, offset);
-
-	proto_tree_add_item(tree, hf_ppcap_length, tvb, offset, 2, ENC_BIG_ENDIAN);
-	offset = offset + 2;
+	proto_tree_add_item_ret_uint16(tree, hf_ppcap_length, tvb, offset, 2, ENC_BIG_ENDIAN, &length);
+	offset += 2;
 
 	proto_tree_add_item(tree, hf_ppcap_sctp_assoc, tvb, offset, length, ENC_ASCII);
 

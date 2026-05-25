@@ -8,6 +8,7 @@
  */
 
 #include "config.h"
+#define WS_LOG_DOMAIN LOG_DOMAIN_EPAN
 #include "epan.h"
 
 #include <stdarg.h>
@@ -108,6 +109,7 @@
 
 #ifndef _WIN32
 #include <signal.h>
+#include <sys/resource.h>
 #endif
 
 static GSList *epan_plugin_register_all_procotols;
@@ -115,7 +117,6 @@ static GSList *epan_plugin_register_all_handoffs;
 
 static wmem_allocator_t *pinfo_pool_cache;
 static char* epan_env_prefix_cache;
-static bool supports_packets = true;
 
 /* Global variables holding the content of the corresponding environment variable
  * to save fetching it repeatedly.
@@ -166,11 +167,6 @@ epan_get_environment_prefix(void)
 	return epan_env_prefix_cache;
 }
 
-bool epan_supports_packets(void)
-{
-	return supports_packets;
-}
-
 #if defined(_WIN32) && GCRYPT_VERSION_NUMBER < 0x010b00
 // Libgcrypt prints all log messages to stderr by default. This is noisier
 // than we would like on Windows. In particular slow_gatherer tends to print
@@ -205,6 +201,32 @@ quiet_gcrypt_logger (void *dummy _U_, int level, const char *format, va_list arg
 	ws_logv(LOG_DOMAIN_EPAN, log_level, format, args);
 }
 #endif // _WIN32
+
+/* macOS defaults to 8372224, which is 8 MiB - 16 KB, not 8388608 (8 MiB),
+ * so that the stack size + guard size = 8 MiB  */
+#define STACK_NEEDED 8388608U // 8MiB, default used in testing
+
+static void
+check_stack_limit(void)
+{
+	/* On Windows, the main thread reserved stack limit is set in the
+	 * header of the PE. We explicitly set it to 8 MiB when compiling
+	 * for Windows. We could check anyway. */
+#ifndef _WIN32
+	struct rlimit rl;
+	if ((getrlimit(RLIMIT_STACK, &rl) == 0) && rl.rlim_cur < STACK_NEEDED) {
+		ws_info("Soft stack limit is %ju B, trying to raise it to %u B (8 MiB)", (uintmax_t)rl.rlim_cur, STACK_NEEDED);
+		rl.rlim_cur = STACK_NEEDED;
+		if (rl.rlim_max < STACK_NEEDED || setrlimit(RLIMIT_STACK, &rl)) {
+			ws_warning("Unable to raise stack limit to %u B (8 MiB).\n"
+				"This is an unsupported and untested configuration.\n"
+				"Segfaults and crashes due to stack exhaustion may occur.\n"
+				"Those that only occur in this configuration are not viewed as security issues.",
+				STACK_NEEDED);
+		}
+	}
+#endif
+}
 
 static void
 epan_plugin_init(void *data, void *user_data _U_)
@@ -273,7 +295,6 @@ epan_init(register_cb cb, void *client_data, bool load_plugins, epan_app_data_t*
 {
 	volatile bool status = true;
 	epan_env_prefix_cache = g_strdup(app_data->env_var_prefix);
-	supports_packets = app_data->supports_packets;
 
 	/* Get the value of some environment variables and set corresponding globals for performance reasons*/
 	/* If the WIRESHARK_ABORT_ON_DISSECTOR_BUG environment variable is set,
@@ -290,6 +311,8 @@ epan_init(register_cb cb, void *client_data, bool load_plugins, epan_app_data_t*
 	} else {
 		wireshark_abort_on_too_many_items = false;
 	}
+
+	check_stack_limit();
 
 	/* initialize memory allocation subsystem */
 	wmem_init_scopes();
@@ -903,11 +926,7 @@ epan_gather_compile_info(feature_list l)
 
 	/* Lua */
 #ifdef HAVE_LUA
-#ifdef HAVE_LUA_UNICODE
-	with_feature(l, "%s", LUA_RELEASE" (UfW patched)");
-#else /* HAVE_LUA_UNICODE */
-	with_feature(l, "%s", LUA_RELEASE);
-#endif /* HAVE_LUA_UNICODE */
+	with_feature(l, "%s", ABOUT_LUA_RELEASE);
 #else /* HAVE_LUA */
 	without_feature(l, "Lua");
 #endif /* HAVE_LUA */

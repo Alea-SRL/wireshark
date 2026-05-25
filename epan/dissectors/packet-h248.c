@@ -34,10 +34,6 @@
 #include "packet-mtp3.h"
 #include "packet-h248.h"
 
-#define PNAME  "H.248 MEGACO"
-#define PSNAME "H.248"
-#define PFNAME "h248"
-
 void proto_register_h248(void);
 
 /* Initialize the protocol and registered fields */
@@ -2963,6 +2959,9 @@ dissect_h248_T_terminationId(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned 
 			}else{
 				curr_info.term->str = bytes_to_str_punct(actx->pinfo->pool,curr_info.term->buffer,curr_info.term->len, 0);
 			}
+		} else {
+			curr_info.term->buffer = (uint8_t*)wmem_strdup(actx->pinfo->pool, "");
+			curr_info.term->str = wmem_strdup(actx->pinfo->pool, "?");
 		}
 
 
@@ -4249,13 +4248,11 @@ static const ber_sequence_t SecondEventsDescriptor_sequence[] = {
 static unsigned
 dissect_h248_SecondEventsDescriptor(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // SecondEventsDescriptor -> SecondEventsDescriptor/eventList -> SecondRequestedEvent -> SecondRequestedActions -> NotifyBehaviour -> RegulatedEmbeddedDescriptor -> SecondEventsDescriptor
-  actx->pinfo->dissection_depth += 6;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 6);
   offset = dissect_ber_sequence(implicit_tag, actx, tree, tvb, offset,
                                    SecondEventsDescriptor_sequence, hf_index, ett_h248_SecondEventsDescriptor);
 
-  actx->pinfo->dissection_depth -= 6;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 6);
   return offset;
 }
 
@@ -6000,7 +5997,8 @@ dissect_h248(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
        encodings are MEGACO (RFC 3015) and both are H.248.)
      */
     if(tvb_captured_length(tvb)>=6){
-        if(!tvb_strneql(tvb, 0, "MEGACO", 6)){
+        unsigned toffset = tvb_skip_wsp(tvb, 0, tvb_captured_length(tvb));
+        if(!tvb_strneql(tvb, toffset, "MEGACO", 6) || !tvb_strneql(tvb, toffset, "!/2", 3)){
             static dissector_handle_t megaco_handle=NULL;
             if(!megaco_handle){
                 megaco_handle = find_dissector("megaco");
@@ -7561,7 +7559,7 @@ void proto_register_h248(void) {
     module_t *h248_module;
 
     /* Register protocol */
-    proto_h248 = proto_register_protocol(PNAME, PSNAME, PFNAME);
+    proto_h248 = proto_register_protocol("H.248 MEGACO", "H.248", "h248");
     h248_handle = register_dissector("h248", dissect_h248, proto_h248);
     h248_tpkt_handle = register_dissector("h248.tpkt", dissect_h248_tpkt, proto_h248);
 

@@ -27,17 +27,6 @@
 #include "packet-per.h"
 #include "packet-gsm_a_common.h"
 
-#define PNAME  "Radio Resource LCS Protocol (RRLP)"
-#define PSNAME "RRLP"
-#define PFNAME "rrlp"
-
-
-
-#ifdef _MSC_VER
-/* disable: "warning C4146: unary minus operator applied to unsigned type, result still unsigned" */
-#pragma warning(disable:4146)
-#endif
-
 void proto_register_rrlp(void);
 void proto_reg_handoff_rrlp(void);
 
@@ -1388,6 +1377,12 @@ static int ett_rrlp_MTA_Security;
 #define maxGANSSAssistanceData         40
 
 
+/*--- Cyclic dependencies ---*/
+
+/* PrivateExtension/extType -> PrivateExtension/extType */
+static unsigned dissect_rrlp_T_extType(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+
 
 
 static unsigned
@@ -1401,8 +1396,11 @@ dissect_rrlp_OBJECT_IDENTIFIER(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_
 
 static unsigned
 dissect_rrlp_T_extType(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // PrivateExtension/extType -> PrivateExtension/extType
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_per_open_type(tvb, offset, actx, tree, hf_index, NULL);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -12864,7 +12862,7 @@ void proto_register_rrlp(void) {
 
 
   /* Register protocol */
-  proto_rrlp = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_rrlp = proto_register_protocol("Radio Resource LCS Protocol (RRLP)", "RRLP", "rrlp");
   register_dissector("rrlp", dissect_PDU_PDU, proto_rrlp);
 
   /* Register fields and subtrees */

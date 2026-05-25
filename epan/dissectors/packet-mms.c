@@ -28,10 +28,6 @@
 #include "packet-acse.h"
 #include "packet-mms.h"
 
-#define PNAME  "MMS"
-#define PSNAME "MMS"
-#define PFNAME "mms"
-
 void proto_register_mms(void);
 void proto_reg_handoff_mms(void);
 
@@ -453,7 +449,7 @@ static int hf_mms_selectAccess;                   /* T_selectAccess */
 static int hf_mms_indexRange_01;                  /* T_indexRange_01 */
 static int hf_mms_nmberOfElements;                /* Unsigned32 */
 static int hf_mms_specificationWithResult;        /* BOOLEAN */
-static int hf_mms_variableAccessSpecificatn;      /* VariableAccessSpecification */
+static int hf_mms_variableAccessSpecification;    /* VariableAccessSpecification */
 static int hf_mms_listOfAccessResult;             /* SEQUENCE_OF_AccessResult */
 static int hf_mms_listOfAccessResult_item;        /* AccessResult */
 static int hf_mms_listOfData;                     /* T_listOfData */
@@ -461,7 +457,6 @@ static int hf_mms_listOfData_item;                /* Data */
 static int hf_mms_Write_Response_item;            /* Write_Response_item */
 static int hf_mms_failure;                        /* DataAccessError */
 static int hf_mms_success;                        /* NULL */
-static int hf_mms_variableAccessSpecification;    /* VariableAccessSpecification */
 static int hf_mms_listOfAccessResult_01;          /* T_listOfAccessResult */
 static int hf_mms_name;                           /* ObjectName */
 static int hf_mms_address;                        /* Address */
@@ -2066,14 +2061,12 @@ static const ber_choice_t TypeSpecification_choice[] = {
 static unsigned
 dissect_mms_TypeSpecification(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // TypeSpecification -> TypeSpecification/array -> TypeSpecification
-  actx->pinfo->dissection_depth += 2;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 2);
   offset = dissect_ber_choice(actx, tree, tvb, offset,
                                  TypeSpecification_choice, hf_index, ett_mms_TypeSpecification,
                                  NULL);
 
-  actx->pinfo->dissection_depth -= 2;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 2);
   return offset;
 }
 
@@ -2256,13 +2249,11 @@ static const ber_sequence_t AlternateAccess_sequence_of[1] = {
 static unsigned
 dissect_mms_AlternateAccess(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // AlternateAccess -> AlternateAccess/_item -> AlternateAccessSelection -> AlternateAccessSelection/selectAlternateAccess -> AlternateAccess
-  actx->pinfo->dissection_depth += 4;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 4);
   offset = dissect_ber_sequence_of(implicit_tag, actx, tree, tvb, offset,
                                       AlternateAccess_sequence_of, hf_index, ett_mms_AlternateAccess);
 
-  actx->pinfo->dissection_depth -= 4;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 4);
   return offset;
 }
 
@@ -2317,14 +2308,12 @@ static const ber_choice_t VariableSpecification_choice[] = {
 static unsigned
 dissect_mms_VariableSpecification(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // VariableSpecification -> ScatteredAccessDescription -> ScatteredAccessDescription/_item -> VariableSpecification
-  actx->pinfo->dissection_depth += 3;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 3);
   offset = dissect_ber_choice(actx, tree, tvb, offset,
                                  VariableSpecification_choice, hf_index, ett_mms_VariableSpecification,
                                  NULL);
 
-  actx->pinfo->dissection_depth -= 3;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 3);
   return offset;
 }
 
@@ -2381,7 +2370,7 @@ dissect_mms_VariableAccessSpecification(bool implicit_tag _U_, tvbuff_t *tvb _U_
 
 static const ber_sequence_t Read_Request_sequence[] = {
   { &hf_mms_specificationWithResult, BER_CLASS_CON, 0, BER_FLAGS_OPTIONAL|BER_FLAGS_IMPLTAG, dissect_mms_BOOLEAN },
-  { &hf_mms_variableAccessSpecificatn, BER_CLASS_CON, 1, BER_FLAGS_NOTCHKTAG, dissect_mms_VariableAccessSpecification },
+  { &hf_mms_variableAccessSpecification, BER_CLASS_CON, 1, BER_FLAGS_NOTCHKTAG, dissect_mms_VariableAccessSpecification },
   { NULL, 0, 0, 0, NULL }
 };
 
@@ -2899,8 +2888,7 @@ static const ber_choice_t Data_choice[] = {
 static unsigned
 dissect_mms_Data(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // Data -> Data/array -> Data
-  actx->pinfo->dissection_depth += 2;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 2);
     mms_actx_private_data_t *mms_priv = (mms_actx_private_data_t *)actx->private_data;
     if(mms_priv){
         mms_priv->data_cnt += 1;
@@ -2912,8 +2900,7 @@ dissect_mms_Data(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, 
 
 
 
-  actx->pinfo->dissection_depth -= 2;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 2);
   return offset;
 }
 
@@ -2941,7 +2928,7 @@ dissect_mms_T_listOfData(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offs
 
 
 static const ber_sequence_t Write_Request_sequence[] = {
-  { &hf_mms_variableAccessSpecificatn, BER_CLASS_ANY/*choice*/, -1/*choice*/, BER_FLAGS_NOOWNTAG|BER_FLAGS_NOTCHKTAG, dissect_mms_VariableAccessSpecification },
+  { &hf_mms_variableAccessSpecification, BER_CLASS_ANY/*choice*/, -1/*choice*/, BER_FLAGS_NOOWNTAG|BER_FLAGS_NOTCHKTAG, dissect_mms_VariableAccessSpecification },
   { &hf_mms_listOfData      , BER_CLASS_CON, 0, BER_FLAGS_IMPLTAG, dissect_mms_T_listOfData },
   { NULL, 0, 0, 0, NULL }
 };
@@ -5826,7 +5813,7 @@ dissect_mms_SEQUENCE_OF_AccessResult(bool implicit_tag _U_, tvbuff_t *tvb _U_, u
 
 
 static const ber_sequence_t Read_Response_sequence[] = {
-  { &hf_mms_variableAccessSpecificatn, BER_CLASS_CON, 0, BER_FLAGS_OPTIONAL|BER_FLAGS_NOTCHKTAG, dissect_mms_VariableAccessSpecification },
+  { &hf_mms_variableAccessSpecification, BER_CLASS_CON, 0, BER_FLAGS_OPTIONAL|BER_FLAGS_NOTCHKTAG, dissect_mms_VariableAccessSpecification },
   { &hf_mms_listOfAccessResult, BER_CLASS_CON, 1, BER_FLAGS_IMPLTAG, dissect_mms_SEQUENCE_OF_AccessResult },
   { NULL, 0, 0, 0, NULL }
 };
@@ -8507,7 +8494,7 @@ dissect_mms(tvbuff_t* tvb, packet_info* pinfo, proto_tree* parent_tree, void* da
             wmem_free(pinfo->pool, asn1_ctx.private_data);
         }
         if (offset == old_offset) {
-            proto_tree_add_expert(tree, pinfo, &ei_mms_zero_pdu, tvb, offset, -1);
+            proto_tree_add_expert_remaining(tree, pinfo, &ei_mms_zero_pdu, tvb, offset);
             break;
         }
     }
@@ -10156,10 +10143,10 @@ void proto_register_mms(void) {
       { "specificationWithResult", "mms.specificationWithResult",
         FT_BOOLEAN, BASE_NONE, NULL, 0,
         "BOOLEAN", HFILL }},
-    { &hf_mms_variableAccessSpecificatn,
-      { "variableAccessSpecificatn", "mms.variableAccessSpecificatn",
+    { &hf_mms_variableAccessSpecification,
+      { "variableAccessSpecification", "mms.variableAccessSpecification",
         FT_UINT32, BASE_DEC, VALS(mms_VariableAccessSpecification_vals), 0,
-        "VariableAccessSpecification", HFILL }},
+        NULL, HFILL }},
     { &hf_mms_listOfAccessResult,
       { "listOfAccessResult", "mms.listOfAccessResult",
         FT_UINT32, BASE_DEC, NULL, 0,
@@ -10187,10 +10174,6 @@ void proto_register_mms(void) {
     { &hf_mms_success,
       { "success", "mms.success_element",
         FT_NONE, BASE_NONE, NULL, 0,
-        NULL, HFILL }},
-    { &hf_mms_variableAccessSpecification,
-      { "variableAccessSpecification", "mms.variableAccessSpecification",
-        FT_UINT32, BASE_DEC, VALS(mms_VariableAccessSpecification_vals), 0,
         NULL, HFILL }},
     { &hf_mms_listOfAccessResult_01,
       { "listOfAccessResult", "mms.listOfAccessResult",
@@ -11717,7 +11700,7 @@ void proto_register_mms(void) {
     expert_module_t* expert_mms;
 
     /* Register protocol */
-    proto_mms = proto_register_protocol(PNAME, PSNAME, PFNAME);
+    proto_mms = proto_register_protocol("MMS", "MMS", "mms");
     register_dissector("mms", dissect_mms, proto_mms);
     /* Register fields and subtrees */
     proto_register_field_array(proto_mms, hf, array_length(hf));

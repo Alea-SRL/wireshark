@@ -7,10 +7,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __ETYPES_H__
-#define __ETYPES_H__
-
+#pragma once
 #include "ws_symbol_export.h"
 
 #include <wsutil/value_string.h>
@@ -139,6 +136,10 @@ extern "C" {
 
 #ifndef ETHERTYPE_EPL_V1
 #define ETHERTYPE_EPL_V1		0x3E3F
+#endif
+
+#ifndef ETHERTYPE_TTL
+#define ETHERTYPE_TTL                   0x4040  /* TTX Logger (TTL) format from TTTech Computertechnik AG */
 #endif
 
 #ifndef ETHERTYPE_C15_CH
@@ -534,6 +535,10 @@ extern "C" {
 #define ETHERTYPE_DCE			0x8903	/* Cisco Systems Inc DCE */
 #endif
 
+#ifndef ETHERTYPE_TTAG
+#define ETHERTYPE_TTAG			0x8905	/* Cisco Systems Inc T-Tag (Timestamp Tag) */
+#endif
+
 #ifndef ETHERTYPE_FCOE
 #define ETHERTYPE_FCOE			0x8906	/* Fibre Channel over Ethernet */
 #endif
@@ -695,8 +700,6 @@ WS_DLL_PUBLIC const value_string etype_vals[];
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* __ETYPES_H__ */
 
 /*
  * Editor modelines  -  https://www.wireshark.org/tools/modelines.html

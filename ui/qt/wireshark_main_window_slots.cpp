@@ -16,6 +16,7 @@
 #endif
 
 #include "wireshark_main_window.h"
+#include <ui/qt/widgets/capture_card_widget.h>
 
 /*
  * The generated Ui_WiresharkMainWindow::setupUi() can grow larger than our configured limit,
@@ -44,7 +45,7 @@ DIAG_ON(frame-larger-than=)
 
 #include "wsutil/file_util.h"
 #include "wsutil/filesystem.h"
-#include "wsutil/application_flavor.h"
+#include "app/application_flavor.h"
 #include <wsutil/wslog.h>
 #include <wsutil/ws_assert.h>
 
@@ -55,7 +56,6 @@ DIAG_ON(frame-larger-than=)
 #include "epan/epan_dissect.h"
 #include "epan/filter_expressions.h"
 #include "epan/prefs.h"
-#include "epan/plugin_if.h"
 #include "epan/uat.h"
 #include "epan/uat-int.h"
 #include "epan/secrets.h"
@@ -78,14 +78,12 @@ DIAG_ON(frame-larger-than=)
 #include "ui/ws_ui_util.h"
 #include "ui/all_files_wildcard.h"
 #include "ui/qt/simple_dialog.h"
+#include "ui/plugins/include/plugin_if.h"
 
 #include <ui/qt/utils/variant_pointer.h>
 #include <ui/qt/widgets/drag_drop_toolbar.h>
 #include "ui/qt/widgets/wireshark_file_dialog.h"
-
-#ifdef HAVE_SOFTWARE_UPDATE
-#include "ui/software_update.h"
-#endif
+#include <ui/qt/utils/workspace_state.h>
 
 #include "about_dialog.h"
 #include "bluetooth_att_server_attributes_dialog.h"
@@ -103,6 +101,7 @@ DIAG_ON(frame-larger-than=)
 #include "conversation_hash_tables_dialog.h"
 #include "enabled_protocols_dialog.h"
 #include "decode_as_dialog.h"
+#include "dis_stream_dialog.h"
 #include <ui/qt/widgets/display_filter_edit.h>
 #include "display_filter_expression_dialog.h"
 #include "dissector_tables_dialog.h"
@@ -125,6 +124,7 @@ DIAG_ON(frame-larger-than=)
 #include "io_graph_dialog.h"
 #include "ui/io_graph_uat.h"
 #include "plot_dialog.h"
+#include "ui/plot_graph_uat.h"
 #include <ui/qt/widgets/additional_toolbar.h>
 #include "lbm_stream_dialog.h"
 #include "lbm_lbtrm_transport_dialog.h"
@@ -168,6 +168,8 @@ DIAG_ON(frame-larger-than=)
 #include "voip_calls_dialog.h"
 #include "wlan_statistics_dialog.h"
 #include <ui/qt/widgets/wireless_timeline.h>
+#include <ui/qt/utils/workspace_state.h>
+#include <ui/qt/interface_frame.h>
 
 #include <functional>
 #include <QClipboard>
@@ -221,10 +223,10 @@ bool WiresharkMainWindow::openCaptureFile(QString cf_path, QString read_filter, 
 
         // TODO detect call from "cf_read" -> "update_progress_dlg"
         // ("capture_file_.capFile()->read_lock"), possibly queue opening the
-        // file and return early to avoid the warning in testCaptureFileClose.
+        // file and return early to avoid the warning in tryClosingCaptureFile.
 
         QString before_what(tr(" before opening another file"));
-        if (!testCaptureFileClose(before_what)) {
+        if (!tryClosingCaptureFile(before_what)) {
             ret = false;
             goto finish;
         }
@@ -386,6 +388,7 @@ void WiresharkMainWindow::updatePreferenceActions()
     main_ui_->actionViewPacketDetails->setEnabled(prefs_has_layout_pane_content(layout_pane_content_pdetails));
     main_ui_->actionViewPacketBytes->setEnabled(prefs_has_layout_pane_content(layout_pane_content_pbytes));
     main_ui_->actionViewPacketDiagram->setEnabled(prefs_has_layout_pane_content(layout_pane_content_pdiagram));
+    enableAggregationView(prefs.aggregation_fields_num > 0);
 
     main_ui_->actionViewNameResolutionPhysical->setChecked(gbl_resolv_flags.mac_name);
     main_ui_->actionViewNameResolutionNetwork->setChecked(gbl_resolv_flags.network_name);
@@ -405,6 +408,7 @@ void WiresharkMainWindow::updateRecentActions()
     main_ui_->actionViewPacketDetails->setChecked(recent.tree_view_show && prefs_has_layout_pane_content(layout_pane_content_pdetails));
     main_ui_->actionViewPacketBytes->setChecked(recent.byte_view_show && prefs_has_layout_pane_content(layout_pane_content_pbytes));
     main_ui_->actionViewPacketDiagram->setChecked(recent.packet_diagram_show && prefs_has_layout_pane_content(layout_pane_content_pdiagram));
+    main_ui_->actionAggregationView->setChecked(recent.aggregation_view);
 
     foreach(QAction *action, main_ui_->menuInterfaceToolbars->actions()) {
         if (g_list_find_custom(recent.interface_toolbars, action->text().toUtf8(), (GCompareFunc)strcmp)) {
@@ -439,6 +443,12 @@ void WiresharkMainWindow::updateRecentActions()
     main_ui_->actionViewColorizePacketList->setChecked(recent.packet_list_colorize);
 
     main_ui_->actionGoAutoScroll->setChecked(recent.capture_auto_scroll);
+}
+
+void WiresharkMainWindow::updateAggregationView() const {
+    if (main_ui_->actionAggregationView->isChecked() || recent.aggregation_view) {
+        aggregationViewChanged(recent.aggregation_view);
+    }
 }
 
 // Don't connect to this directly. Connect to or emit filterAction(...) instead.
@@ -525,7 +535,7 @@ void WiresharkMainWindow::queuedFilterAction(QString action_filter, FilterAction
 #ifdef HAVE_LIBPCAP
 void WiresharkMainWindow::captureCapturePrepared(capture_session *session) {
     setTitlebarForCaptureInProgress();
-    setWindowIcon(mainApp->captureIcon());
+    setIconForCaptureInProgress(true);
     pushLiveCaptureInProgress();
 
     /* Disable menu items that make no sense if you're currently running
@@ -544,7 +554,7 @@ void WiresharkMainWindow::captureCaptureUpdateStarted(capture_session *session) 
     /* We've done this in "prepared" above, but it will be cleared while
        switching to the next multiple file. */
     setTitlebarForCaptureInProgress();
-    setWindowIcon(mainApp->captureIcon());
+    setIconForCaptureInProgress(true);
     pushLiveCaptureInProgress();
 
     bool handle_toolbars = (session->session_will_restart ? false : true);
@@ -568,7 +578,7 @@ void WiresharkMainWindow::captureCaptureUpdateFinished(capture_session *session)
     setForCaptureInProgress(false, handle_toolbars);
     setMenusForCaptureFile();
 
-    setWindowIcon(mainApp->normalIcon());
+    setIconForCaptureInProgress(false);
     popLiveCaptureInProgress();
 
     if (commandline_is_quit_after_capture()) {
@@ -592,7 +602,7 @@ void WiresharkMainWindow::captureCaptureFixedFinished(capture_session *) {
        display packets */
     setMenusForCaptureFile(true);
 
-    setWindowIcon(mainApp->normalIcon());
+    setIconForCaptureInProgress(false);
     popLiveCaptureInProgress();
 
     if (commandline_is_quit_after_capture()) {
@@ -613,7 +623,7 @@ void WiresharkMainWindow::captureCaptureFailed(capture_session *) {
     main_ui_->statusBar->captureFileClosing();
     mainApp->popStatus(WiresharkApplication::FileStatus);
 
-    setWindowIcon(mainApp->normalIcon());
+    setIconForCaptureInProgress(false);
     popLiveCaptureInProgress();
 
     if (commandline_is_quit_after_capture()) {
@@ -781,6 +791,9 @@ void WiresharkMainWindow::captureFileReadStarted(const QString &action) {
     /* Set up main window for a capture file. */
 //    main_set_for_capture_file(true);
 
+    /* Clear session-disabled (paused) color filters for new capture */
+    color_filter_clear_session_disabled();
+
     mainApp->popStatus(WiresharkApplication::FileStatus);
     QString msg = tr("%1: %2").arg(action).arg(capture_file_.fileName());
     QString msgtip = QString();
@@ -793,7 +806,7 @@ void WiresharkMainWindow::captureFileReadStarted(const QString &action) {
 void WiresharkMainWindow::captureFileReadFinished() {
     if (!capture_file_.capFile()->is_tempfile && capture_file_.capFile()->filename) {
         /* Add this filename to the list of recent files in the "Recent Files" submenu */
-        add_menu_recent_capture_file(capture_file_.capFile()->filename, false);
+        WorkspaceState::instance()->addRecentCaptureFile(qUtf8Printable(capture_file_.capFile()->filename));
 
         /* Remember folder for next Open dialog and save it in recent */
         mainApp->setLastOpenDirFromFilename(capture_file_.capFile()->filename);
@@ -843,7 +856,7 @@ void WiresharkMainWindow::captureFileClosed() {
     mainApp->popStatus(WiresharkApplication::FileStatus);
 
     setMainWindowTitle();
-    setWindowIcon(mainApp->normalIcon());
+    setIconForCaptureInProgress(false);
     setMenusForSelectedPacket();
     setMenusForSelectedTreeRow();
 
@@ -1026,20 +1039,14 @@ void WiresharkMainWindow::stopCapture() {
 
 void WiresharkMainWindow::aggregationViewChanged(bool enable) const {
     recent.aggregation_view = enable;
-    main_ui_->actionAggregationView->setEnabled(false);
+    register_tap_listener_aggregation();
+    enableAggregationView(false);
     QTimer::singleShot(100,
         [this]() {
-            bool tap_registered = register_tap_listener_aggregation();
-            bool cf_ready = capture_file_.capFile() && !capture_file_.capFile()->read_lock;
-            if (recent.aggregation_view) {
-                if (cf_ready && tap_registered) {
-                    cf_retap_aggregation_packets(capture_file_.capFile(), recent.aggregation_view);
-                }
-            }
-            else if (cf_ready) {
+            if (capture_file_.capFile() && !capture_file_.capFile()->read_lock) {
                 cf_retap_aggregation_packets(capture_file_.capFile(), recent.aggregation_view);
             }
-            main_ui_->actionAggregationView->setEnabled(true);
+            enableAggregationView(prefs.aggregation_fields_num > 0);
         });
 }
 
@@ -1052,120 +1059,14 @@ void WiresharkMainWindow::mainStackChanged(int)
     }
 }
 
-// XXX - Copied from ui/gtk/menus.c
-
-/**
- * Add the capture filename (with an absolute path) to the "Recent Files" menu.
- */
-// XXX - We should probably create a RecentFile class.
-void WiresharkMainWindow::updateRecentCaptures() {
-    QAction *ra;
-    QMenu *recentMenu = main_ui_->menuOpenRecentCaptureFile;
-    QString action_cf_name;
-
-    if (!recentMenu) {
-        return;
-    }
-    recentMenu->clear();
-
-#if 0
-#if defined(QT_WINEXTRAS_LIB)
-     QWinJumpList recent_jl(this);
-     QWinJumpListCategory *recent_jlc = recent_jl.recent();
-     if (recent_jlc) {
-         recent_jlc->clear();
-         recent_jlc->setVisible(true);
-     }
-#endif
-#endif
-#if defined(Q_OS_MAC)
-    if (!dock_menu_) {
-        dock_menu_ = new QMenu();
-        dock_menu_->setAsDockMenu();
-    }
-    dock_menu_->clear();
-#endif
-
-    /* Iterate through the actions in menuOpenRecentCaptureFile,
-     * removing special items, a maybe duplicate entry and every item above count_max */
-#if defined(Q_OS_MAC)
-    int shortcut = Qt::Key_0;
-#endif
-    foreach(recent_item_status *ri, mainApp->recentItems()) {
-        // Add the new item
-        ra = new QAction(recentMenu);
-        ra->setData(ri->filename);
-        // XXX - Needs get_recent_item_status or equivalent
-        ra->setEnabled(ri->accessible);
-        recentMenu->insertAction(NULL, ra);
-        action_cf_name = ra->data().toString();
-#if defined(Q_OS_MAC)
-        if (shortcut <= Qt::Key_9) {
-            ra->setShortcut(Qt::META | (Qt::Key)shortcut);
-            shortcut++;
-        }
-#endif
-        ra->setText(action_cf_name);
-        connect(ra, &QAction::triggered, this, &WiresharkMainWindow::recentActionTriggered);
-
-/* This is slow, at least on my VM here. The added links also open Wireshark
- * in a new window. It might make more sense to add a recent item when we
- * open a capture file. */
-#if 0
-#if defined(QT_WINEXTRAS_LIB)
-     if (recent_jlc) {
-         QFileInfo fi(ri->filename);
-         QWinJumpListItem *jli = recent_jlc->addLink(
-             fi.fileName(),
-             QApplication::applicationFilePath(),
-             QStringList() << "-r" << ri->filename
-         );
-         // XXX set icon
-         jli->setWorkingDirectory(QDir::toNativeSeparators(QApplication::applicationDirPath()));
-     }
-#endif
-#endif
-#if defined(Q_OS_MAC)
-        QAction *rda = new QAction(dock_menu_);
-        QFileInfo fi(ri->filename);
-        rda->setText(fi.fileName());
-        dock_menu_->insertAction(NULL, rda);
-        connect(rda, &QAction::triggered, ra, &QAction::trigger);
-#endif
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-        if (recentMenu->actions().count() == static_cast<int>(prefs.gui_recent_files_count_max)) {
-#else
-        if (recentMenu->actions().count() == static_cast<qsizetype>(prefs.gui_recent_files_count_max)) {
-#endif
-            break;
-        }
-    }
-
-    if (recentMenu->actions().count() > 0) {
-        // Separator + "Clear"
-        // XXX - Do we really need this?
-        ra = new QAction(recentMenu);
-        ra->setSeparator(true);
-        recentMenu->insertAction(NULL, ra);
-
-        ra = new QAction(recentMenu);
-        ra->setText(tr("Clear Menu"));
-        recentMenu->insertAction(NULL, ra);
-        connect(ra, &QAction::triggered, mainApp, &MainApplication::clearRecentCaptures);
-    } else {
-        if (main_ui_->actionDummyNoFilesFound) {
-            recentMenu->addAction(main_ui_->actionDummyNoFilesFound);
-        }
-    }
+void WiresharkMainWindow::updateRecentCaptures()
+{
+    populateRecentCapturesMenu();
 }
 
-void WiresharkMainWindow::recentActionTriggered() {
-    QAction *ra = qobject_cast<QAction*>(sender());
-
-    if (ra) {
-        QString cfPath = ra->data().toString();
-        openCaptureFile(cfPath);
-    }
+void WiresharkMainWindow::openRecentCaptureFile(const QString &filename)
+{
+    openCaptureFile(filename);
 }
 
 QString WiresharkMainWindow::commentToMenuText(QString text, int max_len)
@@ -1535,7 +1436,7 @@ void WiresharkMainWindow::startInterfaceCapture(bool valid, const QString captur
     capture_filter_valid_ = valid;
     welcome_page_->setCaptureFilter(capture_filter);
     QString before_what(tr(" before starting a new capture"));
-    if (testCaptureFileClose(before_what)) {
+    if (tryClosingCaptureFile(before_what)) {
         // The interface tree will update the selected interfaces via its timer
         // so no need to do anything here.
         startCapture(QStringList());
@@ -1618,6 +1519,20 @@ void WiresharkMainWindow::reloadLuaPlugins()
     if (mainApp->isReloadingLua())
         return;
 
+    /*
+     * Don't reload while cf_read is in progress.  cf_read calls
+     * processEvents() via its progress dialog, and our deferred-reload
+     * QTimer can fire during those calls.  Performing cf_close/cf_reload
+     * while cf_read is still on the C call stack corrupts its state
+     * (e.g. frees cf->linktypes that cf_read still references).
+     * Re-schedule the reload so it runs once cf_read has finished.
+     */
+    if (capture_file_.capFile() &&
+        capture_file_.capFile()->state == FILE_READ_IN_PROGRESS) {
+        mainApp->reloadLuaPluginsDelayed();
+        return;
+    }
+
     bool uses_lua_filehandler = false;
 
     if (capture_file_.capFile()) {
@@ -1628,7 +1543,7 @@ void WiresharkMainWindow::reloadLuaPlugins()
         if (uses_lua_filehandler && cf->unsaved_changes) {
             // Prompt to save the file before reloading, in case the FileHandler has changed
             QString before_what(tr(" before reloading Lua plugins"));
-            if (!testCaptureFileClose(before_what, Reload)) {
+            if (!tryClosingCaptureFile(before_what, Reload)) {
                 return;
             }
         }
@@ -1636,7 +1551,14 @@ void WiresharkMainWindow::reloadLuaPlugins()
 
     mainApp->setReloadingLua(true);
 
-    wslua_reload_plugins(NULL, NULL, application_configuration_environment_prefix());
+    if (!wslua_reload_plugins(NULL, NULL, application_configuration_environment_prefix())) {
+        /* Reload was deferred because Lua code is currently executing.
+         * A deferred reload will be scheduled once the Lua call stack
+         * has unwound.  Keep isReloadingLua true to block further
+         * user-initiated reloads until the deferred reload completes. */
+        return;
+    }
+
     this->clearAddedPacketMenus();
     funnel_statistics_reload_menus();
     reloadDynamicMenus();
@@ -1839,17 +1761,6 @@ void WiresharkMainWindow::openTapParameterDialog()
     openTapParameterDialog(cfg_str, NULL, NULL);
 }
 
-#if defined(HAVE_SOFTWARE_UPDATE) && defined(Q_OS_WIN)
-void WiresharkMainWindow::softwareUpdateRequested() {
-    // testCaptureFileClose doesn't use this string because we aren't
-    // going to launch another dialog, but maybe we'll change that.
-    QString before_what(tr(" before updating"));
-    if (!testCaptureFileClose(before_what, Update)) {
-        mainApp->rejectSoftwareUpdate();
-    }
-}
-#endif
-
 // File Menu
 
 void WiresharkMainWindow::connectFileMenuActions()
@@ -1865,7 +1776,7 @@ void WiresharkMainWindow::connectFileMenuActions()
 
     connect(main_ui_->actionFileClose, &QAction::triggered, this, [this]() {
         QString before_what(tr(" before closing the file"));
-        if (testCaptureFileClose(before_what)) {
+        if (tryClosingCaptureFile(before_what)) {
             showWelcome();
         }
     });
@@ -1959,6 +1870,13 @@ void WiresharkMainWindow::exportPacketBytes()
 
 void WiresharkMainWindow::exportPDU()
 {
+    // After exporting PDUs the current capture file is closed and the
+    // exported file opened instead, so ask if there are unsaved frames.
+    QString before_what(tr(" before exporting PDUs"));
+    if (!tryClosingCaptureFile(before_what, Export)) {
+        return;
+    }
+
     ExportPDUDialog *exportpdu_dialog = new ExportPDUDialog(this);
 
     if (exportpdu_dialog->isMinimized() == true)
@@ -1976,6 +1894,13 @@ void WiresharkMainWindow::exportPDU()
 
 void WiresharkMainWindow::stripPacketHeaders()
 {
+    // After stripping headers the current capture file is closed and the
+    // exported file opened instead, so ask if there are unsaved frames.
+    QString before_what(tr(" before stripping headers"));
+    if (!tryClosingCaptureFile(before_what, Export)) {
+        return;
+    }
+
     StripHeadersDialog *stripheaders_dialog = new StripHeadersDialog(this);
 
     if (stripheaders_dialog->isMinimized() == true)
@@ -2474,7 +2399,7 @@ void WiresharkMainWindow::injectSecrets(const char* proto_name, const char* wiki
     if (!capture_file_.isValid())
         return;
 
-    secrets_export_values ret = secrets_export_dsb(proto_name, capture_file_.capFile());
+    secrets_export_values ret = secrets_export_dsb(proto_name, capture_file_.capFile()->provider.wth);
     switch (ret)
     {
     case SECRETS_NO_SECRETS:
@@ -2494,6 +2419,7 @@ void WiresharkMainWindow::injectSecrets(const char* proto_name, const char* wiki
         break;
     }
     case SECRETS_EXPORT_SUCCESS:
+        capture_file_.capFile()->unsaved_changes = TRUE;
         updateForUnsavedChanges();
         break;
     default:
@@ -2552,7 +2478,6 @@ void WiresharkMainWindow::showPreferencesDialog(QString module_name)
     pref_dialog->setWindowModality(Qt::ApplicationModal);
     pref_dialog->setAttribute(Qt::WA_DeleteOnClose);
     pref_dialog->show();
-    pref_dialog->enableAggregationOptions(!main_ui_->actionAggregationView->isChecked());
 }
 
 // View Menu
@@ -2983,7 +2908,7 @@ void WiresharkMainWindow::reloadCaptureFileAsFormatOrCapture()
 
     if (cf->unsaved_changes) {
         QString before_what(tr(" before reloading the file"));
-        if (!testCaptureFileClose(before_what, Reload))
+        if (!tryClosingCaptureFile(before_what, Reload))
             return;
     }
 
@@ -3001,7 +2926,7 @@ void WiresharkMainWindow::reloadCaptureFile()
 
     if (cf->unsaved_changes) {
         QString before_what(tr(" before reloading the file"));
-        if (!testCaptureFileClose(before_what, Reload))
+        if (!tryClosingCaptureFile(before_what, Reload))
             return;
     }
 
@@ -3142,7 +3067,7 @@ void WiresharkMainWindow::connectCaptureMenuActions()
     connect(main_ui_->actionCaptureRestart, &QAction::triggered, this, [this]() {
         QString before_what(tr(" before restarting the capture"));
         cap_session_.capture_opts->restart = true;
-        if (!testCaptureFileClose(before_what, Restart)) {
+        if (!tryClosingCaptureFile(before_what, Restart)) {
             return;
         }
         startCapture(QStringList());
@@ -3183,7 +3108,7 @@ void WiresharkMainWindow::showCaptureOptionsDialog()
         connect(capture_options_dialog_, &CaptureOptionsDialog::captureFilterTextEdited,
                 this->welcome_page_, &WelcomePage::setCaptureFilterText);
         // Propagate selection changes from main UI to dialog.
-        connect(this->welcome_page_, &WelcomePage::interfacesChanged,
+        connect(this->welcome_page_->captureCard(), &CaptureCardWidget::interfacesChanged,
                 capture_options_dialog_, &CaptureOptionsDialog::interfaceSelected);
 
         connect(capture_options_dialog_, &CaptureOptionsDialog::setFilterValid,
@@ -3237,7 +3162,7 @@ void WiresharkMainWindow::startCaptureTriggered()
 
     /* XXX - will closing this remove a temporary file? */
     QString before_what(tr(" before starting a new capture"));
-    if (testCaptureFileClose(before_what)) {
+    if (tryClosingCaptureFile(before_what)) {
         startCapture(QStringList());
     } else {
         // simply clicking the button sets it to 'checked' even though we've
@@ -3637,6 +3562,7 @@ void WiresharkMainWindow::connectStatisticsMenuActions()
     connect(main_ui_->actionStatisticsSOMEIPSDentries, &QAction::triggered, this, [=]() { openStatisticsTreeDialog("someipsd_entries"); });
 
     connect(main_ui_->actionStatisticsLTP, &QAction::triggered, this, [=]() { openStatisticsTreeDialog("ltp"); });
+    connect(main_ui_->actionStatisticsBPv7, &QAction::triggered, this, [=]() { openStatisticsTreeDialog("bpv7"); });
 }
 
 void WiresharkMainWindow::openTcpStreamDialog(int graph_type)
@@ -3721,7 +3647,8 @@ void WiresharkMainWindow::showIOGraphDialog(io_graph_item_unit_t value_units, QS
 
     if (iog_dialog == nullptr) {
         QVector<QString> conv_filters;
-        iog_dialog = new IOGraphDialog(*this, capture_file_, io_graph_packet_fields, "Packets", displayFilter, value_units, yfield, false, conv_filters);
+        iog_dialog = new IOGraphDialog(*this, capture_file_, "Packets");
+        iog_dialog->initialize(*this, io_graph_packet_fields, displayFilter, value_units, yfield, false, conv_filters);
         connect(iog_dialog, &IOGraphDialog::goToPacket, this, [=](int packet_num) {packet_list_->goToPacket(packet_num);});
         connect(this, &WiresharkMainWindow::reloadFields, iog_dialog, &IOGraphDialog::reloadFields);
     }
@@ -3791,13 +3718,26 @@ void WiresharkMainWindow::openIOGraph(bool filtered, QVector<uint> typed_conv_id
         }
     }
 
-    IOGraphDialog *iog_dialog = new IOGraphDialog(*this, capture_file_, io_graph_packet_fields, "Packets", displayFilter, IOG_ITEM_UNIT_PACKETS, QString(), true, conv_filters);
+    IOGraphDialog *iog_dialog = new IOGraphDialog(*this, capture_file_, "Packets");
+    iog_dialog->initialize(*this, io_graph_packet_fields, displayFilter, IOG_ITEM_UNIT_PACKETS, QString(), true, conv_filters);
     connect(this, SIGNAL(reloadFields()), iog_dialog, SLOT(reloadFields()));
     iog_dialog->show();
 }
 
+static uat_field_t plot_packet_fields[] = {
+    UAT_FLD_BOOL(plot, enabled, "Enabled", "Graph visibility"),
+    UAT_FLD_DEC(plot, group, "Group #", "Which group the plot belongs to"),
+    UAT_FLD_CSTRING(plot, name, "Plot Name", "The name of the plot"),
+    UAT_FLD_DISPLAY_FILTER(plot, dfilter, "Display Filter", "Plot packets matching this display filter"),
+    UAT_FLD_COLOR(plot, color, "Color", "Plot color (#RRGGBB)"),
+    UAT_FLD_VS(plot, style, "Style", plot_graph_style_vs, "Plot style"),
+    UAT_FLD_PROTO_FIELD(plot, yfield, "Y Field", "Field to plot"),
+    UAT_FLD_DBL(plot, y_axis_factor, "Y Axis Factor", "Y Axis Factor"),
+
+    UAT_END_FIELDS
+};
+
 // Plot Dialog
-// XXX - The code here is identical on Stratoshark's side. Can we unify the two?
 void WiresharkMainWindow::showPlotDialog(const QString& y_field, bool filtered)
 {
     PlotDialog* dialog = nullptr;
@@ -3822,7 +3762,8 @@ void WiresharkMainWindow::showPlotDialog(const QString& y_field, bool filtered)
 
     if (dialog == nullptr) {
         bool showDefault = y_field.isEmpty();   /* Don't generate default plots if we already have a field to plot. */
-        dialog = new PlotDialog(*this, capture_file_, showDefault);
+        dialog = new PlotDialog(*this, capture_file_);
+        dialog->initialize(*this, plot_packet_fields, showDefault);
         connect(dialog, &PlotDialog::goToPacket, packet_list_, &PacketList::goToPacket);
     }
 
@@ -3851,6 +3792,8 @@ void WiresharkMainWindow::showPlotDialog(const QString& y_field, bool filtered)
 
 void WiresharkMainWindow::connectTelephonyMenuActions()
 {
+    connect(action_telephony_dis_streams_, &QAction::triggered, this, &WiresharkMainWindow::openTelephonyDisStreamsDialog);
+
     connect(main_ui_->actionTelephonyVoipCalls, &QAction::triggered, this, [=]() {
                 VoipCallsDialog *dialog = VoipCallsDialog::openVoipCallsDialogVoip(*this, capture_file_, packet_list_);
                 dialog->show();
@@ -3903,6 +3846,14 @@ void WiresharkMainWindow::connectTelephonyMenuActions()
         VoipCallsDialog *dialog = VoipCallsDialog::openVoipCallsDialogSip(*this, capture_file_, packet_list_);
         dialog->show();
     });
+}
+
+DisStreamDialog *WiresharkMainWindow::openTelephonyDisStreamsDialog()
+{
+    DisStreamDialog *dialog = DisStreamDialog::openDisStreamDialog(*this, capture_file_, packet_list_);
+    dialog->show();
+
+    return dialog;
 }
 
 RtpPlayerDialog *WiresharkMainWindow::openTelephonyRtpPlayerDialog()
@@ -4115,13 +4066,6 @@ void WiresharkMainWindow::connectHelpMenuActions()
     connect(main_ui_->actionHelpReleaseNotes, &QAction::triggered, this, [=]() { mainApp->helpTopicAction(LOCALPAGE_WIRESHARK_RELEASE_NOTES); });
 }
 
-#ifdef HAVE_SOFTWARE_UPDATE
-void WiresharkMainWindow::checkForUpdates()
-{
-    software_update_check();
-}
-#endif
-
 void WiresharkMainWindow::setPreviousFocus() {
     previous_focus_ = mainApp->focusWidget();
     if (previous_focus_ != nullptr) {
@@ -4222,14 +4166,14 @@ void WiresharkMainWindow::extcap_options_finished(int result)
 {
     if (result == QDialog::Accepted) {
         QString before_what(tr(" before starting a new capture"));
-        if (testCaptureFileClose(before_what)) {
+        if (tryClosingCaptureFile(before_what)) {
             startCapture(QStringList());
         }
     }
     this->welcome_page_->getInterfaceFrame()->interfaceListChanged();
 }
 
-void WiresharkMainWindow::showExtcapOptionsDialog(QString &device_name, bool startCaptureOnClose)
+void WiresharkMainWindow::showExtcapOptionsDialog(QString device_name, bool startCaptureOnClose)
 {
     ExtcapOptionsDialog * extcap_options_dialog = ExtcapOptionsDialog::createForDevice(device_name, startCaptureOnClose, this);
     /* The dialog returns null, if the given device name is not a valid extcap device */

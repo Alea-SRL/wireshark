@@ -31,7 +31,7 @@
 #include "ui/util.h"
 
 #include "wsutil/filesystem.h"
-#include "wsutil/application_flavor.h"
+#include "app/application_flavor.h"
 #include "wsutil/plugins.h"
 #include "wsutil/version_info.h"
 #include "wsutil/path_config.h"
@@ -118,6 +118,8 @@ static void plugins_add_description(const char *name, const char *version,
         plugin_types << QObject::tr("Tap Listener");
     if (flags & WS_PLUGIN_DESC_DFILTER)
         plugin_types << QObject::tr("Display Filter");
+    if (flags & WS_PLUGIN_DESC_UI)
+        plugin_types << QObject::tr("User Interface");
     if (plugin_types.empty())
         plugin_types << QObject::tr("Unknown");
     QStringList plugin_row = QStringList() << name << version << plugin_types.join(", ") << filename;
@@ -173,7 +175,7 @@ FolderListModel::FolderListModel(QObject * parent):
         AStringListListModel(parent)
 {
     const char* env_prefix = application_configuration_environment_prefix();
-    const char* extcap_dir = application_flavor_is_wireshark() ? EXTCAP_DIR : STRATOSHARK_EXTCAP_DIR;
+    const char* extcap_dir = application_extcap_dir();
 
     /* "file open" */
     appendRow(QStringList() << tr("\"File\" dialog location") << get_open_dialog_initial_dir() << tr("Capture files"));
@@ -435,7 +437,7 @@ void AboutDialog::showEvent(QShowEvent * event)
 
 const char* AboutDialog::getVCSVersion()
 {
-    return get_ws_vcs_version_info();
+    return application_get_vcs_version_info();
 }
 
 

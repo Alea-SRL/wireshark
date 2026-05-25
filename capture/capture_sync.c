@@ -76,8 +76,7 @@
 
 #include "ui/capture.h"
 #include <capture/capture_sync.h>
-
-#include "sync_pipe.h"
+#include <capture/sync_pipe.h>
 
 #ifdef _WIN32
 #include "capture/capture-wpcap.h"

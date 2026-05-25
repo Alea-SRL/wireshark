@@ -1219,6 +1219,17 @@ sip_calls_packet(void *tap_offset_ptr, packet_info *pinfo, epan_dissect_t *edt ,
             if ((tmp_sipinfo && pi->tap_cseq_number == tmp_sipinfo->invite_cseq)&&(addresses_equal(&tmp_dst,&(callsinfo->initial_speaker)))) {
                 if ((pi->response_code > 199) && (pi->response_code<300) && (tmp_sipinfo->sip_state == SIP_INVITE_SENT)) {
                     tmp_sipinfo->sip_state = SIP_200_REC;
+                    /* XXX - If tapinfo->fs_open is FLOW_ALL and the method,
+                     * i.e., the prefix of callsinfo->call_comment, is something
+                     * other than INVITE, then this is the transaction end. See
+                     * RFC 3261 17.1.2 "Non-INVITE transactions do not make use
+                     * of ACK." (This holds for methods registered with IANA
+                     * subsequent to publishing of RFC 3261.) Therefore, we
+                     * should probably either update callsinfo->call_state to
+                     * VOIP_COMPLETED, or else the VOIP Calls dialog and model,
+                     * when in "SIP Flows" / all_flows_ mode, should use the
+                     * SIP-specific information for the state.
+                     */
                 }
                 else if ((pi->response_code>299)&&(tmp_sipinfo->sip_state == SIP_INVITE_SENT)) {
                     callsinfo->call_state = VOIP_REJECTED;
@@ -1267,6 +1278,25 @@ TODO: is useful but not perfect, what is appended is truncated when displayed in
                 callsinfo->call_state = VOIP_CANCELLED;
                 tmp_sipinfo->sip_state = SIP_CANCEL_SENT;
                 comment = ws_strdup_printf("SIP Request CANCEL CSeq:%d", pi->tap_cseq_number);
+            }
+            else if ((pi->tap_cseq_number == tmp_sipinfo->invite_cseq + 1)
+                    &&(addresses_equal(&tmp_src,&(callsinfo->initial_speaker)))&&(callsinfo->call_state==VOIP_REJECTED)
+                    &&(g_str_has_prefix(callsinfo->call_comment, pi->request_method))) {
+                /* RFC 3261 8.1.3.5 Processing 4xx Responses
+                 * This new request constitutes a new transaction and SHOULD
+                 * have the same value of the Call-ID, To, and From of the
+                 * previous request, but the CSeq should contain a new sequence
+                 * number that is one higher than the previous.
+                 *
+                 * (This same behavior has been adopted for 4xx Responses that
+                 * allow retry registered with IANA post RFC 3261.)
+                 */
+                tmp_sipinfo->invite_cseq = pi->tap_cseq_number;
+                callsinfo->call_state = VOIP_CALL_SETUP;
+                tapinfo->rejected_calls--;
+                /* Clear the old response code from the comment. */
+                g_free(callsinfo->call_comment);
+                callsinfo->call_comment=g_strdup((const char*)pi->request_method);
             } else {
                 /* comment = ws_strdup_printf("SIP %s", pi->request_method); */
                 comment = ws_strdup_printf("SIP %s From: %s To:%s CSeq:%d",
@@ -3188,7 +3218,7 @@ static const voip_protocol sccp_proto_map[] = {
     TEL_RANAP
 };
 #define SP2VP(ap) ((ap) < SCCP_PLOAD_NUM_PLOADS ? sccp_proto_map[(ap)] : TEL_SCCP)
-const value_string* sccp_payload_values;
+static const value_string* sccp_payload_values;
 
 static tap_packet_status
 sccp_calls(voip_calls_tapinfo_t *tapinfo, packet_info *pinfo, epan_dissect_t *edt, const void *prot_info, uint32_t redraw_bit) {

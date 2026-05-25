@@ -15,69 +15,6 @@
 #include <wsutil/wslog.h>
 ULONGLONG g_num_events;
 
-VOID format_message(WCHAR* lpszMessage, PROPERTY_KEY_VALUE* propArray, DWORD dwPropertyCount, WCHAR* lpszOutBuffer, DWORD dwOutBufferCount)
-{
-    DWORD startLoc = 0;
-    int percent_loc = 0;
-
-    for (int i = 0; lpszMessage[i] != L'\0';)
-    {
-        if (lpszMessage[i] != L'%')
-        {
-            i++;
-            continue;
-        }
-        if (lpszMessage[i + 1] == '%')
-        {
-            i += 2;
-            continue;
-        }
-
-        percent_loc = i;
-        i++;
-
-        if (iswdigit(lpszMessage[i]))
-        {
-            DWORD dwDigitalCount = 0;
-            WCHAR smallBuffer[MAX_SMALL_BUFFER] = { 0 };
-            while (iswdigit(lpszMessage[i]))
-            {
-                if (dwDigitalCount < (MAX_SMALL_BUFFER - 1))
-                {
-                    smallBuffer[dwDigitalCount] = lpszMessage[i];
-                }
-                dwDigitalCount++;
-                i++;
-            }
-
-            /* We are not parsing this */
-            if (dwDigitalCount >= (MAX_SMALL_BUFFER - 1))
-            {
-                continue;
-            }
-            DWORD num = _wtoi(smallBuffer);
-            /* We are not parsing this */
-            if (num == 0 || num > dwPropertyCount || propArray[num - 1].value[0] == L'\0')
-            {
-                continue;
-            }
-
-            if (lpszMessage[i] == L'!' && lpszMessage[i + 1] == L'S' && lpszMessage[i + 2] == L'!')
-            {
-                i += 3;
-            }
-
-            /* We have everything */
-            lpszMessage[percent_loc] = L'\0';
-            StringCbCat(lpszOutBuffer, dwOutBufferCount, lpszMessage + startLoc);
-            StringCbCat(lpszOutBuffer, dwOutBufferCount, propArray[num - 1].value);
-            startLoc = i;
-            continue; // for
-        }
-    }
-    StringCbCat(lpszOutBuffer, dwOutBufferCount, lpszMessage + startLoc);
-}
-
 /*
 * Get the length of the property data. For MOF-based events, the size is inferred from the data type
 * of the property. For manifest-based events, the property can specify the size of the property value
@@ -104,6 +41,8 @@ static DWORD GetPropertyLength(PEVENT_RECORD pEvent, PTRACE_EVENT_INFO pInfo, US
         DataDescriptor.PropertyName = ((ULONGLONG)(pInfo)+(ULONGLONG)pInfo->EventPropertyInfoArray[j].NameOffset);
         DataDescriptor.ArrayIndex = ULONG_MAX;
         status = TdhGetPropertySize(pEvent, 0, NULL, 1, &DataDescriptor, &PropertySize);
+        if (status != ERROR_SUCCESS)
+            return status;
         status = TdhGetProperty(pEvent, 0, NULL, 1, &DataDescriptor, PropertySize, (PBYTE)&Length);
         *PropertyLength = (USHORT)Length;
     }
@@ -161,6 +100,8 @@ static DWORD GetArraySize(PEVENT_RECORD pEvent, PTRACE_EVENT_INFO pInfo, USHORT 
         DataDescriptor.PropertyName = ((ULONGLONG)(pInfo)+(ULONGLONG)(pInfo->EventPropertyInfoArray[j].NameOffset));
         DataDescriptor.ArrayIndex = ULONG_MAX;
         status = TdhGetPropertySize(pEvent, 0, NULL, 1, &DataDescriptor, &PropertySize);
+        if (status != ERROR_SUCCESS)
+            return status;
         status = TdhGetProperty(pEvent, 0, NULL, 1, &DataDescriptor, PropertySize, (PBYTE)&Count);
         *ArraySize = (USHORT)Count;
     }
@@ -202,22 +143,31 @@ cleanup:
 }
 
 
-PBYTE extract_properties(PEVENT_RECORD pEvent, PTRACE_EVENT_INFO pInfo, DWORD PointerSize, USHORT i, PBYTE pUserData, PBYTE pEndOfUserData, PROPERTY_KEY_VALUE* pExtract)
+PBYTE extract_property(PEVENT_RECORD pEvent, PTRACE_EVENT_INFO pInfo, DWORD PointerSize, USHORT i, PBYTE pUserData, PBYTE pEndOfUserData, PROPERTY_KEY_VALUE* pExtract)
 {
     TDHSTATUS status = ERROR_SUCCESS;
     USHORT PropertyLength = 0;
     USHORT UserDataConsumed = 0;
     /* Last member of a structure */
-    DWORD LastMember = 0;
+    DWORD LastMember;
     USHORT ArraySize = 0;
     PEVENT_MAP_INFO pMapInfo = NULL;
-    WCHAR formatted_data[MAX_LOG_LINE_LENGTH];
-    DWORD formatted_data_size = sizeof(formatted_data);
+    WCHAR formatted_data[MAX_LOG_LINE_LENGTH + 1];
+    DWORD formatted_data_size = sizeof(WCHAR) * MAX_LOG_LINE_LENGTH;
     LPWSTR oversize_formatted_data = NULL;
 
     do
     {
+        /* Set the property key */
         StringCbCopy(pExtract->key, sizeof(pExtract->key), (PWCHAR)((PBYTE)(pInfo)+pInfo->EventPropertyInfoArray[i].NameOffset));
+
+        /* If pUserData is NULL, it means a previous property has failed to resolve. Skip */
+        if (pUserData == NULL)
+        {
+            StringCbPrintf(pExtract->value, sizeof(pExtract->value), L"%s: UNKNOWN", pExtract->key);
+            break;
+        }
+
         /* Get the length of the property. */
         status = GetPropertyLength(pEvent, pInfo, i, &PropertyLength);
         if (ERROR_SUCCESS != status)
@@ -262,10 +212,10 @@ PBYTE extract_properties(PEVENT_RECORD pEvent, PTRACE_EVENT_INFO pInfo, DWORD Po
 
                 for (USHORT j = pInfo->EventPropertyInfoArray[i].structType.StructStartIndex; j < LastMember; j++)
                 {
-                    pUserData = extract_properties(pEvent, pInfo, PointerSize, j, pUserData, pEndOfUserData, pExtract);
+                    pUserData = extract_property(pEvent, pInfo, PointerSize, j, pUserData, pEndOfUserData, pExtract);
                     if (NULL == pUserData)
                     {
-                        StringCbPrintf(pExtract->value, sizeof(pExtract->value), L"%s: extract_properties of member %d failed 0x%x", pExtract->key, j, status);
+                        StringCbPrintf(pExtract->value, sizeof(pExtract->value), L"%s: extract_property of member %d failed 0x%x", pExtract->key, j, status);
                         break;
                     }
                 }
@@ -360,10 +310,12 @@ PBYTE extract_properties(PEVENT_RECORD pEvent, PTRACE_EVENT_INFO pInfo, DWORD Po
         }
     } while (false);
 
+    pExtract->key_length = (USHORT)((wcslen(pExtract->key) + 1) * sizeof(WCHAR));
+    pExtract->value_length = (USHORT)((wcslen(pExtract->value) + 1) * sizeof(WCHAR));
+
     if (oversize_formatted_data)
     {
         g_free(oversize_formatted_data);
-        oversize_formatted_data = NULL;
     }
     if (pMapInfo)
     {

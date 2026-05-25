@@ -1,4 +1,4 @@
-/* Packet-rdp_drdynvc.c
+/* packet-rdp_drdynvc.c
  * Routines for Dynamic Virtual channel RDP packet dissection
  * Copyright 2021, David Fort
  *
@@ -59,17 +59,13 @@ static int ett_rdp_drdynvc_softsync_channels;
 static int ett_rdp_drdynvc_softsync_channel;
 static int ett_rdp_drdynvc_softsync_dvc;
 
-dissector_handle_t egfx_handle;
-dissector_handle_t rail_handle;
-dissector_handle_t cliprdr_handle;
-dissector_handle_t rdpdr_handle;
-dissector_handle_t snd_handle;
-dissector_handle_t ear_handle;
-dissector_handle_t ecam_handle;
-
-#define PNAME  "RDP Dynamic Channel Protocol"
-#define PSNAME "DRDYNVC"
-#define PFNAME "rdp_drdynvc"
+static dissector_handle_t egfx_handle;
+static dissector_handle_t rail_handle;
+static dissector_handle_t cliprdr_handle;
+static dissector_handle_t rdpdr_handle;
+static dissector_handle_t snd_handle;
+static dissector_handle_t ear_handle;
+static dissector_handle_t ecam_handle;
 
 enum {
 	DRDYNVC_CREATE_REQUEST_PDU = 0x01,
@@ -939,7 +935,7 @@ void proto_register_rdp_drdynvc(void) {
 		&ett_rdp_drdynvc_softsync_dvc
 	};
 
-	proto_rdp_drdynvc = proto_register_protocol(PNAME, PSNAME, PFNAME);
+	proto_rdp_drdynvc = proto_register_protocol("RDP Dynamic Channel Protocol", "DRDYNVC", "rdp_drdynvc");
 	/* Register fields and subtrees */
 	proto_register_field_array(proto_rdp_drdynvc, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));

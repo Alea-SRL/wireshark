@@ -36,8 +36,8 @@
 /* "SSH" prefixes are for version 2, whereas "SSH1" is for version 1 */
 
 #include "config.h"
-/* Start with WIRESHARK_LOG_DOMAINS=packet-ssh and WIRESHARK_LOG_LEVEL=debug to see messages. */
 #define WS_LOG_DOMAIN "packet-ssh"
+/* Start with WIRESHARK_LOG_DOMAINS=packet-ssh and WIRESHARK_LOG_LEVEL=debug to see messages. */
 
 // Define this to get hex dumps more similar to what you get in openssh. If not defined, dumps look more like what you get with other dissectors.
 #define OPENSSH_STYLE
@@ -320,6 +320,7 @@ static int hf_ssh_hostsig_type_length;
 static int hf_ssh_hostsig_type;
 static int hf_ssh_hostsig_rsa;
 static int hf_ssh_hostsig_dsa;
+static int hf_ssh_hostsig_data_length;
 static int hf_ssh_hostsig_data;
 
 /* Key exchange: Diffie-Hellman */
@@ -893,9 +894,6 @@ static int ssh_dissect_kex_dh_gex(uint8_t msg_code, tvbuff_t *tvb,
 static int ssh_dissect_kex_ecdh(uint8_t msg_code, tvbuff_t *tvb,
         packet_info *pinfo, int offset, proto_tree *tree,
         struct ssh_flow_data *global_data);
-static int ssh_dissect_kex_hybrid(uint8_t msg_code, tvbuff_t *tvb,
-        packet_info *pinfo, int offset, proto_tree *tree,
-        struct ssh_flow_data *global_data);
 static int ssh_dissect_kex_pq_hybrid(uint8_t msg_code, tvbuff_t *tvb,
         packet_info *pinfo, int offset, proto_tree *tree,
         struct ssh_flow_data *global_data);
@@ -905,7 +903,7 @@ static int  // add support of server PQ hybrid key (f)
 ssh_read_f_pq(tvbuff_t *tvb, int offset, struct ssh_flow_data *global_data);
 static int ssh_dissect_protocol(tvbuff_t *tvb, packet_info *pinfo,
         struct ssh_flow_data *global_data,
-        int offset, proto_tree *tree, int is_response, unsigned *version,
+        unsigned offset, proto_tree *tree, int is_response, unsigned *version,
         bool *need_desegmentation);
 static int ssh_try_dissect_encrypted_packet(tvbuff_t *tvb, packet_info *pinfo,
         struct ssh_peer_data *peer_data, int offset, proto_tree *tree);
@@ -1367,9 +1365,8 @@ ssh_dissect_ssh1(tvbuff_t *tvb, packet_info *pinfo,
     /* msg_code */
     if ((peer_data->frame_key_start == 0) ||
         ((peer_data->frame_key_start >= pinfo->num) && (pinfo->num <= peer_data->frame_key_end))) {
-        msg_code = tvb_get_uint8(tvb, offset);
 
-        proto_tree_add_item(ssh1_tree, hf_ssh_msg_code, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item_ret_uint8(ssh1_tree, hf_ssh_msg_code, tvb, offset, 1, ENC_BIG_ENDIAN, &msg_code);
         col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
             val_to_str(pinfo->pool, msg_code, ssh1_msg_vals, "Unknown (%u)"));
         offset += 1;
@@ -1499,8 +1496,7 @@ ssh_tree_add_hostsignature(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_
     proto_item* ti = NULL;
     int last_offset;
     int offset0 = offset;
-    int remaining_len;
-    unsigned sig_len, type_len;
+    unsigned sig_len, type_len, data_len;
     const char* sig_type;
     char *tree_title;
 
@@ -1538,9 +1534,10 @@ ssh_tree_add_hostsignature(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_
 //        ssh_tree_add_string(tvb, offset, tree,
 //                            hf_ssh_hostkey_eddsa_key, hf_ssh_hostkey_eddsa_key_length);
     } else {
-        remaining_len = sig_len - (type_len + 4);
-        proto_tree_add_item(tree, hf_ssh_hostsig_data, tvb, offset, remaining_len, ENC_NA);
-        offset += remaining_len;
+        proto_tree_add_item_ret_uint(tree, hf_ssh_hostsig_data_length, tvb, offset, 4, ENC_BIG_ENDIAN, &data_len);
+        offset += 4;
+        proto_tree_add_item(tree, hf_ssh_hostsig_data, tvb, offset, data_len, ENC_NA);
+        offset += data_len;
     }
 
     if(offset-offset0!=(int)(4+sig_len)){
@@ -1891,35 +1888,6 @@ ssh_dissect_kex_ecdh(uint8_t msg_code, tvbuff_t *tvb,
     return offset;
 }
 
-static int ssh_dissect_kex_hybrid(uint8_t msg_code, tvbuff_t *tvb,
-        packet_info *pinfo, int offset, proto_tree *tree,
-        struct ssh_flow_data *global_data _U_)
-{
-    proto_tree_add_item(tree, hf_ssh2_kex_hybrid_msg_code, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
-
-    col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
-        val_to_str(pinfo->pool, msg_code, ssh2_kex_hybrid_msg_vals, "Unknown (%u)"));
-
-    const char *kex_name = global_data->kex;
-    switch (msg_code) {
-    case SSH_MSG_KEX_HYBRID_INIT:
-        expert_add_info(pinfo, NULL, &ei_ssh2_kex_hybrid_msg_code_unknown);
-        expert_add_info(pinfo, NULL, &ei_ssh2_kex_hybrid_msg_code);
-        if (!PINFO_FD_VISITED(pinfo)) {
-            ws_warning("KEX_HYBRID detected: KEX ALGORITHM = %s", kex_name);
-            ws_warning("KEX_HYBRID KEM support in Wireshark / TShark SSH dissector may be missing, partial or experimental");
-        }
-        ws_noisy(">>> KEX_HYBRID KEM detected: msg_code = %u, offset = %d, kex = %s", msg_code, offset, kex_name);
-        break;
-    case SSH_MSG_KEX_HYBRID_REPLY:
-        ws_noisy(">>> KEX_HYBRID KEM detected: msg_code = %u, offset = %d, kex = %s", msg_code, offset, kex_name);
-        break;
-    }
-
-    return offset;
-}
-
     /*
      * === Hybrid KEX Dissection Strategy for Post-Quantum algorithms ===
      *
@@ -1933,20 +1901,37 @@ static int ssh_dissect_kex_hybrid(uint8_t msg_code, tvbuff_t *tvb,
      * post-quantum hybrid key exchange method:
      *   - sntrup761x25519-sha512
      *   - mlkem768x25519-sha256
+     *   - mlkem768nistp256-sha256
+     *   - mlkem1024nistp384-sha384
      *
      * /!\ Rationale for implementation approach:
      *
-     * OpenSSH encodes the server's ephemeral key (`Q_S`) as a single SSH `string`
-     * which contains both the post-quantum KEM ciphertext (from sntrup761 / mlkem768)
-     * and the traditional Curve25519 public key. Therefore, we parse one string
+     * SSH encodes the server's ephemeral key (`Q_S`) as a single SSH `string`
+     * which contains both the post-quantum KEM ciphertext (from sntrup761 / mlkem768
+     * / mlkem1024) and the traditional (Curve25519 / nistp256 / nistp384) public key.
+     * Therefore, we parse one string
      *
      *   sntrup761x25519:
-     *   - PQ ciphertext:      1039 bytes (sntrup761)
-     *   - Curve25519 pubkey:   32 bytes
+     *   - PQ client keyshare:   1158 bytes
+     *   - PQ server ciphertext: 1039 bytes
+     *   - Curve25519 pubkey:    32 bytes
      *
      *   mlkem768x25519:
-     *   - PQ ciphertext:      1152 bytes (mlkem768)
-     *   - Curve25519 pubkey:   32 bytes
+     *   - PQ client keyshare:   1184 bytes
+     *   - PQ server ciphertext: 1088 bytes
+     *   - Curve25519 pubkey:    32 bytes
+     *
+     *   mlkem768nistp256:
+     *   - PQ client keyshare:   1184 bytes
+     *   - PQ server ciphertext: 1088 bytes
+     *   - nistp256 pubkey:      65 bytes
+     *
+     *   mlkem1024nistp384:
+     *   - PQ client keyshare:   1568 bytes
+     *   - PQ server ciphertext: 1568 bytes
+     *   - nistp384 pubkey:      97 bytes
+     *
+     * OpenSSH uses `sntrup761x25519-sha512@openssh.com` as an (old) alias for `sntrup761x25519-sha512`
      *
      * This matches how OpenSSH serializes the hybrid key material, and allows Wireshark
      * to compute the correct key exchange hash and derive session keys accurately.
@@ -1959,17 +1944,16 @@ static int ssh_dissect_kex_hybrid(uint8_t msg_code, tvbuff_t *tvb,
      *     - Section 7.2: Key derivation
      *   - RFC 8731: Secure Shell (SSH) Key Exchange Method using Curve25519
      *   - Internet-Draft on sntrup761x25519-sha512
-     *     - https://www.ietf.org/archive/id/draft-josefsson-ntruprime-ssh-02.html
+     *     - https://datatracker.ietf.org/doc/draft-ietf-sshm-ntruprime-ssh/
      *   - Internet-Draft on mlkem768x25519-sha256
-     *     - https://datatracker.ietf.org/doc/draft-ietf-lamps-pq-composite-kem
+     *     - https://datatracker.ietf.org/doc/draft-ietf-sshm-mlkem-hybrid-kex/
      *   - OpenSSH Hybrid KEM Implementation (sntrup761x25519-sha512 / mlkem768x25519-sha256)
      *     - https://github.com/openssh/openssh-portable/blob/master/kexc25519.c
      *     - https://github.com/openssh/openssh-portable/blob/master/kexsntrup761x25519.c
      *     - https://github.com/openssh/openssh-portable/blob/master/kexmlkem768x25519.c
+     *   - AsyncSSH Hybrid KEM Implementation (sntrup761x25519-sha512 / mlkem768x25519-sha256 / mlkem768nistp256-sha256 / mlkem1024nistp384-sha384)
+     *     - https://github.com/ronf/asyncssh/blob/develop/asyncssh/kex_dh.py
      *
-     * These hybrid KEX format are experimental and not yet standardized via the IETF.
-     * The parsing logic here is tailored to match OpenSSH's real-world behavior to
-     * ensure accurate decryption support in Wireshark.
      */
 
 static int
@@ -1989,10 +1973,11 @@ ssh_dissect_kex_pq_hybrid(uint8_t msg_code, tvbuff_t *tvb,
     col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
         val_to_str(pinfo->pool, msg_code, ssh2_kex_hybrid_msg_vals, "Unknown (%u)"));
 
+    const char *kex_name = global_data->kex;
+
     if (msg_code == SSH_MSG_KEX_HYBRID_INIT) {
-        // Print warning when sntrup761x25519-sha512 or mlkem768x25519-sha256 is detected in KEX
+        // Print warning when PQ hybrid KEM is detected in KEX
         // This implementation currently rely on SHARED_SECRET only and do not work with PRIVATE_KEY
-        const char *kex_name = global_data->kex;
         if (!PINFO_FD_VISITED(pinfo)) {
             ws_warning("POST-QUANTUM KEX_HYBRID detected: KEX = %s", kex_name);
             ws_warning("SHARED_SECRET decryption is supported - PRIVATE_KEY decryption is not supported");
@@ -2008,13 +1993,23 @@ ssh_dissect_kex_pq_hybrid(uint8_t msg_code, tvbuff_t *tvb,
 
         //    SNTRUP761X25519: RFC4253 SSH "string" (binary-encoded structure)
         //    [00 00 04 a6]                       → length = 1190 (0x04a6)
-        //    [32 bytes of X25519 pubkey]         → ephemeral X25519 public key
         //    [1158 bytes PQ blob]                → sntrup761 encapsulated client key
+        //    [32 bytes of X25519 pubkey]         → ephemeral X25519 public key
 
         //    MLKEM768X25519: RFC4253 SSH "string" (binary-encoded structure)
         //    [00 00 04 c0]                       → length = 1216 (0x04c0)
-        //    [32 bytes of X25519 pubkey]         → ephemeral X25519 public key
         //    [1184 bytes PQ blob]                → mlkem768 encapsulated client key
+        //    [32 bytes of X25519 pubkey]         → ephemeral X25519 public key
+
+        //    MLKEM768NISTP256: RFC4253 SSH "string" (binary-encoded structure)
+        //    [00 00 04 e1]                       → length = 1249 (0x04e1)
+        //    [1184 bytes PQ blob]                → mlkem768 encapsulated client key
+        //    [65 bytes of nistp256 pubkey]       → ephemeral nistp256 public key
+
+        //    MLKEM1024NISTP384: RFC4253 SSH "string" (binary-encoded structure)
+        //    [00 00 06 81]                       → length = 1665 (0x0681)
+        //    [1568 bytes PQ blob]                → mlkem1024 encapsulated client key
+        //    [97 bytes of nistp384 pubkey]       → ephemeral nistp384 public key
 
         ws_debug("CLIENT INIT follow offset pointer - absolute offset: %d", offset); // debug trace offset
         int new_offset_client = ssh_read_e_pq(tvb, offset, global_data);
@@ -2031,21 +2026,46 @@ ssh_dissect_kex_pq_hybrid(uint8_t msg_code, tvbuff_t *tvb,
         // PQ-hybrid KEMs cannot use ssh_add_tree_string => manual dissection
         // Get PQ blob size
         proto_tree *pq_tree = NULL;
-        uint32_t pq_len = tvb_get_ntohl(tvb, offset);
-        ws_debug("CLIENT INIT PQ blob length - pq_len: %d", pq_len); // debug trace pq_len
+        uint32_t hybrid_len;
 
         // Add a subtree for dissecting PQ blob
-        proto_tree_add_item(tree, hf_ssh_hybrid_blob_client_len, tvb, offset, 4, ENC_BIG_ENDIAN); //  add blob length
+        proto_tree_add_item_ret_uint(tree, hf_ssh_hybrid_blob_client_len, tvb, offset, 4, ENC_BIG_ENDIAN, &hybrid_len); //  add blob length
+        ws_debug("CLIENT INIT PQ blob length - pq_len: %d", hybrid_len); // debug trace pq_len
         offset += 4;  // shift length field
-        pq_tree = proto_tree_add_subtree(tree, tvb, offset, pq_len, ett_ssh_pqhybrid_client, NULL, "Hybrid Key Exchange Blob Client");
+        pq_tree = proto_tree_add_subtree(tree, tvb, offset, hybrid_len, ett_ssh_pqhybrid_client, NULL, "Hybrid Key Exchange Blob Client");
         ws_debug("CLIENT INIT add PQ Hybrid subtree - offset: %d", offset); // debug trace offset
 
-        // Make a new tvb for just the PQ blob string contents
-        tvbuff_t *string_tvb = tvb_new_subset_length(tvb, offset, pq_len);
+        // Make a new tvb for just the PQ hybrid blob string contents
+        tvbuff_t *string_tvb = tvb_new_subset_length(tvb, offset, hybrid_len);
 
-        // Now dissect string inside the blob and add PQ server response and ECDH Q_S to GUI subtree
-        proto_tree_add_item(pq_tree, hf_ssh_ecdh_q_c, string_tvb, 0, 32, ENC_NA);
-        proto_tree_add_item(pq_tree, hf_ssh_pq_kem_client, string_tvb, 32, pq_len - 32, ENC_NA);
+        uint32_t pq_len;
+        uint32_t t_len;
+        if (g_str_has_prefix(kex_name, "sntrup761x25519-sha512")) {
+            pq_len = 1158;
+            t_len = 32;
+        } else if (strcmp(kex_name, "mlkem768x25519-sha256") == 0) {
+            pq_len = 1184;
+            t_len = 32;
+        } else if (strcmp(kex_name, "mlkem768nistp256-sha256") == 0) {
+            pq_len = 1184;
+            t_len = 65;
+        } else if (strcmp(kex_name, "mlkem1024nistp384-sha384") == 0) {
+            pq_len = 1568;
+            t_len = 97;
+        } else {
+            DISSECTOR_ASSERT_NOT_REACHED();
+            break;
+        }
+
+        if (pq_len + t_len != hybrid_len) {
+            proto_tree_add_expert_format(tree, pinfo, &ei_ssh_invalid_keylen, tvb, offset, 4,
+                "Invalid PQ hybrid client key length for %s: %u does not match %u + %u",
+                kex_name, hybrid_len, pq_len, t_len);
+        } else {
+            // Now dissect string inside the blob and add PQ server response and ECDH Q_S to GUI subtree
+            proto_tree_add_item(pq_tree, hf_ssh_pq_kem_client, string_tvb, 0, pq_len, ENC_NA);
+            proto_tree_add_item(pq_tree, hf_ssh_ecdh_q_c, string_tvb, pq_len, t_len, ENC_NA);
+        }
 
         // retrieve offset from read_f_pq() to shift blob length and consume packet
         offset = new_offset_client;
@@ -2057,20 +2077,60 @@ ssh_dissect_kex_pq_hybrid(uint8_t msg_code, tvbuff_t *tvb,
     case SSH_MSG_KEX_HYBRID_REPLY: {
 
         //    SNTRUP761X25519: RFC4253 SSH "string" (binary-encoded structure)
-        //    [00 00 00 0b]                       → length = 11  // blob offset:0 absolute offset:6
+        //    [00 00 00 33]                       → host key structure length = 51
+        //    [00 00 00 0b]                       → host key alg length = 11
         //    [73 73 68 2d 65 64 32 35 35 31 39]  → "ssh-ed25519"
-        //    [00 00 00 20]                       → length = 32
+        //    [00 00 00 20]                       → host key length = 32
         //    [32 bytes of public key]            → public key
-        //    [00 00 04 2f]                       → length = 1071
-        //    [1071 bytes PQ blob]                → PQ blob (32 x25519 + 1039 sntrup761)
+        //    [00 00 04 2f]                       → PQ blob length = 1071 (0x042f)
+        //    [1071 bytes PQ blob]                → PQ blob (1039 sntrup761 + 32 x25519)
+        //    [00 00 00 53]                       → signature structure length = 83
+        //    [00 00 00 0b]                       → signature alg length
+        //    [73 73 68 2d 65 64 32 35 35 31 39]  → "ssh-ed25519"
+        //    [00 00 00 40]                       → signature length
+        //    [40 bytes signature]                → server signature
 
         //    MLKEM768X25519: RFC4253 SSH "string" (binary-encoded structure)
-        //    [00 00 00 0b]                       → length = 11  // blob offset:0 absolute offset:6
+        //    [00 00 00 33]                       → host key structure length = 51
+        //    [00 00 00 0b]                       → host key alg length = 11
         //    [73 73 68 2d 65 64 32 35 35 31 39]  → "ssh-ed25519"
-        //    [00 00 00 20]                       → length = 32
-        //    [32 bytes of X25519 pubkey]         → ephemeral server X25519 public key
-        //    [00 00 04 a0]                       → length = 1184 (0x04a0)
-        //    [1184 bytes PQ blob]                → PQ blob (32 x25519 + 1152 kyber768)
+        //    [00 00 00 20]                       → host key length = 32
+        //    [32 bytes of public key]            → public key
+        //    [00 00 04 60]                       → PQ blob length = 1120 (0x0460)
+        //    [1120 bytes PQ blob]                → PQ blob (1088 mlkem768 + 32 x25519)
+        //    [00 00 00 53]                       → signature structure length = 83
+        //    [00 00 00 0b]                       → signature alg length
+        //    [73 73 68 2d 65 64 32 35 35 31 39]  → "ssh-ed25519"
+        //    [00 00 00 40]                       → signature length
+        //    [40 bytes signature]                → server signature
+
+        //    MLKEM768NISTP256: RFC4253 SSH "string" (binary-encoded structure)
+        //    [00 00 00 33]                       → host key structure length = 51
+        //    [00 00 00 0b]                       → host key alg length = 11
+        //    [73 73 68 2d 65 64 32 35 35 31 39]  → "ssh-ed25519"
+        //    [00 00 00 20]                       → host key length = 32
+        //    [32 bytes of public key]            → public key
+        //    [00 00 04 81]                       → PQ blob length = 1153 (0x0481)
+        //    [1153 bytes PQ blob]                → PQ blob (1088 mlkem768 + 65 nistp256)
+        //    [00 00 00 53]                       → signature structure length = 83
+        //    [00 00 00 0b]                       → signature alg length
+        //    [73 73 68 2d 65 64 32 35 35 31 39]  → "ssh-ed25519"
+        //    [00 00 00 40]                       → signature length
+        //    [40 bytes signature]                → server signature
+
+        //    MLKEM1024NISTP384: RFC4253 SSH "string" (binary-encoded structure)
+        //    [00 00 00 33]                       → host key structure length = 51
+        //    [00 00 00 0b]                       → host key alg length = 11
+        //    [73 73 68 2d 65 64 32 35 35 31 39]  → "ssh-ed25519"
+        //    [00 00 00 20]                       → host key length = 32
+        //    [32 bytes of public key]            → public key
+        //    [00 00 06 81]                       → PQ blob length = 1665 (0x0681)
+        //    [1665 bytes PQ blob]                → PQ blob (1568 mlkem1024 + 97 nistp384)
+        //    [00 00 00 53]                       → signature structure length = 83
+        //    [00 00 00 0b]                       → signature alg length
+        //    [73 73 68 2d 65 64 32 35 35 31 39]  → "ssh-ed25519"
+        //    [00 00 00 40]                       → signature length
+        //    [40 bytes signature]                → server signature
 
         ws_debug("SERVER REPLY follow offset pointer - absolute offset: %d", offset); // debug trace offset
 
@@ -2099,21 +2159,46 @@ ssh_dissect_kex_pq_hybrid(uint8_t msg_code, tvbuff_t *tvb,
         // PQ-hybrid KEMs cannot use ssh_add_tree_string => manual dissection
         // Get PQ blob size
         proto_tree *pq_tree = NULL;
-        uint32_t pq_len = tvb_get_ntohl(tvb, offset);
-        ws_debug("SERVER REPLY PQ blob length - pq_len: %d", pq_len); // debug trace pq_len
+        uint32_t hybrid_len = tvb_get_ntohl(tvb, offset);
+        ws_debug("SERVER REPLY PQ blob length - hybrid_len: %d", hybrid_len); // debug trace hybrid_len
 
         // Add a subtree for dissecting PQ blob
         proto_tree_add_item(tree, hf_ssh_hybrid_blob_server_len, tvb, offset, 4, ENC_BIG_ENDIAN); //  add blob length
         offset += 4;  // shift length field
-        pq_tree = proto_tree_add_subtree(tree, tvb, offset, pq_len, ett_ssh_pqhybrid_server, NULL, "Hybrid Key Exchange Blob Server");
+        pq_tree = proto_tree_add_subtree(tree, tvb, offset, hybrid_len, ett_ssh_pqhybrid_server, NULL, "Hybrid Key Exchange Blob Server");
         ws_debug("SERVER REPLY add PQ Hybrid subtree - offset: %d", offset); // debug trace offset
 
-        // Make a new tvb for just the PQ blob string contents
-        tvbuff_t *string_tvb = tvb_new_subset_length(tvb, offset, pq_len);
+        // Make a new tvb for just the PQ hybrid blob string contents
+        tvbuff_t *string_tvb = tvb_new_subset_length(tvb, offset, hybrid_len);
 
-        // Now dissect string inside the blob and add PQ server response and ECDH Q_S to GUI subtree
-        proto_tree_add_item(pq_tree, hf_ssh_ecdh_q_s, string_tvb, 0, 32, ENC_NA);
-        proto_tree_add_item(pq_tree, hf_ssh_pq_kem_server, string_tvb, 32, pq_len - 32, ENC_NA);
+        uint32_t pq_len;
+        uint32_t t_len;
+        if (g_str_has_prefix(kex_name, "sntrup761x25519-sha512")) {
+            pq_len = 1039;
+            t_len = 32;
+        } else if (strcmp(kex_name, "mlkem768x25519-sha256") == 0) {
+            pq_len = 1088;
+            t_len = 32;
+        } else if (strcmp(kex_name, "mlkem768nistp256-sha256") == 0) {
+            pq_len = 1088;
+            t_len = 65;
+        } else if (strcmp(kex_name, "mlkem1024nistp384-sha384") == 0) {
+            pq_len = 1568;
+            t_len = 97;
+        } else {
+            DISSECTOR_ASSERT_NOT_REACHED();
+            break;
+        }
+
+        if (pq_len + t_len != hybrid_len) {
+            proto_tree_add_expert_format(tree, pinfo, &ei_ssh_invalid_keylen, tvb, offset, 4,
+                "Invalid PQ hybrid server key length for %s: %u does not match %u + %u",
+                kex_name, hybrid_len, pq_len, t_len);
+        } else {
+            // Now dissect string inside the blob and add PQ server response and ECDH Q_S to GUI subtree
+            proto_tree_add_item(pq_tree, hf_ssh_pq_kem_server, string_tvb, 0, pq_len, ENC_NA);
+            proto_tree_add_item(pq_tree, hf_ssh_ecdh_q_s, string_tvb, pq_len, t_len, ENC_NA);
+        }
 
         // retrieve offset from read_f_pq() to shift blob length
         offset = new_offset_server;
@@ -2228,11 +2313,10 @@ ssh_dissect_encrypted_packet(tvbuff_t *tvb, packet_info *pinfo,
 static int
 ssh_dissect_protocol(tvbuff_t *tvb, packet_info *pinfo,
         struct ssh_flow_data *global_data,
-        int offset, proto_tree *tree, int is_response, unsigned * version,
+        unsigned offset, proto_tree *tree, int is_response, unsigned * version,
         bool *need_desegmentation)
 {
-    unsigned   remain_length;
-    int     linelen, protolen;
+    unsigned   protolen, next_offset;
 
     /*
      *  If the first packet do not contain the banner,
@@ -2254,37 +2338,15 @@ ssh_dissect_protocol(tvbuff_t *tvb, packet_info *pinfo,
         }
     }
 
-    /*
-     * We use "tvb_ensure_captured_length_remaining()" to make sure there
-     * actually *is* data remaining.
-     *
-     * This means we're guaranteed that "remain_length" is positive.
-     */
-    remain_length = tvb_ensure_captured_length_remaining(tvb, offset);
-    /*linelen = tvb_find_line_end(tvb, offset, -1, &next_offset, false);
-     */
-    linelen = tvb_find_uint8(tvb, offset, -1, '\n');
-
-    if (ssh_desegment && pinfo->can_desegment) {
-        if (linelen == -1 || remain_length < (unsigned)linelen-offset) {
+    if (!tvb_find_line_end_remaining(tvb, offset, &protolen, &next_offset)) {
+        if (ssh_desegment && pinfo->can_desegment) {
             pinfo->desegment_offset = offset;
-            pinfo->desegment_len = linelen-remain_length;
+            pinfo->desegment_len = DESEGMENT_ONE_MORE_SEGMENT;
             *need_desegmentation = true;
             return offset;
         }
     }
-    if (linelen == -1) {
-        /* XXX - reassemble across segment boundaries? */
-        linelen = remain_length;
-        protolen = linelen;
-    } else {
-        linelen = linelen - offset + 1;
-
-        if (linelen > 1 && tvb_get_uint8(tvb, offset + linelen - 2) == '\r')
-            protolen = linelen - 2;
-        else
-            protolen = linelen - 1;
-    }
+    /* Either we found it, or we're not reassembling and take everything. */
 
     col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "Protocol (%s)",
             tvb_format_text(pinfo->pool, tvb, offset, protolen));
@@ -2302,7 +2364,7 @@ ssh_dissect_protocol(tvbuff_t *tvb, packet_info *pinfo,
 
     proto_tree_add_item(tree, hf_ssh_protocol,
                     tvb, offset, protolen, ENC_ASCII);
-    offset += linelen;
+    offset += next_offset;
     return offset;
 }
 
@@ -2377,14 +2439,10 @@ static void ssh_set_kex_specific_dissector(struct ssh_flow_data *global_data)
     {
         global_data->kex_specific_dissector = ssh_dissect_kex_dh;
     }
-    else if (strcmp(kex_name, "mlkem768nistp256-sha256") == 0 ||
+    else if (g_str_has_prefix(kex_name, "sntrup761x25519-sha512") ||
+        strcmp(kex_name, "mlkem768x25519-sha256") == 0 ||
+        strcmp(kex_name, "mlkem768nistp256-sha256") == 0 ||
         strcmp(kex_name, "mlkem1024nistp384-sha384") == 0)
-    {
-        global_data->kex_specific_dissector = ssh_dissect_kex_hybrid;
-    }
-    else if (strcmp(kex_name, "sntrup761x25519-sha512") == 0 ||
-        strcmp(kex_name, "mlkem768x25519-sha256") == 0)
-    /* ___add support for post-quantum hybrid KEM */
     {
         global_data->kex_specific_dissector = ssh_dissect_kex_pq_hybrid;
     }
@@ -4157,7 +4215,7 @@ ssh_decrypt_packet(tvbuff_t *tvb, packet_info *pinfo,
         plain = (uint8_t *)wmem_alloc(pinfo->pool, message_length+4);
         memcpy(plain, peer_data->plain0, 16);
 
-        if (message_length - 12 > 0) {
+        if (message_length > 12) {
             /* All of these functions actually do handle the case where
              * there is no data left, so the check is unnecessary.
              */
@@ -4211,8 +4269,7 @@ ssh_decrypt_packet(tvbuff_t *tvb, packet_info *pinfo,
     }
 
     if (mac_len && data_len) {
-        mac = tvb_get_ptr(tvb, offset + data_len, mac_len);
-        if (!memcmp(mac, calc_mac, mac_len)){
+        if (mac_len <= DIGEST_MAX_SIZE && !memcmp(tvb_get_ptr(tvb, offset + data_len, mac_len), calc_mac, mac_len)){
             ws_noisy("MAC OK");
         }else{
             ws_debug("MAC ERR");
@@ -4826,7 +4883,7 @@ ssh_proto_tree_add_segment_data(
         NULL,
         "%sSSH segment data (%u %s)",
         prefix != NULL ? prefix : "",
-        length == -1 ? tvb_reported_length_remaining(tvb, offset) : length,
+        length,
         plurality(length, "byte", "bytes"));
 }
 
@@ -4837,7 +4894,7 @@ desegment_ssh(tvbuff_t *tvb, packet_info *pinfo, uint32_t seq,
     fragment_head *ipfd_head;
     bool           must_desegment;
     bool           called_dissector;
-    int            another_pdu_follows;
+    unsigned       another_pdu_follows;
     bool           another_segment_in_frame = false;
     int            deseg_offset, offset = 0;
     uint32_t       deseg_seq;
@@ -4913,7 +4970,7 @@ again:
     /* Else, find the most previous PDU starting before this sequence number */
     msp = (struct tcp_multisegment_pdu *)wmem_tree_lookup32_le(channel->multisegment_pdus, seq-1);
     if (msp && msp->seq <= seq && msp->nxtpdu > seq) {
-        int len;
+        unsigned len;
 
         if (!PINFO_FD_VISITED(pinfo)) {
             msp->last_frame = pinfo->num;
@@ -4925,7 +4982,7 @@ again:
          */
         if (msp->flags & MSP_FLAGS_REASSEMBLE_ENTIRE_SEGMENT) {
             /* The dissector asked for the entire segment */
-            len = MAX(0, tvb_reported_length_remaining(tvb, offset));
+            len = tvb_reported_length_remaining(tvb, offset);
         } else {
             len = MIN(nxtseq, msp->nxtpdu) - seq;
         }
@@ -6356,6 +6413,11 @@ proto_register_ssh(void)
         { &hf_ssh_hostsig_type,
           { "Host signature type", "ssh.host_sig.type",
             FT_STRING, BASE_NONE, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_ssh_hostsig_data_length,
+          { "Host signature data length", "ssh.host_sig.data_length",
+            FT_UINT32, BASE_DEC, NULL, 0x0,
             NULL, HFILL }},
 
         { &hf_ssh_hostsig_data,

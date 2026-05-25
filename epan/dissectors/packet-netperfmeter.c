@@ -368,9 +368,7 @@ dissect_npm_add_flow_message(tvbuff_t *message_tvb, proto_tree *message_tree, pr
   proto_tree_add_item(message_tree, hf_addflow_cmt,           message_tvb, 140, 1, ENC_BIG_ENDIAN);
   proto_tree_add_item(message_tree, hf_addflow_ccid,          message_tvb, 141, 1, ENC_BIG_ENDIAN);
 
-  onoffitem = proto_tree_add_item(message_tree, hf_addflow_onoffevents, message_tvb, 142, 2, ENC_BIG_ENDIAN);
-
-  onoffevents = tvb_get_ntohs(message_tvb, 142);
+  onoffitem = proto_tree_add_item_ret_uint16(message_tree, hf_addflow_onoffevents, message_tvb, 142, 2, ENC_BIG_ENDIAN, &onoffevents);
   if (onoffevents > 0) {
      onofftree = proto_item_add_subtree(onoffitem, ett_onoffarray);
     for(i = 0;i < onoffevents;i++) {

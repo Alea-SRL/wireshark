@@ -42,7 +42,7 @@
 #include <wsutil/wslog.h>
 #include <wsutil/ws_assert.h>
 #include <wsutil/version_info.h>
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>
 #include <wsutil/path_config.h>
 
 #include "capture/capture_session.h"
@@ -110,6 +110,7 @@ typedef struct thread_pool {
     int             count;  /**< Number of tasks that have not finished. */
     GCond           cond;
     GMutex          data_mutex;
+    GQueue          completed;  /**< Queue of completed extcap path strings (not owned). */
 } thread_pool_t;
 
 /**
@@ -140,6 +141,9 @@ typedef struct extcap_run_extcaps_info {
 } extcap_run_extcaps_info_t;
 
 
+static register_cb _extcap_progress_cb;
+static void *_extcap_progress_data;
+
 static void extcap_load_interface_list(void);
 
 /* Used for lazily loading our interfaces. */
@@ -155,16 +159,6 @@ thread_pool_push(thread_pool_t *pool, void *data, GError **error)
     ++pool->count;
     g_mutex_unlock(&pool->data_mutex);
     return g_thread_pool_push(pool->pool, data, error);
-}
-
-static void
-thread_pool_wait(thread_pool_t *pool)
-{
-    g_mutex_lock(&pool->data_mutex);
-    while (pool->count != 0) {
-        g_cond_wait(&pool->cond, &pool->data_mutex);
-    }
-    g_mutex_unlock(&pool->data_mutex);
 }
 
 static GHashTable *
@@ -414,7 +408,7 @@ static void
 extcap_run_one(const extcap_interface *interface, GList *arguments, extcap_cb_t cb, void *user_data, char **err_str,
     const char* option_name, const char* option_value)
 {
-    const char* extcap_dir = application_flavor_is_wireshark() ? EXTCAP_DIR : STRATOSHARK_EXTCAP_DIR;
+    const char* extcap_dir = application_extcap_dir();
     const char *dirname = get_extcap_dir(application_configuration_environment_prefix(), extcap_dir);
     char **args = extcap_convert_arguments_to_array(arguments);
     int cnt = g_list_length(arguments);
@@ -441,7 +435,7 @@ extcap_thread_callback(void *data, void *user_data)
 {
     extcap_run_task_t *task = (extcap_run_task_t *)data;
     thread_pool_t *pool = (thread_pool_t *)user_data;
-    const char* extcap_dir = application_flavor_is_wireshark() ? EXTCAP_DIR : STRATOSHARK_EXTCAP_DIR;
+    const char* extcap_dir = application_extcap_dir();
     const char *dirname = get_extcap_dir(application_configuration_environment_prefix(), extcap_dir);
 
     char *command_output;
@@ -450,14 +444,15 @@ extcap_thread_callback(void *data, void *user_data)
     } else {
         task->output_cb(pool, task->data, NULL);
     }
+    const char *completed_path = task->extcap_path;
     g_strfreev(task->argv);
     g_free(task);
 
-    // Notify when all tasks are completed and no new subtasks were created.
+    // Notify when a task completes; signal so the main thread can report progress.
     g_mutex_lock(&pool->data_mutex);
-    if (--pool->count == 0) {
-        g_cond_signal(&pool->cond);
-    }
+    g_queue_push_tail(&pool->completed, (void *)completed_path);
+    --pool->count;
+    g_cond_signal(&pool->cond);
     g_mutex_unlock(&pool->data_mutex);
 }
 
@@ -477,7 +472,7 @@ extcap_run_all(const char *argv[], extcap_run_cb_t output_cb, size_t data_size, 
 {
     /* Need enough space for at least 'extcap_path'. */
     ws_assert(data_size >= sizeof(char *));
-    const char* extcap_dir = application_flavor_is_wireshark() ? EXTCAP_DIR : STRATOSHARK_EXTCAP_DIR;
+    const char* extcap_dir = application_extcap_dir();
 
     GSList *paths = extcap_get_extcap_paths(application_configuration_environment_prefix(), extcap_dir);
     int i = 0;
@@ -498,6 +493,7 @@ extcap_run_all(const char *argv[], extcap_run_cb_t output_cb, size_t data_size, 
     pool.count = 0;
     g_cond_init(&pool.cond);
     g_mutex_init(&pool.data_mutex);
+    g_queue_init(&pool.completed);
 
     for (GSList *path = paths; path; path = g_slist_next(path), i++) {
         extcap_run_task_t *task = g_new0(extcap_run_task_t, 1);
@@ -512,9 +508,22 @@ extcap_run_all(const char *argv[], extcap_run_cb_t output_cb, size_t data_size, 
     }
     g_slist_free(paths);    /* Note: the contents are transferred to 'infos'. */
 
-    /* Wait for all (sub)tasks to complete. */
-    thread_pool_wait(&pool);
+    /* Wait for all (sub)tasks to complete, reporting progress as each finishes. */
+    g_mutex_lock(&pool.data_mutex);
+    while (pool.count != 0) {
+        g_cond_wait(&pool.cond, &pool.data_mutex);
+        if (_extcap_progress_cb) {
+            const char *name;
+            while ((name = (const char *)g_queue_pop_head(&pool.completed)) != NULL) {
+                g_mutex_unlock(&pool.data_mutex);
+                _extcap_progress_cb(RA_EXTCAP, name, _extcap_progress_data);
+                g_mutex_lock(&pool.data_mutex);
+            }
+        }
+    }
+    g_mutex_unlock(&pool.data_mutex);
 
+    g_queue_clear(&pool.completed);
     g_mutex_clear(&pool.data_mutex);
     g_cond_clear(&pool.cond);
     g_thread_pool_free(pool.pool, false, true);
@@ -751,7 +760,7 @@ append_extcap_interface_list(GList *list)
     return list;
 }
 
-void extcap_register_preferences(void)
+void extcap_register_preferences(register_cb cb, void *client_data)
 {
     /* Unconditionally register the extcap configuration file, so that
      * it is copied if we copy the profile even if we're not going to
@@ -769,8 +778,14 @@ void extcap_register_preferences(void)
         return;
     }
 
+    _extcap_progress_cb = cb;
+    _extcap_progress_data = client_data;
+
     // Will load information about extcaps and their supported config.
     extcap_ensure_all_interfaces_loaded();
+
+    _extcap_progress_cb = NULL;
+    _extcap_progress_data = NULL;
 }
 
 /**
@@ -1278,7 +1293,7 @@ extcap_cleanup_postkill(const char* ifname)
     if (interface)
     {
         ws_info("(extcap_cleanup_postkill) Extcap path %s", interface->extcap_path);
-        const char* extcap_dir = application_flavor_is_wireshark() ? EXTCAP_DIR : STRATOSHARK_EXTCAP_DIR;
+        const char* extcap_dir = application_extcap_dir();
 
         dirname = get_extcap_dir(application_configuration_environment_prefix(), extcap_dir);
         args = g_strdup(EXTCAP_ARGUMENT_CLEANUP_POSTKILL);
@@ -2316,6 +2331,10 @@ extcap_load_interface_list(void)
         for (unsigned i = 0; i < count; i++) {
             if (!infos[i].output) {
                 continue;
+            }
+
+            if (_extcap_progress_cb) {
+                _extcap_progress_cb(RA_EXTCAP, infos[i].extcap_path, _extcap_progress_data);
             }
 
             // Save new extcap and each discovered interface.

@@ -32,10 +32,6 @@
 
 #include "packet-h450-ros.h"
 
-#define PNAME  "H.450 Supplementary Services"
-#define PSNAME "H.450"
-#define PFNAME "h450"
-
 void proto_register_h450(void);
 void proto_reg_handoff_h450(void);
 
@@ -797,6 +793,12 @@ static rose_ctx_t h450_rose_ctx;
 
 /* --- Modules H4501-Supplementary-ServiceAPDU-Structure Addressing-Data-Elements H225-generic-parameters-definition Manufacturer-specific-service-extension-definition H4501-General-Error-List --- --- --- */
 
+/*--- Cyclic dependencies ---*/
+
+/* Extension/extensionArgument -> Extension/extensionArgument */
+static unsigned dissect_h450_T_extensionArgument(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+
 
 
 static unsigned
@@ -1073,8 +1075,11 @@ dissect_h450_OBJECT_IDENTIFIER(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_
 
 static unsigned
 dissect_h450_T_extensionArgument(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // Extension/extensionArgument -> Extension/extensionArgument
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_per_open_type(tvb, offset, actx, tree, hf_index, NULL);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -4659,7 +4664,7 @@ static const h450_err_t *get_err(int32_t errcode) {
 static int
 dissect_h450_arg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
   proto_item *hidden_item;
-  int offset = 0;
+  unsigned offset = 0;
   rose_ctx_t *rctx;
   int32_t opcode;
   const h450_op_t *op_ptr;
@@ -4693,7 +4698,7 @@ dissect_h450_arg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
     offset = op_ptr->arg_pdu(tvb, pinfo, tree, NULL);
   else
     if (tvb_reported_length_remaining(tvb, offset) > 0) {
-      proto_tree_add_expert(tree, pinfo, &ei_h450_unsupported_arg_type, tvb, offset, -1);
+      proto_tree_add_expert_remaining(tree, pinfo, &ei_h450_unsupported_arg_type, tvb, offset);
       offset += tvb_reported_length_remaining(tvb, offset);
     }
 
@@ -4704,7 +4709,7 @@ dissect_h450_arg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
 static int
 dissect_h450_res(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
   proto_item *hidden_item;
-  int offset = 0;
+  unsigned offset = 0;
   rose_ctx_t *rctx;
   int32_t opcode;
   const h450_op_t *op_ptr;
@@ -4738,7 +4743,7 @@ dissect_h450_res(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
     offset = op_ptr->res_pdu(tvb, pinfo, tree, NULL);
   else
     if (tvb_reported_length_remaining(tvb, offset) > 0) {
-      proto_tree_add_expert(tree, pinfo, &ei_h450_unsupported_result_type, tvb, offset, -1);
+      proto_tree_add_expert_remaining(tree, pinfo, &ei_h450_unsupported_result_type, tvb, offset);
       offset += tvb_reported_length_remaining(tvb, offset);
     }
 
@@ -4749,7 +4754,7 @@ dissect_h450_res(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
 static int
 dissect_h450_err(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
   proto_item *hidden_item;
-  int offset = 0;
+  unsigned offset = 0;
   rose_ctx_t *rctx;
   int32_t errcode;
   const h450_err_t *err_ptr;
@@ -4783,7 +4788,7 @@ dissect_h450_err(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
     offset = err_ptr->err_pdu(tvb, pinfo, tree, NULL);
   else
     if (tvb_reported_length_remaining(tvb, offset) > 0) {
-      proto_tree_add_expert(tree, pinfo, &ei_h450_unsupported_error_type, tvb, offset, -1);
+      proto_tree_add_expert_remaining(tree, pinfo, &ei_h450_unsupported_error_type, tvb, offset);
       offset += tvb_reported_length_remaining(tvb, offset);
     }
 
@@ -6414,7 +6419,7 @@ void proto_register_h450(void) {
   expert_module_t* expert_h450;
 
   /* Register protocol */
-  proto_h450 = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_h450 = proto_register_protocol("H.450 Supplementary Services", "H.450", "h450");
   register_dissector("h4501", dissect_h450_H4501SupplementaryService_PDU, proto_h450);
   /* Register fields and subtrees */
   proto_register_field_array(proto_h450, hf, array_length(hf));

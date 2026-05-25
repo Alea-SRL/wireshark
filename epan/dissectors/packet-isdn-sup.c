@@ -24,10 +24,6 @@
 
 #include "packet-ber.h"
 
-#define PNAME  "ISDN supplementary services"
-#define PSNAME "ISDN_SUP"
-#define PFNAME "isdn_sup"
-
 void proto_register_isdn_sup(void);
 void proto_reg_handoff_isdn_sup(void);
 
@@ -2776,7 +2772,7 @@ static const isdn_sup_err_t *get_err(int32_t errcode) {
 /*--- dissect_isdn_sup_arg ------------------------------------------------------*/
 static int
 dissect_isdn_sup_arg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
-  int offset = 0;
+  unsigned offset = 0;
   rose_ctx_t *rctx;
   int32_t opcode = 0;
   const char *p;
@@ -2817,7 +2813,7 @@ dissect_isdn_sup_arg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
     offset = op_ptr->arg_pdu(tvb, pinfo, isdn_sup_tree, NULL);
   else
     if (tvb_reported_length_remaining(tvb, offset) > 0) {
-      proto_tree_add_expert(tree, pinfo, &ei_isdn_sup_unsupported_error_type, tvb, offset, -1);
+      proto_tree_add_expert_remaining(tree, pinfo, &ei_isdn_sup_unsupported_error_type, tvb, offset);
       offset += tvb_reported_length_remaining(tvb, offset);
     }
 
@@ -2827,7 +2823,7 @@ dissect_isdn_sup_arg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
 /*--- dissect_isdn_sup_res -------------------------------------------------------*/
 static int
 dissect_isdn_sup_res(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
-  int offset = 0;
+  unsigned offset = 0;
   rose_ctx_t *rctx;
   int32_t opcode = 0;
   const char *p;
@@ -2866,7 +2862,7 @@ dissect_isdn_sup_res(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
     offset = op_ptr->res_pdu(tvb, pinfo, isdn_sup_tree, NULL);
   else
     if (tvb_reported_length_remaining(tvb, offset) > 0) {
-      proto_tree_add_expert(tree, pinfo, &ei_isdn_sup_unsupported_result_type, tvb, offset, -1);
+      proto_tree_add_expert_remaining(tree, pinfo, &ei_isdn_sup_unsupported_result_type, tvb, offset);
       offset += tvb_reported_length_remaining(tvb, offset);
     }
 
@@ -2877,7 +2873,7 @@ dissect_isdn_sup_res(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
 /*--- dissect_isdn_sup_err ------------------------------------------------------*/
 static int
 dissect_isdn_sup_err(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
-  int offset = 0;
+  unsigned offset = 0;
   rose_ctx_t *rctx;
   int32_t errcode;
   const isdn_sup_err_t *err_ptr;
@@ -2916,7 +2912,7 @@ dissect_isdn_sup_err(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
     offset = err_ptr->err_pdu(tvb, pinfo, isdn_sup_tree, NULL);
   else
     if (tvb_reported_length_remaining(tvb, offset) > 0) {
-      proto_tree_add_expert(tree, pinfo, &ei_isdn_sup_unsupported_error_type, tvb, offset, -1);
+      proto_tree_add_expert_remaining(tree, pinfo, &ei_isdn_sup_unsupported_error_type, tvb, offset);
       offset += tvb_reported_length_remaining(tvb, offset);
     }
 
@@ -3730,7 +3726,7 @@ void proto_register_isdn_sup(void) {
   expert_module_t* expert_isdn_sup;
 
   /* Register protocol */
-  proto_isdn_sup = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_isdn_sup = proto_register_protocol("ISDN supplementary services", "ISDN_SUP", "isdn_sup");
 
   /* Register fields and subtrees */
   proto_register_field_array(proto_isdn_sup, hf, array_length(hf));
@@ -3739,7 +3735,7 @@ void proto_register_isdn_sup(void) {
   expert_register_field_array(expert_isdn_sup, ei, array_length(ei));
 
   /* Register dissectors */
-  isdn_sup_arg_handle = register_dissector(PFNAME "_arg", dissect_isdn_sup_arg, proto_isdn_sup);
-  isdn_sup_res_handle = register_dissector(PFNAME "_res", dissect_isdn_sup_res, proto_isdn_sup);
-  isdn_sup_err_handle = register_dissector(PFNAME "_err", dissect_isdn_sup_err, proto_isdn_sup);
+  isdn_sup_arg_handle = register_dissector("isdn_sup_arg", dissect_isdn_sup_arg, proto_isdn_sup);
+  isdn_sup_res_handle = register_dissector("isdn_sup_res", dissect_isdn_sup_res, proto_isdn_sup);
+  isdn_sup_err_handle = register_dissector("isdn_sup_err", dissect_isdn_sup_err, proto_isdn_sup);
 }

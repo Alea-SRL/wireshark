@@ -9,8 +9,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#include <config.h>
-
+#include "config.h"
 #define WS_LOG_DOMAIN  LOG_DOMAIN_MAIN
 
 #include <stdlib.h>
@@ -37,7 +36,7 @@
 #include <wsutil/privileges.h>
 #include <wsutil/wslog.h>
 #include <wsutil/ws_assert.h>
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>
 #include <cli_main.h>
 #include <wsutil/version_info.h>
 
@@ -363,7 +362,7 @@ main(int argc, char *argv[])
     initialize_funnel_ops();
 
     /* Initialize the version information. */
-    ws_init_version_info("TFShark", application_flavor_name_proper(), get_ws_vcs_version_info,
+    ws_init_version_info("TFShark", application_flavor_name_proper(), application_get_vcs_version_info,
                          epan_gather_compile_info,
                          epan_gather_runtime_info);
     /*
@@ -475,7 +474,6 @@ main(int argc, char *argv[])
     app_data.num_cols = application_num_columns();
     app_data.register_func = register_all_protocols;
     app_data.handoff_func = register_all_protocol_handoffs;
-    app_data.supports_packets = application_flavor_is_wireshark();
     if (!epan_init(NULL, NULL, true, &app_data)) {
         exit_status = WS_EXIT_INIT_FAILED;
         goto clean_exit;
@@ -1564,7 +1562,7 @@ write_preamble(capture_file *cf)
     switch (output_action) {
 
         case WRITE_TEXT:
-            return print_preamble(print_stream, cf->filename, get_ws_vcs_version_info());
+            return print_preamble(print_stream, cf->filename, application_get_vcs_version_info());
 
         case WRITE_XML:
             if (print_details)

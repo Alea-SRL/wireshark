@@ -20,6 +20,7 @@
 #include <epan/proto.h>
 #include <epan/proto_data.h>
 #include <epan/strutil.h>
+#include <epan/decode_as.h>
 
 #include <wsutil/strtoi.h>
 #include <wsutil/utf8_entities.h>
@@ -99,7 +100,7 @@ typedef struct _nats_conv_t
 /** Parsing helper */
 typedef struct _nats_request_token
 {
-    int offset;
+    unsigned offset;
     int length;
     const char* value;
 } nats_request_token_t;
@@ -108,6 +109,7 @@ typedef struct _nats_request_token
 typedef struct _nats_dissector_search_context
 {
     const char* subject;
+    int subject_length;
     dissector_handle_t dissector;
 } nats_dissector_search_context_t;
 
@@ -165,16 +167,16 @@ static nats_conv_t* get_nats_conversation_data(packet_info* pinfo,
     return conv_data;
 }
 
-static size_t nats_parse_tokens(tvbuff_t* tvb, int offset, int last_offset, packet_info* pinfo,
+static size_t
+nats_parse_tokens(tvbuff_t* tvb, unsigned offset, unsigned last_offset, packet_info* pinfo,
                                 nats_request_token_t* tokens, size_t max_tokens)
 {
-    int current_offset = offset;
+    unsigned current_offset = offset;
 
     for (size_t i = 0; i < max_tokens; i++)
     {
-        int token_length = tvb_get_token_len(
-            tvb, current_offset, last_offset - current_offset, NULL, false);
-        if (!token_length)
+        unsigned token_length;
+        if (!tvb_get_token_len_length(tvb, current_offset, last_offset - current_offset, &token_length, NULL))
             return i;
 
         tokens[i].offset = current_offset;
@@ -192,11 +194,11 @@ static size_t nats_parse_tokens(tvbuff_t* tvb, int offset, int last_offset, pack
     return max_tokens;
 }
 
-static void dissect_nats_header_version(tvbuff_t* tvb, int offset, int end_offset,
+static void dissect_nats_header_version(tvbuff_t* tvb, unsigned offset, int end_offset,
                                         packet_info* pinfo, proto_tree* header_tree)
 {
     proto_item *header_version = proto_tree_add_item(header_tree, hf_nats_header_version, tvb,
-                                                     offset, end_offset, ENC_ASCII);
+                                                     offset, end_offset - offset, ENC_ASCII);
     proto_tree *header_version_tree = proto_item_add_subtree(header_version, ett_nats_headers);
 
     /* The header version has the format NATS/X.x where
@@ -208,19 +210,19 @@ static void dissect_nats_header_version(tvbuff_t* tvb, int offset, int end_offse
      * https://github.com/nats-io/nats-architecture-and-design/blob/main/adr/ADR-4.md#version-header
      */
 
-    int slash_offset = tvb_find_uint8(tvb, offset, end_offset - offset, '/');
-    if (slash_offset == -1)
+    unsigned slash_offset, dot_offset;
+
+    if (!tvb_find_uint8_length(tvb, offset, end_offset - offset, '/', &slash_offset))
         return;
 
-    int dot_offset = tvb_find_uint8(tvb, slash_offset, end_offset - slash_offset, '.');
-    if (dot_offset == -1)
+    if (!tvb_find_uint8_length(tvb, slash_offset, end_offset - slash_offset, '.', &dot_offset))
         return;
 
-    const int major_offset = slash_offset + 1;
+    const unsigned major_offset = slash_offset + 1;
     const int minor_offset = dot_offset + 1;
 
-    const int major_length = dot_offset - slash_offset - 1;
-    const int minor_length = end_offset - dot_offset - 1;
+    const unsigned major_length = dot_offset - slash_offset - 1;
+    const unsigned minor_length = end_offset - dot_offset - 1;
 
     char *major_string = (char*)tvb_get_string_enc(pinfo->pool, tvb, major_offset, major_length, ENC_ASCII);
     char *minor_string = (char*)tvb_get_string_enc(pinfo->pool, tvb, minor_offset, minor_length, ENC_ASCII);
@@ -240,13 +242,13 @@ static void dissect_nats_header_version(tvbuff_t* tvb, int offset, int end_offse
                         minor_offset, minor_length, minor_number);
 }
 
-static void dissect_nats_headers(tvbuff_t* tvb, int offset, int end_offset,
+static void dissect_nats_headers(tvbuff_t* tvb, unsigned offset, unsigned end_offset,
                                  packet_info* pinfo,
                                  proto_tree* tree, nats_data_t* nats_data)
 {
-    int len = end_offset - offset;
-    int next_offset = 0;
-    tvb_find_line_end(tvb, offset, len, &next_offset, false);
+    unsigned len = end_offset - offset;
+    unsigned next_offset = 0;
+    tvb_find_line_end_length(tvb, offset, len, NULL, &next_offset);
 
     proto_item* ti;
     proto_tree* header_tree;
@@ -262,10 +264,10 @@ static void dissect_nats_headers(tvbuff_t* tvb, int offset, int end_offset,
 
     nats_data->headers_map = wmem_map_new(wmem_file_scope(), g_str_hash, g_str_equal);
 
-    while (tvb_find_line_end(tvb, offset, len, &next_offset, false) > 0)
+    while (tvb_find_line_end_length(tvb, offset, len, NULL, &next_offset))
     {
-        int colon_offset = tvb_find_uint8(tvb, offset, next_offset - offset, ':');
-        if (colon_offset != -1)
+        unsigned colon_offset;
+        if (tvb_find_uint8_length(tvb, offset, next_offset - offset, ':', &colon_offset))
         {
             const uint8_t* header_name = tvb_get_string_enc(pinfo->pool, tvb, offset, colon_offset - offset, ENC_UTF_8);
             int value_offset = tvb_skip_wsp(tvb, colon_offset + 1, next_offset - colon_offset - EOL_LEN - 1);
@@ -309,14 +311,19 @@ static void nats_dissector_search(const char* table_name _U_, ftenum_t selector_
 
     // TODO: Add search for the most specified regexp
     //       But for now support only upper level dissectors
-    //       which subscribe to all subjects using the ">" wildcard
-    if (context->dissector == NULL && strncmp(subject_regexp, ">", 2) == 0)
+    //       which subscribe to exactly one subject (no wildcards)
+    //       or all subjects using the ">" wildcard
+    if (context->dissector == NULL && strncmp(subject_regexp, context->subject, context->subject_length) == 0)
+    {
+        context->dissector = dissector_handle;
+    }
+    else if (context->dissector == NULL && strncmp(subject_regexp, ">", 2) == 0)
     {
         context->dissector = dissector_handle;
     }
 }
 
-static int dissect_nats_with_payload(tvbuff_t* tvb, int offset, int next_offset,
+static int dissect_nats_with_payload(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                                      nats_request_token_t token_op, nats_request_token_t token_subject,
                                      nats_request_token_t token_total_bytes,
                                      const nats_request_token_t* token_sid,
@@ -444,6 +451,12 @@ static int dissect_nats_with_payload(tvbuff_t* tvb, int offset, int next_offset,
     if (body_bytes)
     {
         const char* subject = token_subject.value;
+        int subject_length = token_subject.length;
+
+        /* Save NATS subject to prefill the decode as value
+         * subject uses memory from pinfo->pool (originating from nats_parse_tokens)
+         */
+        p_add_proto_data(pinfo->pool, pinfo, proto_nats, pinfo->curr_layer_num, (void *)subject);
 
         nats_data->subject = subject;
         nats_data->reply_to = token_reply_to ? token_reply_to->value : NULL;
@@ -461,7 +474,7 @@ static int dissect_nats_with_payload(tvbuff_t* tvb, int offset, int next_offset,
             }
         }
 
-        nats_dissector_search_context_t context = {subject, NULL};
+        nats_dissector_search_context_t context = {subject, subject_length, NULL};
 
         dissector_table_foreach("nats.subject", nats_dissector_search, &context);
 
@@ -524,7 +537,7 @@ static int dissect_nats_with_payload(tvbuff_t* tvb, int offset, int next_offset,
     return next_offset + total_bytes + EOL_LEN - offset;
 }
 
-static int dissect_nats_pub(tvbuff_t* tvb, int offset, int next_offset,
+static int dissect_nats_pub(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                             packet_info* pinfo, proto_tree* tree)
 {
     static const size_t TOKEN_OP = 0;
@@ -562,7 +575,7 @@ static int dissect_nats_pub(tvbuff_t* tvb, int offset, int next_offset,
         has_reply_to ? &tokens[token_reply_to] : NULL, NULL, pinfo, tree, hf_nats_pub);
 }
 
-static int dissect_nats_hpub(tvbuff_t* tvb, int offset, int next_offset,
+static int dissect_nats_hpub(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                              packet_info* pinfo, proto_tree* tree)
 {
     static const size_t TOKEN_OP = 0;
@@ -604,7 +617,7 @@ static int dissect_nats_hpub(tvbuff_t* tvb, int offset, int next_offset,
         &tokens[token_header_bytes], pinfo, tree, hf_nats_hpub);
 }
 
-static int dissect_nats_msg(tvbuff_t* tvb, int offset, int next_offset,
+static int dissect_nats_msg(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                             packet_info* pinfo, proto_tree* tree)
 {
     static const size_t TOKEN_OP = 0;
@@ -643,7 +656,7 @@ static int dissect_nats_msg(tvbuff_t* tvb, int offset, int next_offset,
         has_reply_to ? &tokens[token_reply_to] : NULL, NULL, pinfo, tree, hf_nats_msg);
 }
 
-static int dissect_nats_hmsg(tvbuff_t* tvb, int offset, int next_offset,
+static int dissect_nats_hmsg(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                              packet_info* pinfo, proto_tree* tree)
 {
     static const size_t TOKEN_OP = 0;
@@ -686,7 +699,7 @@ static int dissect_nats_hmsg(tvbuff_t* tvb, int offset, int next_offset,
         &tokens[token_header_bytes], pinfo, tree, hf_nats_hmsg);
 }
 
-static int dissect_nats_sub(tvbuff_t* tvb, int offset, int next_offset,
+static int dissect_nats_sub(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                             packet_info* pinfo, proto_tree* tree)
 {
     static const size_t TOKEN_OP = 0;
@@ -746,7 +759,7 @@ static int dissect_nats_sub(tvbuff_t* tvb, int offset, int next_offset,
     return next_offset - offset;
 }
 
-static int dissect_nats_unsub(tvbuff_t* tvb, int offset, int next_offset,
+static int dissect_nats_unsub(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                               packet_info* pinfo, proto_tree* tree)
 {
     static const size_t TOKEN_OP = 0;
@@ -758,6 +771,7 @@ static int dissect_nats_unsub(tvbuff_t* tvb, int offset, int next_offset,
     nats_request_token_t tokens[3] = {0};
 
     bool has_max_msgs = false;
+    uint64_t max_msgs = 0;
 
     size_t num_tokens =
         nats_parse_tokens(tvb, offset, next_offset, pinfo, tokens, array_length(tokens));
@@ -785,15 +799,17 @@ static int dissect_nats_unsub(tvbuff_t* tvb, int offset, int next_offset,
 
     if (has_max_msgs)
     {
-        proto_tree_add_string(
-            pdu_tree, hf_nats_max_msgs, tvb, tokens[TOKEN_MAX_MSGS].offset,
-            tokens[TOKEN_MAX_MSGS].length, tokens[TOKEN_MAX_MSGS].value);
+        if (!ws_strtou64(tokens[TOKEN_MAX_MSGS].value, NULL, &max_msgs))
+            return 0;
+
+        proto_tree_add_uint64(pdu_tree, hf_nats_max_msgs, tvb, tokens[TOKEN_MAX_MSGS].offset,
+                              tokens[TOKEN_MAX_MSGS].length, max_msgs);
     }
 
     return next_offset - offset;
 }
 
-static int dissect_nats_ping(tvbuff_t* tvb, int offset, int next_offset,
+static int dissect_nats_ping(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                              packet_info* pinfo, proto_tree* tree)
 {
     static const size_t TOKEN_OP = 0;
@@ -820,7 +836,7 @@ static int dissect_nats_ping(tvbuff_t* tvb, int offset, int next_offset,
     return next_offset - offset;
 }
 
-static int dissect_nats_pong(tvbuff_t* tvb, int offset, int next_offset,
+static int dissect_nats_pong(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                              packet_info* pinfo, proto_tree* tree)
 {
     static const size_t TOKEN_OP = 0;
@@ -847,19 +863,20 @@ static int dissect_nats_pong(tvbuff_t* tvb, int offset, int next_offset,
     return next_offset - offset;
 }
 
-static int dissect_nats_info(tvbuff_t* tvb, int offset, int next_offset,
+static unsigned dissect_nats_info(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                              packet_info* pinfo, proto_tree* tree)
 {
     proto_tree* pdu_tree = NULL;
 
-    int op_offset = offset;
-    int op_length =
-        tvb_get_token_len(tvb, offset, next_offset - offset, NULL, false);
+    unsigned op_offset = offset;
+    unsigned op_length;
 
-    int features_offset = tvb_skip_wsp(tvb, op_offset + op_length,
+    tvb_get_token_len_length(tvb, offset, next_offset - offset, &op_length, NULL);
+
+    unsigned features_offset = tvb_skip_wsp(tvb, op_offset + op_length,
                                        next_offset - op_offset - op_length);
 
-    int features_length = next_offset - features_offset - EOL_LEN;
+    unsigned features_length = next_offset - features_offset - EOL_LEN;
 
     col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "INFO");
 
@@ -881,19 +898,20 @@ static int dissect_nats_info(tvbuff_t* tvb, int offset, int next_offset,
     return next_offset - offset;
 }
 
-static int dissect_nats_connect(tvbuff_t* tvb, int offset, int next_offset,
+static unsigned dissect_nats_connect(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                                 packet_info* pinfo, proto_tree* tree)
 {
     proto_tree* pdu_tree = NULL;
 
-    int op_offset = offset;
-    int op_length =
-        tvb_get_token_len(tvb, offset, next_offset - offset, NULL, false);
+    unsigned op_offset = offset;
+    unsigned op_length;
 
-    int features_offset = tvb_skip_wsp(tvb, op_offset + op_length,
+    tvb_get_token_len_length(tvb, offset, next_offset - offset, &op_length, NULL);
+
+    unsigned features_offset = tvb_skip_wsp(tvb, op_offset + op_length,
                                        next_offset - op_offset - op_length);
 
-    int features_length = next_offset - features_offset - EOL_LEN;
+    unsigned features_length = next_offset - features_offset - EOL_LEN;
 
     col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "CONNECT");
 
@@ -915,7 +933,7 @@ static int dissect_nats_connect(tvbuff_t* tvb, int offset, int next_offset,
     return next_offset - offset;
 }
 
-static int dissect_nats_ok(tvbuff_t* tvb, int offset, int next_offset,
+static unsigned dissect_nats_ok(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                            packet_info* pinfo, proto_tree* tree)
 {
     static const size_t TOKEN_OP = 0;
@@ -924,8 +942,7 @@ static int dissect_nats_ok(tvbuff_t* tvb, int offset, int next_offset,
 
     nats_request_token_t tokens[1] = {0};
 
-    size_t num_tokens =
-        nats_parse_tokens(tvb, offset, next_offset, pinfo, tokens, array_length(tokens));
+    size_t num_tokens = nats_parse_tokens(tvb, offset, next_offset, pinfo, tokens, array_length(tokens));
 
     if (num_tokens < 1)
         return 0;
@@ -942,19 +959,20 @@ static int dissect_nats_ok(tvbuff_t* tvb, int offset, int next_offset,
     return next_offset - offset;
 }
 
-static int dissect_nats_err(tvbuff_t* tvb, int offset, int next_offset,
+static int dissect_nats_err(tvbuff_t* tvb, unsigned offset, unsigned next_offset,
                             packet_info* pinfo, proto_tree* tree)
 {
     proto_tree* pdu_tree = NULL;
 
-    int op_offset = offset;
-    int op_length =
-        tvb_get_token_len(tvb, offset, next_offset - offset, NULL, false);
+    unsigned op_offset = offset;
+    unsigned op_length;
 
-    int message_offset = tvb_skip_wsp(tvb, op_offset + op_length,
+    tvb_get_token_len_length(tvb, offset, next_offset - offset, &op_length, NULL);
+
+    unsigned message_offset = tvb_skip_wsp(tvb, op_offset + op_length,
                                        next_offset - op_offset - op_length);
 
-    int message_length = next_offset - message_offset - EOL_LEN;
+    unsigned message_length = next_offset - message_offset - EOL_LEN;
 
     col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "-ERR");
 
@@ -964,19 +982,18 @@ static int dissect_nats_err(tvbuff_t* tvb, int offset, int next_offset,
 
     proto_tree_add_item(pdu_tree, hf_nats_op, tvb, op_offset, op_length, ENC_ASCII);
 
-    proto_tree_add_item(pdu_tree, hf_nats_err_msg, tvb,
-                        message_offset, message_length, ENC_UTF_8);
+    proto_tree_add_item(pdu_tree, hf_nats_err_msg, tvb, message_offset, message_length, ENC_UTF_8);
 
     return next_offset - offset;
 }
 
-static int dissect_nats(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree,
-                        void* data _U_)
+static int
+dissect_nats(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void* data _U_)
 {
-    int offset = 0;
+    unsigned offset = 0;
 
-    int line_offset = 0;
-    int next_offset = 0;
+    unsigned line_offset = 0;
+    unsigned next_offset = 0;
 
     proto_item *nats_tree_item = proto_tree_add_item(tree, proto_nats, tvb,
                                                      0, -1, ENC_UTF_8);
@@ -985,12 +1002,13 @@ static int dissect_nats(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree,
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "NATS");
     col_clear(pinfo->cinfo, COL_INFO);
 
-    while (tvb_find_line_end(tvb, line_offset, -1, &next_offset, true) != -1)
+    while (tvb_find_line_end_remaining(tvb, line_offset, NULL, &next_offset))
     {
-        int result = 0;
+        unsigned result = 0;
 
-        int token_len =
-            tvb_get_token_len(tvb, line_offset, next_offset, NULL, true);
+        unsigned token_len;
+
+        tvb_get_token_len_length(tvb, line_offset, next_offset, &token_len, NULL);
 
         switch (token_len)
         {
@@ -1064,7 +1082,7 @@ static int dissect_nats(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree,
         }
 
         offset = line_offset;
-        // In case next call of tvb_find_line_end will not find next CRLF
+        // In case next call of tvb_find_line_end_length will not find next CRLF
         next_offset = line_offset;
     }
 
@@ -1075,6 +1093,17 @@ static int dissect_nats(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree,
     }
 
     return tvb_reported_length(tvb);
+}
+
+static void nats_prompt(packet_info *pinfo, char* result)
+{
+    snprintf(result, MAX_DECODE_AS_PROMPT_LEN, "Nats subject %s as",
+             (char *)p_get_proto_data(pinfo->pool, pinfo, proto_nats, pinfo->curr_layer_num));
+}
+
+static void *nats_value(packet_info *pinfo)
+{
+    return p_get_proto_data(pinfo->pool, pinfo, proto_nats, pinfo->curr_layer_num);
 }
 
 void proto_register_nats(void)
@@ -1118,7 +1147,7 @@ void proto_register_nats(void)
         {
             &hf_nats_max_msgs,
             {
-                "Max Messages", "nats.subscription.max_msgs", FT_STRING, BASE_NONE,
+                "Max Messages", "nats.subscription.max_msgs", FT_UINT64, BASE_DEC,
                 NULL, 0x0, "NATS message count after which subscription is automatically unsubscribed", HFILL
             }
         },
@@ -1326,6 +1355,12 @@ void proto_register_nats(void)
         &ett_nats_headers,
     };
 
+    // Decode As handling
+    static build_valid_func nats_da_build_value[1] = {nats_value};
+    static decode_as_value_t nats_da_values = {nats_prompt, 1, nats_da_build_value};
+    static decode_as_t nats_da = {"nats", "nats.subject", 1, 0, &nats_da_values, NULL, NULL,
+                                  decode_as_default_populate_list, decode_as_default_reset, decode_as_default_change, NULL, NULL, NULL };
+
     proto_nats = proto_register_protocol("NATS", "NATS", "nats");
     handle_nats = create_dissector_handle(dissect_nats, proto_nats);
 
@@ -1342,6 +1377,8 @@ void proto_register_nats(void)
         BASE_NONE);
 
     register_dissector("NATS", dissect_nats, proto_nats);
+
+    register_decode_as(&nats_da);
 }
 
 void proto_reg_handoff_nats(void)

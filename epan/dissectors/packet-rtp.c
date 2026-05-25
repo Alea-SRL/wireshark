@@ -1353,7 +1353,7 @@ dissect_rtp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
     uint8_t      octet1, octet2;
     unsigned int version, payload_type;
     unsigned int offset = 0;
-    int          padding_count;
+    unsigned     padding_count;
 
     if (tvb_captured_length_remaining(tvb, offset) < 2) {
         return false;
@@ -1775,7 +1775,7 @@ dissect_rtp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 ws_debug("\tUnfinished fragment");
 #endif
                 /* this fragment is never reassembled */
-                proto_tree_add_expert(tree, pinfo, &ei_rtp_fragment_unfinished, tvb, deseg_offset, -1);
+                proto_tree_add_expert_remaining(tree, pinfo, &ei_rtp_fragment_unfinished, tvb, deseg_offset);
             }
         }
         else
@@ -2332,7 +2332,7 @@ dissect_rtp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
          * their data.)
          * See "add_packet_to_packet_list()" for details.
          */
-        rtp_info->info_data = tvb_get_ptr(tvb, 0, -1);
+        rtp_info->info_data = tvb_get_ptr(tvb, 0, length);
     } else {
         /*
          * No - packet was cut short at capture time.
@@ -2788,7 +2788,7 @@ dissect_rtp_shim_header(tvbuff_t *tvb, int start, packet_info *pinfo _U_, proto_
 
     if ( tree ) {
         /* Create RTP protocol tree */
-        rtp_ti = proto_tree_add_item(tree, proto_rtp, tvb, offset, 0, ENC_NA );
+        rtp_ti = proto_tree_add_item(tree, proto_rtp, tvb, offset, -1, ENC_NA );
         rtp_tree = proto_item_add_subtree(rtp_ti, ett_rtp );
 
         proto_tree_add_bitmask_list(rtp_tree, tvb, offset, 1, octet1_fields, ENC_NA);

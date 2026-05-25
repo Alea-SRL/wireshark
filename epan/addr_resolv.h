@@ -16,10 +16,7 @@
  * If you need the buffer to remain for a longer scope than packet lifetime
  * you must copy the content to an wmem_file_scope() buffer.
  */
-
-#ifndef __RESOLV_H__
-#define __RESOLV_H__
-
+#pragma once
 #include <epan/address.h>
 #include <epan/tvbuff.h>
 #include <wsutil/inet_cidr.h>
@@ -32,7 +29,7 @@ extern "C" {
 #endif /* __cplusplus */
 
 #ifndef MAXNAMELEN
-#define MAXNAMELEN  	64	/* max name length (most names: DNS labels, services, eth) */
+#define MAXNAMELEN  	64	    /* max name length (most names: DNS labels, services, eth) */
 #endif
 
 #ifndef MAXVLANNAMELEN
@@ -59,6 +56,7 @@ typedef struct _e_addr_resolve {
   bool vlan_name;                         /**< Whether to resolve VLAN IDs to names */
   bool ss7pc_name;                        /**< Whether to resolve SS7 Point Codes to names */
   bool maxmind_geoip;                     /**< Whether to lookup geolocation information with mmdbresolve */
+  bool tac_name;                          /**< Whether to resolve TAC to names */
 } e_addr_resolve;
 
 #define ADDR_RESOLV_MACADDR(at) \
@@ -105,13 +103,6 @@ typedef struct _resolved_name {
  * Flag controlling what names to resolve.
  */
 WS_DLL_PUBLIC e_addr_resolve gbl_resolv_flags;
-
-/* global variables */
-
-extern char *g_ethers_path;
-extern char *g_ipxnets_path;
-extern char *g_pethers_path;
-extern char *g_pipxnets_path;
 
 /* Functions in addr_resolv.c */
 
@@ -304,7 +295,22 @@ WS_DLL_PUBLIC int port_with_resolution_to_str_buf(char *buf, unsigned long buf_s
 
 /* Setup name resolution preferences */
 struct pref_module;
+
+/**
+ * @brief Disable all forms of name resolution.
+ *
+ * Sets all relevant global resolution flags (`gbl_resolv_flags`) to `false`,
+ * effectively disabling hostname, service name, and other symbolic resolution
+ * features. This is typically used to improve performance or enforce numeric-only
+ * addressing in network captures.
+ *
+ * @param nameres Pointer to the preferences module for name resolution, used to register preferences.
+ */
 extern void addr_resolve_pref_init(struct pref_module *nameres);
+
+/**
+ * @brief Apply name resolution preferences.
+ */
 extern void addr_resolve_pref_apply(void);
 
 /**
@@ -444,7 +450,7 @@ WS_DLL_PUBLIC void fill_unresolved_ss7pc(const char * pc_addr, const uint8_t ni,
  * @param offset Offset of the Ethernet address.
  * @return Resolved name or formatted MAC string.
  */
-WS_DLL_PUBLIC const char *tvb_get_ether_name(tvbuff_t *tvb, int offset);
+WS_DLL_PUBLIC const char *tvb_get_ether_name(tvbuff_t *tvb, unsigned offset);
 
 /**
  * @brief Resolves an Ethernet address only if an exact match is known.
@@ -524,7 +530,7 @@ WS_DLL_PUBLIC const char *uint_get_manuf_name_if_known(const uint32_t oid);
  * @param offset Offset of the OUI.
  * @return Short vendor name or hex string.
  */
-WS_DLL_PUBLIC const char *tvb_get_manuf_name(tvbuff_t *tvb, int offset);
+WS_DLL_PUBLIC const char *tvb_get_manuf_name(tvbuff_t *tvb, unsigned offset);
 
 /**
  * @brief Resolves a 3-octet OUI from a tvbuff to a full vendor name.
@@ -539,7 +545,7 @@ WS_DLL_PUBLIC const char *tvb_get_manuf_name(tvbuff_t *tvb, int offset);
  * @param offset Offset of the OUI.
  * @return Full vendor name or NULL.
  */
-WS_DLL_PUBLIC const char *tvb_get_manuf_name_if_known(tvbuff_t *tvb, int offset);
+WS_DLL_PUBLIC const char *tvb_get_manuf_name_if_known(tvbuff_t *tvb, unsigned offset);
 
 /**
  * @brief Resolves an EUI-64 address to a logical name or vendor string.
@@ -975,8 +981,24 @@ unsigned ipv6_oat_hash(const void *key);
 WS_DLL_LOCAL
 gboolean ipv6_equal(const void *v1, const void *v2);
 
+/**
+ * @brief Resolve an TAC to its area name.
+ *
+ * Returns a string containing the host name associated with the given IPv4
+ * address, or a numeric string in the format `"%d.%d.%d.%d"` if no name is found.
+ * The returned string is managed internally and must not be freed by the caller.
+ * It will be released when address hashtables are cleared (e.g., due to preference
+ * changes or redissection).
+ *
+ * @note This function may increase persistent memory usage even when host name
+ *       resolution is disabled. It may be deprecated in favor of `get_hostname_wmem()`
+ *       for better memory management.
+ *
+ * @param addr IPv4 address in host byte order.
+ * @return     Constant string containing the resolved host name or numeric address.
+ */
+WS_DLL_PUBLIC const char *tac_name_lookup(const unsigned addr);
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* __RESOLV_H__ */

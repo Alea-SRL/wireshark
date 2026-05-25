@@ -7,10 +7,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __PREFS_H__
-#define __PREFS_H__
-
+#pragma once
 #include <glib.h>
 
 #include <epan/params.h>
@@ -51,6 +48,9 @@ extern "C" {
 #define PREF_EFFECT_GUI               (1u << 4)
 #define PREF_EFFECT_GUI_COLOR         (1u << 5)
 #define PREF_EFFECT_AGGREGATION       (1u << 6)
+
+/* Default update interval in milliseconds */
+#define DEFAULT_UPDATE_INTERVAL 100
 
 struct epan_uat;
 struct _e_addr_resolve;
@@ -171,6 +171,25 @@ typedef enum {
     UPDATE_CHANNEL_STABLE
 } software_update_channel_e;
 
+/*
+ * Packet list multi-color display mode.
+ */
+typedef enum {
+    PACKET_LIST_MULTI_COLOR_MODE_OFF = 0,          /* Multi-color disabled */
+    PACKET_LIST_MULTI_COLOR_MODE_SCROLLBAR_ONLY,   /* Scrollbar only, no row stripes */
+    PACKET_LIST_MULTI_COLOR_MODE_FULL,             /* Full stripes in rows + scrollbar */
+    PACKET_LIST_MULTI_COLOR_MODE_SHIFT_RIGHT       /* Shift right (configurable %) in rows + scrollbar */
+} gui_packet_list_multi_color_mode_e;
+
+/*
+ * Packet list multi-color separator style.
+ */
+typedef enum {
+    PACKET_LIST_MULTI_COLOR_SEPARATOR_VERTICAL = 0, /* Straight vertical separator */
+    PACKET_LIST_MULTI_COLOR_SEPARATOR_DIAGONAL,     /* Diagonal / candy-cane separator */
+    PACKET_LIST_MULTI_COLOR_SEPARATOR_BUBBLE        /* Bubble / half-moon separator */
+} gui_packet_list_multi_color_separator_e;
+
 typedef struct _e_prefs {
   GList       *col_list;
   unsigned     num_cols;
@@ -241,7 +260,6 @@ typedef struct _e_prefs {
   bool         capture_pcap_ng;
   bool         capture_real_time;
   unsigned     capture_update_interval;
-  bool         enable_aggregation;
   GList*       aggregation_fields;
   int          aggregation_fields_num;
   bool         capture_no_interface_load;
@@ -265,7 +283,6 @@ typedef struct _e_prefs {
   unsigned     gui_update_interval;
   unsigned     gui_debounce_timer;
   char        *saved_at_version;
-  bool         unknown_prefs; /* unknown or obsolete pref(s) */
   bool         gui_packet_list_separator;
   bool         gui_packet_header_column_definition;
   bool         gui_packet_list_hover_style; /* Enable/Disable mouse-over colorization */
@@ -278,6 +295,10 @@ typedef struct _e_prefs {
   bool         gui_packet_list_show_minimap;
   bool         gui_packet_list_sortable;
   unsigned     gui_packet_list_cached_rows_max;
+  gui_packet_list_multi_color_mode_e gui_packet_list_multi_color_mode; /* Multi-color display mode */
+  unsigned     gui_packet_list_multi_color_shift_percent; /* Shift Right primary color percentage (75-95) */
+  bool         gui_packet_list_multi_color_details; /* Display all matching colors in packet details tree */
+  gui_packet_list_multi_color_separator_e gui_packet_list_multi_color_separator; /* Separator style between color stripes */
   unsigned     gui_decimal_places1; /* Used for type 1 calculations */
   unsigned     gui_decimal_places2; /* Used for type 2 calculations */
   unsigned     gui_decimal_places3; /* Used for type 3 calculations */
@@ -313,12 +334,31 @@ struct pref_custom_cbs;
 typedef struct pref_module module_t;
 
 /** Sets up memory used by proto routines. Called at program startup */
+
+/**
+ * @brief Initialize preferences system
+ *
+ * @param col_fmt Array of column format strings
+ * @param num_cols Number of columns in the display
+ */
 void prefs_init(const char** col_fmt, int num_cols);
 
 /** Reset preferences to default values.  Called at profile change */
+
+/**
+ * @brief Resets preferences to their default values.
+ *
+ * @param app_env_var_prefix Prefix for the application environment variables.
+ * @param col_fmt Array of column format strings.
+ * @param num_cols Number of columns in the format array.
+ */
 WS_DLL_PUBLIC void prefs_reset(const char* app_env_var_prefix, const char** col_fmt, int num_cols);
 
 /** Frees memory used by proto routines. Called at program shutdown */
+
+/**
+ * @brief Clean up preferences.
+ */
 void prefs_cleanup(void);
 
 /** Store whether the current UI theme is dark so that we can adjust colors
@@ -337,7 +377,7 @@ WS_DLL_PUBLIC void prefs_set_gui_theme_is_dark(bool is_dark);
 WS_DLL_PUBLIC module_t *prefs_register_protocol(int id, void (*apply_cb)(void));
 
 /**
- * Register an alias for a preference module.
+ * @brief Register an alias for a preference module.
  * @param name the preference module's alias. Only ASCII letters, numbers,
  *                  underscores, hyphens, and dots may appear in the name
  * @param module the module to create an alias for
@@ -401,6 +441,30 @@ WS_DLL_PUBLIC module_t *prefs_register_protocol_subtree(const char *subtree, int
 WS_DLL_PUBLIC module_t *prefs_register_protocol_obsolete(int id);
 
 /**
+ * @brief Register a module that will have preferences.
+ * Specify the module under which to register it, the name used for the
+ * module in the preferences file, the title used in the tab for it
+ * in a preferences dialog box, and a routine to call back when the
+ * preferences are applied.
+ *
+ * @param pref_tree "Parent" preference tree under which to register this module.
+ * @param master_pref_tree List of all preference modules.
+ * @param name is a name for the module to use on the command line with "-o"
+ *             and in preference files.
+ * @param title the module title in the preferences UI
+ * @param description the description included in the preferences file
+ *                    and shown as tooltip in the GUI, or NULL
+ * @param help The help string associated with the module, or NULL
+ * @param apply_cb Callback routine that is called when preferences are
+ *                      applied. It may be NULL, which inhibits the callback.
+ * @return a preferences module which can be used to register a user 'preference'
+ */
+WS_DLL_PUBLIC module_t*
+prefs_register_module(wmem_tree_t* pref_tree, wmem_tree_t* master_pref_tree, const char* name, const char* title,
+    const char* description, const char* help, void (*apply_cb)(void),
+    const bool use_gui);
+
+/**
  * Callback function for module list scanners.
  */
 typedef unsigned (*module_cb)(module_t *module, void *user_data);
@@ -420,10 +484,11 @@ WS_DLL_PUBLIC bool prefs_module_has_submodules(module_t *module);
  * preferences for dissectors that no longer have preferences to be
  * silently ignored in preference files.
  *
+ * @param module module to act on
  * @param callback the callback to call
  * @param user_data additional data to pass to the callback
  */
-WS_DLL_PUBLIC unsigned prefs_modules_foreach(module_cb callback, void *user_data);
+WS_DLL_PUBLIC unsigned prefs_modules_foreach(const wmem_tree_t* module, module_cb callback, void *user_data);
 
 /**
  * Call a callback function, with a specified argument, for each submodule
@@ -435,12 +500,24 @@ WS_DLL_PUBLIC unsigned prefs_modules_foreach(module_cb callback, void *user_data
  * silently ignored in preference files.  Does not ignore subtrees,
  * as this can be used when walking the display tree of modules.
  *
- * @param module the top-level module to walk through the submodules,
- *               or NULL for the top-level list in the display tree of modules
+ * @param module module to walk through
  * @param callback the callback to call
  * @param user_data additional data to pass to the callback
  */
-WS_DLL_PUBLIC unsigned prefs_modules_foreach_submodules(module_t *module, module_cb callback, void *user_data);
+WS_DLL_PUBLIC unsigned prefs_modules_foreach_submodules(const wmem_tree_t* module, module_cb callback, void *user_data);
+
+/**
+ * Call a callback function, with a specified argument, for all modules.
+ *
+ * Ignores "obsolete" modules; their sole purpose is to allow old
+ * preferences for dissectors that no longer have preferences to be
+ * silently ignored in preference files.  Does not ignore subtrees,
+ * as this can be used when walking the display tree of modules.
+ *
+ * @param callback the callback to call
+ * @param user_data additional data to pass to the callback
+ */
+WS_DLL_PUBLIC unsigned prefs_modules_for_all_modules(module_cb callback, void* user_data);
 
 /**
  * Call the "apply" callback function for each module if any of its
@@ -518,6 +595,45 @@ WS_DLL_PUBLIC pref_t *prefs_find_preference(module_t * module, const char *pref)
  */
 WS_DLL_PUBLIC void prefs_register_uint_preference(module_t *module, const char *name,
     const char *title, const char *description, unsigned base, unsigned *var);
+
+/**
+ * Register a preference with an integer value.
+ * @param module the preferences module returned by prefs_register_protocol() or
+ *               prefs_register_protocol_subtree()
+ * @param name the preference's identifier. This is appended to the name of the
+ *             protocol, with a "." between them, to create a unique identifier.
+ *             The identifier should not include the protocol name, as
+ *             the preference file will already have it. Make sure that
+ *             only lower-case ASCII letters, numbers, underscores and
+ *             dots appear in the preference name.
+ * @param title the title in the preferences dialog
+ * @param description the description included in the preferences file
+ *                    and shown as tooltip in the GUI, or NULL
+ * @param var pointer to the storage location that is updated when the
+ *                    field is changed in the preference dialog box
+ */
+WS_DLL_PUBLIC void prefs_register_int_preference(module_t* module, const char* name,
+    const char* title, const char* description, int* var);
+
+/**
+* Register a preference with a float (double) value.
+* @param module the preferences module returned by prefs_register_protocol() or
+*               prefs_register_protocol_subtree()
+* @param name the preference's identifier. This is appended to the name of the
+*             protocol, with a "." between them, to create a unique identifier.
+*             The identifier should not include the protocol name, as
+*             the preference file will already have it. Make sure that
+*             only lower-case ASCII letters, numbers, underscores and
+*             dots appear in the preference name.
+* @param title the title in the preferences dialog
+* @param description the description included in the preferences file
+*                    and shown as tooltip in the GUI, or NULL
+* @param num_decimal the number of decimal places to display for a value
+* @param var pointer to the storage location that is updated when the
+*                    field is changed in the preference dialog box
+*/
+WS_DLL_PUBLIC void prefs_register_float_preference(module_t* module, const char* name,
+    const char* title, const char* description, unsigned num_decimal, double* var);
 
 /*
  * prefs_register_ callers must conform to the following:
@@ -651,6 +767,61 @@ WS_DLL_PUBLIC void prefs_register_filename_preference(module_t *module, const ch
  */
 WS_DLL_PUBLIC void prefs_register_directory_preference(module_t *module, const char *name,
     const char *title, const char *description, const char **var);
+
+/**
+ * Register a preference with a comma-delimited string values.
+ *
+ * This is currently not support in the UI for dissector use
+ * (internal UI preferences only)
+ * @param module the preferences module returned by prefs_register_protocol() or
+ *               prefs_register_protocol_subtree()
+ * @param name the preference's identifier. This is appended to the name of the
+ *             protocol, with a "." between them, to create a unique identifier.
+ *             The identifier should not include the protocol name, as the name in
+ *             the preference file will already have it. Make sure that
+ *             only lower-case ASCII letters, numbers, underscores and
+ *             dots appear in the preference name.
+ * @param title Field's title in the preferences dialog
+ * @param description description to include in the preferences file
+ *                    and shown as tooltip in the GUI, or NULL
+ * @param var pointer to the storage location that is updated when the
+ *                    field is changed in the preference dialog box. Note that
+ *          the given pointer is overwritten
+ *          with a pointer to a new copy of the list during the
+ *          preference registration. The passed-in string may be
+ *          freed, but you must keep another pointer to the string
+ *          in order to free it
+ */
+WS_DLL_PUBLIC void prefs_register_list_string_preference(module_t* module, const char* name,
+    const char* title, const char* description, wmem_list_t** var);
+
+/**
+ * Register a preference that has multiple string values
+ * This looks like multiple instances of the same preference in the file
+ *
+ * This is currently not support in the UI for dissector use
+ * (internal UI preferences only)
+ * @param module the preferences module returned by prefs_register_protocol() or
+ *               prefs_register_protocol_subtree()
+ * @param name the preference's identifier. This is appended to the name of the
+ *             protocol, with a "." between them, to create a unique identifier.
+ *             The identifier should not include the protocol name, as the name in
+ *             the preference file will already have it. Make sure that
+ *             only lower-case ASCII letters, numbers, underscores and
+ *             dots appear in the preference name.
+ * @param title Field's title in the preferences dialog
+ * @param description description to include in the preferences file
+ *                    and shown as tooltip in the GUI, or NULL
+ * @param var pointer to the storage location that is updated when the
+ *                    field is changed in the preference dialog box. Note that
+ *          the given pointer is overwritten
+ *          with a pointer to a new copy of the list during the
+ *          preference registration. The passed-in string may be
+ *          freed, but you must keep another pointer to the string
+ *          in order to free it
+ */
+WS_DLL_PUBLIC void prefs_register_multiple_string_preference(module_t* module, const char* name,
+    const char* title, const char* description, wmem_list_t** var);
 
 /**
  * Register a preference with a ranged value.
@@ -824,7 +995,7 @@ WS_DLL_PUBLIC void prefs_register_dissector_preference(module_t *module, const c
     const char *title, const char *description, const char **var);
 
 /**
- * Register a preference that used to be supported but no longer is.
+ * @brief Register a preference that used to be supported but no longer is.
  *
  * Note that a warning will pop up if you've saved such preference to the
  * preference file and you subsequently take the code out. The way to make
@@ -843,7 +1014,7 @@ WS_DLL_PUBLIC void prefs_register_obsolete_preference(module_t *module,
     const char *name);
 
 /**
- * Register a preference with an enumerated value.
+ * @brief Register a preference with an enumerated value.
  * @param module the preferences module returned by prefs_register_protocol() or
  *               prefs_register_protocol_subtree()
  * @param name the preference's identifier. This is appended to the name of the
@@ -867,7 +1038,9 @@ WS_DLL_PUBLIC void prefs_register_custom_preference_TCP_Analysis(module_t *modul
     const enum_val_t *enumvals, bool radio_buttons);
 
 /**
- * Mark a preference that affects fields change. This works for bool, enum,
+ * @brief Mark a preference that affects fields change.
+ *
+ * This works for bool, enum,
  * int, string (containing filename), range preferences. UAT is not included,
  * because you can specified UAT_AFFECTS_FIELDS at uat_new().
   *
@@ -883,13 +1056,20 @@ WS_DLL_PUBLIC void prefs_register_custom_preference_TCP_Analysis(module_t *modul
 WS_DLL_PUBLIC void prefs_set_preference_effect_fields(module_t *module,
     const char *name);
 
+/**
+ * @brief Set the effect flags for a preference in a given module.
+ *
+ * @param module The module containing the preference.
+ * @param name The name of the preference to set.
+ * @param flags The effect flags to set.
+ */
 WS_DLL_PUBLIC void prefs_set_preference_effect(module_t* module,
     const char* name, unsigned flags);
 
 typedef unsigned (*pref_cb)(pref_t *pref, void *user_data);
 
 /**
- * Call a callback function, with a specified argument, for each preference
+ * @brief Call a callback function, with a specified argument, for each preference
  * in a given module.
  *
  * If any of the callbacks return a non-zero value, stop and return that
@@ -906,7 +1086,7 @@ WS_DLL_PUBLIC unsigned prefs_pref_foreach(module_t *module, pref_cb callback,
     void *user_data);
 
 /**
- * Parse through a list of comma-separated, possibly quoted strings.
+ * @brief Parse through a list of comma-separated, possibly quoted strings.
  * Return a list of the string data.
  *
  * Commas, whitespace, and the quotes surrounding entries are removed.
@@ -918,12 +1098,13 @@ WS_DLL_PUBLIC unsigned prefs_pref_foreach(module_t *module, pref_cb callback,
 WS_DLL_PUBLIC GList *prefs_get_string_list(const char *str);
 
 /**
- * Clear the given list of string data.
+ * @brief Clear the given list of string data.
  * @param sl the GList to clear
  */
 WS_DLL_PUBLIC void prefs_clear_string_list(GList *sl);
 
-/** Fetch a short preference type name, e.g. "Integer".
+/**
+ * @brief Fetch a short preference type name, e.g. "Integer".
  *
  * @param pref A preference.
  *
@@ -932,7 +1113,8 @@ WS_DLL_PUBLIC void prefs_clear_string_list(GList *sl);
 WS_DLL_PUBLIC
 const char *prefs_pref_type_name(pref_t *pref);
 
-/** Fetch a long description of the preference type
+/**
+ * @brief Fetch a long description of the preference type
  *
  * @param pref A preference.
  *
@@ -943,7 +1125,8 @@ const char *prefs_pref_type_name(pref_t *pref);
 WS_DLL_PUBLIC
 char *prefs_pref_type_description(pref_t *pref);
 
-/** Fetch a string representation of the preference.
+/**
+ * @brief Fetch a string representation of the preference.
  *
  * @param pref A preference.
  * @param source Which value of the preference to return, see pref_source_t.
@@ -953,7 +1136,19 @@ char *prefs_pref_type_description(pref_t *pref);
 WS_DLL_PUBLIC
 char *prefs_pref_to_str(pref_t *pref, pref_source_t source);
 
-/** Fetch whether a preference is marked obsolete.
+/**
+ * @brief Fetch the number of preferences in a module that are not UATs.
+ *
+ * @param module A preference module.
+ *
+ * @return The number of non-UAT preferences in the module.
+ */
+WS_DLL_PUBLIC
+int prefs_num_non_uat(module_t* module);
+
+
+/**
+ * @brief Fetch whether a preference is marked obsolete.
  *
  * @param pref A preference.
  *
@@ -963,7 +1158,8 @@ WS_DLL_PUBLIC
 bool prefs_is_preference_obsolete(pref_t *pref);
 
 /**
- * Read the preferences file, fill in "prefs", and return a pointer to it.
+ * @brief Read the preferences file, fill in "prefs", and return a pointer to it.
+ *
  * If we got an error (other than "it doesn't exist") we report it through
  * the UI.
  *
@@ -976,7 +1172,7 @@ bool prefs_is_preference_obsolete(pref_t *pref);
 extern e_prefs *read_prefs(const char* app_env_var_prefix);
 
 /**
- * Write out "prefs" to the user's preferences file, and return 0.
+ * @brief Write out "prefs" to the user's preferences file, and return 0.
  *
  * If we got an error, stuff a pointer to the path of the preferences file
  * into "*pf_path_return", and return the errno.
@@ -986,6 +1182,22 @@ extern e_prefs *read_prefs(const char* app_env_var_prefix);
  * @return 0 if success, otherwise errno
 */
 WS_DLL_PUBLIC int write_prefs(const char* app_env_var_prefix, char **pf_path_return);
+
+/**
+ * @brief Callback function for writing individual preferences.
+ *
+ * @param data A preference pointer of type pref_t*
+ * @param user_data write_pref_arg_t* pointer
+ */
+WS_DLL_PUBLIC void pref_write_individual(void* data, void* user_data);
+
+/**
+ * @brief Callback function for freeing individual preferences.
+ *
+ * @param data A preference pointer of type pref_t*
+ * @param user_data unused
+ */
+WS_DLL_PUBLIC void pref_free_individual(void* data, void* user_data);
 
 /**
  * Result of setting a preference.
@@ -1024,21 +1236,23 @@ WS_DLL_PUBLIC prefs_set_pref_e prefs_set_pref(char *prefarg, char **errmsg);
 WS_DLL_PUBLIC range_t* prefs_get_range_value(const char *module_name, const char* pref_name);
 
 /**
- * Returns true if the specified capture device is hidden
+ * @brief Checks if the specified capture device is hidden
+ *
  * @param name the name of the capture device
  * @return true if the specified capture device is hidden, otherwise false
  */
 WS_DLL_PUBLIC bool prefs_is_capture_device_hidden(const char *name);
 
 /**
- * Returns true if the given device should capture in monitor mode by default
+ * @brief Returns true if the given device should capture in monitor mode by default
+ *
  * @param name the name of the capture device
  * @return true if the specified capture device should capture in monitor mode by default, otherwise false
  */
 WS_DLL_PUBLIC bool prefs_capture_device_monitor_mode(const char *name);
 
 /**
- * Returns true if the user has marked this column as visible
+ * @brief Returns true if the user has marked this column as visible
  *
  * @param column the name of the column
  * @return true if this column as visible, otherwise false
@@ -1046,7 +1260,7 @@ WS_DLL_PUBLIC bool prefs_capture_device_monitor_mode(const char *name);
 WS_DLL_PUBLIC bool prefs_capture_options_dialog_column_is_visible(const char *column);
 
 /**
- * Returns true if the layout pane content is enabled
+ * @brief Returns true if the layout pane content is enabled
  *
  * @param layout_pane_content the layout pane content to check
  * @return true if the layout pane content is enabled, otherwise false
@@ -1056,8 +1270,6 @@ WS_DLL_PUBLIC bool prefs_has_layout_pane_content (layout_pane_content_e layout_p
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* prefs.h */
 
 /*
  * Editor modelines  -  https://www.wireshark.org/tools/modelines.html

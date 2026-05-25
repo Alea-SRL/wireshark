@@ -184,13 +184,13 @@ const char* get_str_value(sinsp_field_extract_t *sinsp_fields, uint32_t sf_idx);
 /*
  * Array of plugin bridges
  */
-bridge_info* bridges;
-size_t nbridges;
+static bridge_info* bridges;
+static size_t nbridges;
 
 /*
  * sinsp extractor span
  */
-sinsp_span_t *sinsp_span;
+static sinsp_span_t *sinsp_span;
 
 /*
  * Fields
@@ -1169,8 +1169,8 @@ dissect_falco_json_event(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     // https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry
     const char *gcpaudit_keys[] = { "\"insertId\":", "\"logName\":", NULL };
 
-    const uint8_t *tvb_data = tvb_get_ptr(tvb, 0, -1);
     int tvb_len = tvb_captured_length(tvb);
+    const uint8_t *tvb_data = tvb_get_ptr(tvb, 0, tvb_len);
 
     if (has_keys(tvb_data, tvb_len, k8saudit_keys)) {
         source_id = K8SAUDIT_PLUGIN_ID;
@@ -1792,7 +1792,7 @@ dissect_sinsp_plugin(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void* 
     return payload_len;
 }
 
-const char *st_str_container_total_io = "Total";
+static const char *st_str_container_total_io = "Total";
 
 static void container_io_stats_tree_init(stats_tree* st _U_)
 {

@@ -577,10 +577,10 @@ static int vines_len(void)
  * 18,446,744,073,709,551,615 as decimal, which has 20 characters. Adding 21
  * as for null-byte termination.
  * All values are derived from the counterparts defined in glib/basic-types */
-const size_t MAX_UINT64_WIDTH = 21;
-const size_t MAX_UINT32_WIDTH = 11;
-const size_t MAX_UINT16_WIDTH = 6;
-const size_t MAX_UINT8_WIDTH = 4;
+static const size_t MAX_UINT64_WIDTH = 21;
+static const size_t MAX_UINT32_WIDTH = 11;
+static const size_t MAX_UINT16_WIDTH = 6;
+static const size_t MAX_UINT8_WIDTH = 4;
 
 static int numeric_addr_str_len(const address* addr)
 {
@@ -1093,7 +1093,7 @@ static void address_with_resolution_to_str_buf(const address* addr, char *buf, i
 #endif
 
     /* Copy the resolved name */
-    g_strlcpy(buf, at->addr_name_res_str(addr), buf_len);
+    (void) g_strlcpy(buf, at->addr_name_res_str(addr), buf_len);
 
     /* Get the length of the copied resolved name */
     pos = strlen(buf);
@@ -1193,7 +1193,7 @@ const char* address_type_column_filter_string(const address* addr, bool src)
 }
 
 char*
-tvb_address_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, int type, const int offset)
+tvb_address_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, int type, const unsigned offset)
 {
     address addr;
     const address_type_t *at;
@@ -1218,7 +1218,7 @@ tvb_address_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, int type, const int o
     return address_to_str(scope, &addr);
 }
 
-char* tvb_address_var_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, address_type type, const int offset, int length)
+char* tvb_address_var_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, address_type type, const unsigned offset, unsigned length)
 {
     address addr;
 
@@ -1228,7 +1228,7 @@ char* tvb_address_var_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, address_typ
 }
 
 char*
-tvb_address_with_resolution_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, int type, const int offset)
+tvb_address_with_resolution_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, int type, const unsigned offset)
 {
     address addr;
     const address_type_t *at;

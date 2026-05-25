@@ -1,4 +1,4 @@
-/* packet-rpcordma.c
+/* packet-rpcrdma.c
  * Routines for RPC over RDMA dissection (RFC 5666)
  * Copyright 2014-2015, Mellanox Technologies Ltd.
  * Code by Yan Burman.
@@ -2040,11 +2040,7 @@ proto_register_rpcordma(void)
         &ett_rpcordma_fragments,
     };
 
-    proto_rpcordma = proto_register_protocol (
-        "RPC over RDMA", /* name       */
-        "RPCoRDMA",      /* short name */
-        "rpcordma"       /* abbrev     */
-        );
+    proto_rpcordma = proto_register_protocol ("RPC over RDMA", "RPCoRDMA", "rpcordma");
 
     proto_register_field_array(proto_rpcordma, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));

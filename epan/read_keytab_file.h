@@ -8,23 +8,33 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __READ_KEYTAB_FILE_H
-#define __READ_KEYTAB_FILE_H
-
+#pragma once
 #include "ws_symbol_export.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
 
+/**
+ * @brief Reads a Kerberos keytab file.
+ *
+ * @param filename The path to the keytab file to read.
+ */
 WS_DLL_PUBLIC
-void keytab_file_read(const char *);
+void keytab_file_read(const char *filename);
 
 #ifdef HAVE_KERBEROS
 #define KRB_MAX_KEY_LENGTH	32
 
 #if defined(HAVE_HEIMDAL_KERBEROS) || defined(HAVE_MIT_KERBEROS)
+
+/* Try to avoid having to include krb5.h especially when other files
+ * include this or packet-kerberos.h */
+struct _krb5_context;
+
+typedef struct _krb5_context *krb5_context;
+
+extern krb5_context keytab_krb5_ctx;
 
 typedef struct _enc_key_t {
     struct _enc_key_t* next;
@@ -81,11 +91,15 @@ WS_DLL_PUBLIC void keytab_file_key_map_insert(wmem_map_t* key_map, enc_key_t* ne
 
 #endif /* HAVE_KERBEROS */
 
+ /**
+  * @brief Initializes data structures for keytab file processing.
+  *
+  * This function initializes any necessary data structures or variables required
+  * for reading and processing keytab files.
+  */
 WS_DLL_LOCAL
 void keytab_file_data_init(void);
 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif  /* __READ_KEYTAB_FILE_H */

@@ -10,9 +10,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-#ifndef __FUNNEL_H__
-#define __FUNNEL_H__
-
+#pragma once
 #include <wireshark.h>
 #include <epan/stat_groups.h>
 
@@ -87,9 +85,30 @@ typedef struct _funnel_ops_t {
     void (*destroy_progress_window)(struct progdlg*);
 } funnel_ops_t;
 
+/**
+ * @brief Get the funnel operations.
+ *
+ * @return Pointer to the funnel operations structure.
+ */
 WS_DLL_PUBLIC const funnel_ops_t* funnel_get_funnel_ops(void);
+
+/**
+ * @brief Checks if a menu is registered.
+ *
+ * @return true if the menu is registered, false otherwise.
+ */
 WS_DLL_PUBLIC bool funnel_menu_registered(void);
 
+/**
+ * @brief Registers a menu callback.
+ *
+ * @param name The name of the menu to register.
+ * @param group The group to which the menu belongs.
+ * @param callback The callback function to be called when the menu is invoked.
+ * @param callback_data User data to be passed to the callback function.
+ * @param callback_data_free Function to free the user data when it's no longer needed.
+ * @param retap Whether to retap packets after registering the menu.
+ */
 WS_DLL_PUBLIC void funnel_register_menu(const char *name,
                                  register_stat_group_t group,
                                  funnel_menu_callback callback,
@@ -97,6 +116,11 @@ WS_DLL_PUBLIC void funnel_register_menu(const char *name,
                                  funnel_menu_callback_data_free callback_data_free,
                                  bool retap);
 
+/**
+ * @brief Deregisters a menu callback.
+ *
+ * @param callback The callback function to be deregistered.
+ */
 void funnel_deregister_menus(funnel_menu_callback callback);
 
 typedef void (*funnel_registration_cb_t)(const char *name,
@@ -106,8 +130,22 @@ typedef void (*funnel_registration_cb_t)(const char *name,
                                          bool retap);
 typedef void (*funnel_deregistration_cb_t)(funnel_menu_callback callback);
 
+/**
+ * @brief Reloads the menus by deregistering and registering them again using provided callbacks.
+ *
+ * @param d_cb Callback function to deregister menu items.
+ * @param r_cb Callback function to register new menu items.
+ */
 WS_DLL_PUBLIC void funnel_reload_menus(funnel_deregistration_cb_t d_cb,
                                        funnel_registration_cb_t r_cb);
+
+/**
+ * @brief Cleans up resources used by the funnel subsystem.
+ *
+ * This function is responsible for freeing all allocated resources and
+ * cleaning up any state held by the funnel subsystem before it is
+ * terminated.
+ */
 WS_DLL_PUBLIC void funnel_cleanup(void);
 
 /**
@@ -125,14 +163,14 @@ typedef void (*funnel_registration_packet_cb_t)(const char *name,
                                          bool retap);
 
 /**
- * Entry point for Wireshark GUI to obtain all registered packet menus
+ * @brief Entry point for Wireshark GUI to obtain all registered packet menus
  *
  * @param r_cb function which will be called to register each packet menu entry
  */
 WS_DLL_PUBLIC void funnel_register_all_packet_menus(funnel_registration_packet_cb_t r_cb);
 
 /**
- * Entry point for Lua code to register a packet menu
+ * @brief Entry point for Lua code to register a packet menu
  *
  * @param name packet menu item's name
  * @param required_fields fields required to be present for the packet menu to be displayed
@@ -147,7 +185,7 @@ WS_DLL_PUBLIC void funnel_register_packet_menu(const char *name,
                                  bool retap);
 
 /**
- * Returns whether the packet menus have been modified since they were last registered
+ * @brief Returns whether the packet menus have been modified since they were last registered
  *
  * @return true if the packet menus were modified since the last registration
  */
@@ -206,7 +244,7 @@ typedef void (*funnel_registration_console_cb_t)(const char *name,
                                 void *callback_data);
 
 /**
-* Initialize the funnel operations.  This is done outside of
+* @brief Initialize the funnel operations.  This is done outside of
 * epan_init() because the funnel operations depend on GUI code.
 *
 * @param r_cb function which will be called to register each console menu entry
@@ -216,5 +254,3 @@ WS_DLL_PUBLIC void funnel_ops_init(const funnel_ops_t* ops, funnel_registration_
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* __FUNNEL_H__ */

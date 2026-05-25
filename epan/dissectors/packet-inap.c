@@ -35,10 +35,6 @@
 #include "packet-dap.h"
 #include "packet-dsp.h"
 
-#define PNAME  "Intelligent Network Application Protocol"
-#define PSNAME "INAP"
-#define PFNAME "inap"
-
 void proto_register_inap(void);
 void proto_reg_handoff_inap(void);
 
@@ -1415,9 +1411,39 @@ static const value_string inap_general_problem_strings[] = {
 #endif
 
 /* Forward declarations */
-static int dissect_invokeData(proto_tree *tree, tvbuff_t *tvb, int offset, asn1_ctx_t *actx _U_);
-static int dissect_returnResultData(proto_tree *tree, tvbuff_t *tvb, int offset, asn1_ctx_t *actx _U_);
-static int dissect_returnErrorData(proto_tree *tree, tvbuff_t *tvb, int offset, asn1_ctx_t *actx);
+static unsigned dissect_invokeData(proto_tree *tree, tvbuff_t *tvb, unsigned offset, asn1_ctx_t *actx _U_);
+static unsigned dissect_returnResultData(proto_tree *tree, tvbuff_t *tvb, unsigned offset, asn1_ctx_t *actx _U_);
+static unsigned dissect_returnErrorData(proto_tree *tree, tvbuff_t *tvb, unsigned offset, asn1_ctx_t *actx);
+
+/*--- Cyclic dependencies ---*/
+
+/* ExtensionField/value -> ExtensionField/value */
+static unsigned dissect_inap_T_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* TriggerData/triggerPar -> TriggerData/triggerPar */
+static unsigned dissect_inap_T_triggerPar(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ScriptCloseArg/uIScriptSpecificInfo -> ScriptCloseArg/uIScriptSpecificInfo */
+static unsigned dissect_inap_T_uIScriptSpecificInfo(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ScriptEventArg/uIScriptResult -> ScriptEventArg/uIScriptResult */
+static unsigned dissect_inap_T_uIScriptResult(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ScriptInformationArg/uIScriptSpecificInfo -> ScriptInformationArg/uIScriptSpecificInfo */
+static unsigned dissect_inap_T_uIScriptSpecificInfo_01(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ScriptRunArg/uIScriptSpecificInfo -> ScriptRunArg/uIScriptSpecificInfo */
+static unsigned dissect_inap_T_uIScriptSpecificInfo_02(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* Invoke/argument -> Invoke/argument */
+static unsigned dissect_inap_T_argument(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ReturnResult/result/result -> ReturnResult/result/result */
+static unsigned dissect_inap_ResultArgument(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ReturnError/parameter -> ReturnError/parameter */
+static unsigned dissect_inap_T_parameter(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
 
 
 const value_string inap_CriticalityType_vals[] = {
@@ -1494,6 +1520,8 @@ dissect_inap_Code(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_,
 
 static unsigned
 dissect_inap_T_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ExtensionField/value -> ExtensionField/value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   proto_tree *ext_tree;
   ext_tree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_inap_extension_data, NULL, "Extension Data");
   if (obj_id){
@@ -1507,6 +1535,7 @@ dissect_inap_T_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _
 
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -5216,9 +5245,12 @@ dissect_inap_T_triggerId(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offs
 
 static unsigned
 dissect_inap_T_triggerPar(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // TriggerData/triggerPar -> TriggerData/triggerPar
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 /* FIX ME */
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -7792,9 +7824,12 @@ dissect_inap_MessageReceivedArg(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsign
 
 static unsigned
 dissect_inap_T_uIScriptSpecificInfo(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ScriptCloseArg/uIScriptSpecificInfo -> ScriptCloseArg/uIScriptSpecificInfo
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 /* FIX ME */
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -7819,9 +7854,12 @@ dissect_inap_ScriptCloseArg(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned o
 
 static unsigned
 dissect_inap_T_uIScriptResult(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ScriptEventArg/uIScriptResult -> ScriptEventArg/uIScriptResult
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 /* FIX ME */
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -7847,8 +7885,11 @@ dissect_inap_ScriptEventArg(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned o
 
 static unsigned
 dissect_inap_T_uIScriptSpecificInfo_01(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ScriptInformationArg/uIScriptSpecificInfo -> ScriptInformationArg/uIScriptSpecificInfo
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 /* FIX ME */
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -7873,9 +7914,12 @@ dissect_inap_ScriptInformationArg(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsi
 
 static unsigned
 dissect_inap_T_uIScriptSpecificInfo_02(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ScriptRunArg/uIScriptSpecificInfo -> ScriptRunArg/uIScriptSpecificInfo
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 /* FIX ME */
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -8102,10 +8146,13 @@ dissect_inap_T_linkedId(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offse
 
 static unsigned
 dissect_inap_T_argument(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // Invoke/argument -> Invoke/argument
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 
   offset = dissect_invokeData(tree, tvb, offset, actx);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -8133,10 +8180,13 @@ dissect_inap_Invoke(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U
 
 static unsigned
 dissect_inap_ResultArgument(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ReturnResult/result/result -> ReturnResult/result/result
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 
   offset = dissect_returnResultData(tree, tvb, offset, actx);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -8177,12 +8227,15 @@ dissect_inap_ReturnResult(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned off
 
 static unsigned
 dissect_inap_T_parameter(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ReturnError/parameter -> ReturnError/parameter
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 
   offset = dissect_returnErrorData(tree, tvb, offset, actx);
 
 
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -9038,7 +9091,7 @@ TC-Invokable OPERATION ::=
 */
 
 
-static int dissect_invokeData(proto_tree *tree, tvbuff_t *tvb, int offset, asn1_ctx_t *actx) {
+static unsigned dissect_invokeData(proto_tree *tree, tvbuff_t *tvb, unsigned offset, asn1_ctx_t *actx) {
 
   switch(opcode){
     case opcode_activateServiceFiltering:  /* activateServiceFiltering */
@@ -9297,8 +9350,8 @@ static int dissect_invokeData(proto_tree *tree, tvbuff_t *tvb, int offset, asn1_
       offset= dissect_SRFCallGapArg_PDU(tvb, actx->pinfo , tree , NULL);
       break;
     default:
-      proto_tree_add_expert_format(tree, actx->pinfo, &ei_inap_unknown_invokeData,
-                                   tvb, offset, -1, "Unknown invokeData %d", opcode);
+      proto_tree_add_expert_format_remaining(tree, actx->pinfo, &ei_inap_unknown_invokeData,
+                                   tvb, offset, "Unknown invokeData %d", opcode);
       /* todo call the asn.1 dissector */
       break;
   }
@@ -9306,7 +9359,7 @@ static int dissect_invokeData(proto_tree *tree, tvbuff_t *tvb, int offset, asn1_
 }
 
 
-static int dissect_returnResultData(proto_tree *tree, tvbuff_t *tvb, int offset,asn1_ctx_t *actx) {
+static unsigned dissect_returnResultData(proto_tree *tree, tvbuff_t *tvb, unsigned offset,asn1_ctx_t *actx) {
   switch(opcode){
     case opcode_createCallSegmentAssociation:  /* createCallSegmentAssociation */
       offset= dissect_CreateCallSegmentAssociationResultArg_PDU(tvb, actx->pinfo , tree , NULL);
@@ -9327,14 +9380,14 @@ static int dissect_returnResultData(proto_tree *tree, tvbuff_t *tvb, int offset,
       offset= dissect_MessageReceivedArg_PDU(tvb, actx->pinfo , tree , NULL);
       break;
   default:
-    proto_tree_add_expert_format(tree, actx->pinfo, &ei_inap_unknown_returnResultData,
-                                 tvb, offset, -1, "Unknown returnResultData %d", opcode);
+    proto_tree_add_expert_format_remaining(tree, actx->pinfo, &ei_inap_unknown_returnResultData,
+                                 tvb, offset, "Unknown returnResultData %d", opcode);
   }
   return offset;
 }
 
 
-static int dissect_returnErrorData(proto_tree *tree, tvbuff_t *tvb, int offset,asn1_ctx_t *actx) {
+static unsigned dissect_returnErrorData(proto_tree *tree, tvbuff_t *tvb, unsigned offset,asn1_ctx_t *actx) {
   switch(errorCode) {
     case errcode_cancelFailed:  /* cancelFailed */
       offset= dissect_PAR_cancelFailed_PDU(tvb, actx->pinfo , tree , NULL);
@@ -9355,8 +9408,8 @@ static int dissect_returnErrorData(proto_tree *tree, tvbuff_t *tvb, int offset,a
       offset= dissect_PAR_taskRefused_PDU(tvb, actx->pinfo , tree , NULL);
       break;
   default:
-    proto_tree_add_expert_format(tree, actx->pinfo, &ei_inap_unknown_returnErrorData,
-                                 tvb, offset, -1, "Unknown returnErrorData %d", opcode);
+    proto_tree_add_expert_format_remaining(tree, actx->pinfo, &ei_inap_unknown_returnErrorData,
+                                 tvb, offset, "Unknown returnErrorData %d", opcode);
   }
   return offset;
 }
@@ -9372,7 +9425,7 @@ dissect_inap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *d
 {
   proto_item		*item=NULL;
   proto_tree		*tree=NULL;
-  int				offset = 0;
+  unsigned		offset = 0;
   asn1_ctx_t asn1_ctx;
   asn1_ctx_init(&asn1_ctx, ASN1_ENC_BER, true, pinfo);
 
@@ -11961,7 +12014,7 @@ void proto_register_inap(void) {
   expert_module_t* expert_inap;
 
   /* Register protocol */
-  proto_inap = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_inap = proto_register_protocol("Intelligent Network Application Protocol", "INAP", "inap");
   inap_handle = register_dissector("inap", dissect_inap, proto_inap);
   /* Register fields and subtrees */
   proto_register_field_array(proto_inap, hf, array_length(hf));

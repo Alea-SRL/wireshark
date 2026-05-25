@@ -5,9 +5,7 @@
  *
  * SPDX-License-Identifier: MIT
  */
-#ifndef NGHTTP2_HD_HUFFMAN_H
-#define NGHTTP2_HD_HUFFMAN_H
-
+#pragma once
 #include <stdlib.h>
 #include <stdint.h>
 
@@ -48,5 +46,3 @@ typedef struct {
 
 extern const nghttp2_huff_sym huff_sym_table[];
 extern const nghttp2_huff_decode huff_decode_table[][16];
-
-#endif /* NGHTTP2_HD_HUFFMAN_H */

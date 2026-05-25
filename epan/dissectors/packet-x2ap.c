@@ -8,7 +8,7 @@
  * X2 Application Protocol (X2AP);
  * 3GPP TS 36.423 packet dissection
  * Copyright 2007-2014, Anders Broman <anders.broman@ericsson.com>
- * Copyright 2016-2024, Pascal Quantin <pascal@wireshark.org>
+ * Copyright 2016-2026, Pascal Quantin <pascal@wireshark.org>
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -17,7 +17,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Ref:
- * 3GPP TS 36.423 V18.2.0 (2024-06)
+ * 3GPP TS 36.423 V19.1.0 (2025-12)
  */
 
 #include "config.h"
@@ -43,15 +43,6 @@
 #include "packet-f1ap.h"
 #include "packet-xnap.h"
 #include "packet-sctp.h"
-
-#ifdef _MSC_VER
-/* disable: "warning C4146: unary minus operator applied to unsigned type, result still unsigned" */
-#pragma warning(disable:4146)
-#endif
-
-#define PNAME  "EUTRAN X2 Application Protocol (X2AP)"
-#define PSNAME "X2AP"
-#define PFNAME "x2ap"
 
 void proto_register_x2ap(void);
 
@@ -191,7 +182,9 @@ typedef enum _ProcedureCode_enum {
   id_accessAndMobilityIndication =  57,
   id_procedure_code_58_not_to_be_used =  58,
   id_CPC_cancel =  59,
-  id_rachIndication =  60
+  id_rachIndication =  60,
+  id_scgFailureInformationReport =  61,
+  id_scgFailureTransfer =  62
 } ProcedureCode_enum;
 
 typedef enum _ProtocolIE_ID_enum {
@@ -644,7 +637,11 @@ typedef enum _ProtocolIE_ID_enum {
   id_CHOTimeBasedInformation = 446,
   id_RaReportIndicationList = 447,
   id_PSCellListContainer = 448,
-  id_IABAuthorized = 449
+  id_IABAuthorized = 449,
+  id_SourcePSCellCGI = 450,
+  id_FailedPSCellCGI = 451,
+  id_SCG_FailureReportContainer = 452,
+  id_TimeSCG_Failure = 453
 } ProtocolIE_ID_enum;
 
 /* Initialize the protocol and registered fields */
@@ -917,6 +914,7 @@ static int hf_x2ap_RaReportIndicationList_PDU;    /* RaReportIndicationList */
 static int hf_x2ap_SCGActivationStatus_PDU;       /* SCGActivationStatus */
 static int hf_x2ap_SCGActivationRequest_PDU;      /* SCGActivationRequest */
 static int hf_x2ap_SCGChangeIndication_PDU;       /* SCGChangeIndication */
+static int hf_x2ap_SCG_FailureReportContainer_PDU;  /* SCG_FailureReportContainer */
 static int hf_x2ap_SCGreconfigNotification_PDU;   /* SCGreconfigNotification */
 static int hf_x2ap_SCG_UE_HistoryInformation_PDU;  /* SCG_UE_HistoryInformation */
 static int hf_x2ap_SecondaryRATUsageReportList_PDU;  /* SecondaryRATUsageReportList */
@@ -951,6 +949,7 @@ static int hf_x2ap_TargetCellInNGRAN_PDU;         /* TargetCellInNGRAN */
 static int hf_x2ap_TargetCellInUTRAN_PDU;         /* TargetCellInUTRAN */
 static int hf_x2ap_TargeteNBtoSource_eNBTransparentContainer_PDU;  /* TargeteNBtoSource_eNBTransparentContainer */
 static int hf_x2ap_TDDULDLConfigurationCommonNR_PDU;  /* TDDULDLConfigurationCommonNR */
+static int hf_x2ap_TimeSCG_Failure_PDU;           /* TimeSCG_Failure */
 static int hf_x2ap_TimeToWait_PDU;                /* TimeToWait */
 static int hf_x2ap_Time_UE_StayedInCell_EnhancedGranularity_PDU;  /* Time_UE_StayedInCell_EnhancedGranularity */
 static int hf_x2ap_TNLA_To_Add_List_PDU;          /* TNLA_To_Add_List */
@@ -1213,6 +1212,8 @@ static int hf_x2ap_UERadioCapabilityIDMappingRequest_PDU;  /* UERadioCapabilityI
 static int hf_x2ap_UERadioCapabilityIDMappingResponse_PDU;  /* UERadioCapabilityIDMappingResponse */
 static int hf_x2ap_CPC_cancel_PDU;                /* CPC_cancel */
 static int hf_x2ap_RachIndication_PDU;            /* RachIndication */
+static int hf_x2ap_SCGFailureInformationReport_PDU;  /* SCGFailureInformationReport */
+static int hf_x2ap_SCGFailureTransfer_PDU;        /* SCGFailureTransfer */
 static int hf_x2ap_X2AP_PDU_PDU;                  /* X2AP_PDU */
 static int hf_x2ap_local;                         /* INTEGER_0_maxPrivateIEs */
 static int hf_x2ap_global;                        /* T_global */
@@ -2081,6 +2082,7 @@ static int ett_x2ap_LastVisitedPSCell_Item;
 static int ett_x2ap_NRRAReportContainer;
 static int ett_x2ap_rAT_RestrictionInformation;
 static int ett_x2ap_PSCellListContainer;
+static int ett_x2ap_SCG_FailureReportContainer;
 static int ett_x2ap_PrivateIE_ID;
 static int ett_x2ap_ProtocolIE_Container;
 static int ett_x2ap_ProtocolIE_Field;
@@ -2714,6 +2716,8 @@ static int ett_x2ap_UERadioCapabilityIDMappingRequest;
 static int ett_x2ap_UERadioCapabilityIDMappingResponse;
 static int ett_x2ap_CPC_cancel;
 static int ett_x2ap_RachIndication;
+static int ett_x2ap_SCGFailureInformationReport;
+static int ett_x2ap_SCGFailureTransfer;
 static int ett_x2ap_X2AP_PDU;
 static int ett_x2ap_InitiatingMessage;
 static int ett_x2ap_SuccessfulOutcome;
@@ -2828,6 +2832,27 @@ x2ap_get_private_data(packet_info *pinfo)
   }
   return x2ap_data;
 }
+
+/*--- Cyclic dependencies ---*/
+
+/* ProtocolIE-Field/value -> ProtocolIE-Field/value */
+static unsigned dissect_x2ap_ProtocolIE_Field_value(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ProtocolExtensionField/extensionValue -> ProtocolExtensionField/extensionValue */
+static unsigned dissect_x2ap_T_extensionValue(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* PrivateIE-Field/value -> PrivateIE-Field/value */
+static unsigned dissect_x2ap_PrivateIE_Field_value(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* InitiatingMessage/value -> InitiatingMessage/value */
+static unsigned dissect_x2ap_InitiatingMessage_value(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* SuccessfulOutcome/value -> SuccessfulOutcome/value */
+static unsigned dissect_x2ap_SuccessfulOutcome_value(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* UnsuccessfulOutcome/value -> UnsuccessfulOutcome/value */
+static unsigned dissect_x2ap_UnsuccessfulOutcome_value(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
 
 
 static const value_string x2ap_Criticality_vals[] = {
@@ -2953,6 +2978,8 @@ static const value_string x2ap_ProcedureCode_vals[] = {
   { id_procedure_code_58_not_to_be_used, "id-procedure-code-58-not-to-be-used" },
   { id_CPC_cancel, "id-CPC-cancel" },
   { id_rachIndication, "id-rachIndication" },
+  { id_scgFailureInformationReport, "id-scgFailureInformationReport" },
+  { id_scgFailureTransfer, "id-scgFailureTransfer" },
   { 0, NULL }
 };
 
@@ -3422,6 +3449,10 @@ static const value_string x2ap_ProtocolIE_ID_vals[] = {
   { id_RaReportIndicationList, "id-RaReportIndicationList" },
   { id_PSCellListContainer, "id-PSCellListContainer" },
   { id_IABAuthorized, "id-IABAuthorized" },
+  { id_SourcePSCellCGI, "id-SourcePSCellCGI" },
+  { id_FailedPSCellCGI, "id-FailedPSCellCGI" },
+  { id_SCG_FailureReportContainer, "id-SCG-FailureReportContainer" },
+  { id_TimeSCG_Failure, "id-TimeSCG-Failure" },
   { 0, NULL }
 };
 
@@ -3462,8 +3493,11 @@ dissect_x2ap_TriggeringMessage(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_
 
 static unsigned
 dissect_x2ap_ProtocolIE_Field_value(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ProtocolIE-Field/value -> ProtocolIE-Field/value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_per_open_type_pdu_new(tvb, offset, actx, tree, hf_index, dissect_ProtocolIEFieldValue);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -3510,8 +3544,11 @@ dissect_x2ap_ProtocolIE_Single_Container(tvbuff_t *tvb _U_, uint32_t offset _U_,
 
 static unsigned
 dissect_x2ap_T_extensionValue(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ProtocolExtensionField/extensionValue -> ProtocolExtensionField/extensionValue
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_per_open_type_pdu_new(tvb, offset, actx, tree, hf_index, dissect_ProtocolExtensionFieldExtensionValue);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -3549,6 +3586,8 @@ dissect_x2ap_ProtocolExtensionContainer(tvbuff_t *tvb _U_, uint32_t offset _U_, 
 
 static unsigned
 dissect_x2ap_PrivateIE_Field_value(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // PrivateIE-Field/value -> PrivateIE-Field/value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   if (actx->external.direct_ref_present){
     offset=call_per_oid_callback(actx->external.direct_reference, tvb, actx->pinfo, tree, offset, actx, hf_index);
   }else{
@@ -3557,6 +3596,7 @@ dissect_x2ap_PrivateIE_Field_value(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_
   }
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -12545,6 +12585,24 @@ dissect_x2ap_SCGChangeIndication(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ct
 }
 
 
+
+static unsigned
+dissect_x2ap_SCG_FailureReportContainer(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  tvbuff_t *parameter_tvb = NULL;
+  proto_tree *subtree;
+  offset = dissect_per_octet_string(tvb, offset, actx, tree, hf_index,
+                                       NO_BOUND, NO_BOUND, false, &parameter_tvb);
+
+  if (parameter_tvb) {
+    subtree = proto_item_add_subtree(actx->created_item, ett_x2ap_SCG_FailureReportContainer);
+    dissect_lte_rrc_SCGFailureInformationNR_r15_PDU(parameter_tvb, actx->pinfo, subtree, NULL);
+  }
+
+
+  return offset;
+}
+
+
 static const value_string x2ap_SCGreconfigNotification_vals[] = {
   {   0, "executed" },
   {   1, "executed-deleted" },
@@ -13302,6 +13360,16 @@ dissect_x2ap_TDDULDLConfigurationCommonNR(tvbuff_t *tvb _U_, uint32_t offset _U_
     dissect_nr_rrc_TDD_UL_DL_ConfigCommon_PDU(parameter_tvb, actx->pinfo, subtree, NULL);
   }
 
+
+  return offset;
+}
+
+
+
+static unsigned
+dissect_x2ap_TimeSCG_Failure(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  offset = dissect_per_constrained_integer(tvb, offset, actx, tree, hf_index,
+                                                            0U, 1023U, NULL, false);
 
   return offset;
 }
@@ -19487,9 +19555,39 @@ static const per_sequence_t RachIndication_sequence[] = {
 static unsigned
 dissect_x2ap_RachIndication(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   col_append_sep_str(actx->pinfo->cinfo, COL_INFO, NULL, "RachIndication");
-
   offset = dissect_per_sequence(tvb, offset, actx, tree, hf_index,
                                    ett_x2ap_RachIndication, RachIndication_sequence);
+
+  return offset;
+}
+
+
+static const per_sequence_t SCGFailureInformationReport_sequence[] = {
+  { &hf_x2ap_protocolIEs    , ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_x2ap_ProtocolIE_Container },
+  { NULL, 0, 0, NULL }
+};
+
+static unsigned
+dissect_x2ap_SCGFailureInformationReport(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  col_append_sep_str(actx->pinfo->cinfo, COL_INFO, NULL, "SCGFailureInformationReport");
+  offset = dissect_per_sequence(tvb, offset, actx, tree, hf_index,
+                                   ett_x2ap_SCGFailureInformationReport, SCGFailureInformationReport_sequence);
+
+  return offset;
+}
+
+
+static const per_sequence_t SCGFailureTransfer_sequence[] = {
+  { &hf_x2ap_protocolIEs    , ASN1_EXTENSION_ROOT    , ASN1_NOT_OPTIONAL, dissect_x2ap_ProtocolIE_Container },
+  { NULL, 0, 0, NULL }
+};
+
+static unsigned
+dissect_x2ap_SCGFailureTransfer(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  col_append_sep_str(actx->pinfo->cinfo, COL_INFO, NULL, "SCGFailureTransfer");
+
+  offset = dissect_per_sequence(tvb, offset, actx, tree, hf_index,
+                                   ett_x2ap_SCGFailureTransfer, SCGFailureTransfer_sequence);
 
   return offset;
 }
@@ -19498,8 +19596,11 @@ dissect_x2ap_RachIndication(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *
 
 static unsigned
 dissect_x2ap_InitiatingMessage_value(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // InitiatingMessage/value -> InitiatingMessage/value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_per_open_type_pdu_new(tvb, offset, actx, tree, hf_index, dissect_InitiatingMessageValue);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -19523,8 +19624,11 @@ dissect_x2ap_InitiatingMessage(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_
 
 static unsigned
 dissect_x2ap_SuccessfulOutcome_value(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // SuccessfulOutcome/value -> SuccessfulOutcome/value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_per_open_type_pdu_new(tvb, offset, actx, tree, hf_index, dissect_SuccessfulOutcomeValue);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -19548,8 +19652,11 @@ dissect_x2ap_SuccessfulOutcome(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_
 
 static unsigned
 dissect_x2ap_UnsuccessfulOutcome_value(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // UnsuccessfulOutcome/value -> UnsuccessfulOutcome/value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_per_open_type_pdu_new(tvb, offset, actx, tree, hf_index, dissect_UnsuccessfulOutcomeValue);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -21099,6 +21206,14 @@ static int dissect_SCGChangeIndication_PDU(tvbuff_t *tvb _U_, packet_info *pinfo
   offset += 7; offset >>= 3;
   return offset;
 }
+static int dissect_SCG_FailureReportContainer_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_) {
+  unsigned offset = 0;
+  asn1_ctx_t asn1_ctx;
+  asn1_ctx_init(&asn1_ctx, ASN1_ENC_PER, true, pinfo);
+  offset = dissect_x2ap_SCG_FailureReportContainer(tvb, offset, &asn1_ctx, tree, hf_x2ap_SCG_FailureReportContainer_PDU);
+  offset += 7; offset >>= 3;
+  return offset;
+}
 static int dissect_SCGreconfigNotification_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_) {
   unsigned offset = 0;
   asn1_ctx_t asn1_ctx;
@@ -21368,6 +21483,14 @@ static int dissect_TDDULDLConfigurationCommonNR_PDU(tvbuff_t *tvb _U_, packet_in
   asn1_ctx_t asn1_ctx;
   asn1_ctx_init(&asn1_ctx, ASN1_ENC_PER, true, pinfo);
   offset = dissect_x2ap_TDDULDLConfigurationCommonNR(tvb, offset, &asn1_ctx, tree, hf_x2ap_TDDULDLConfigurationCommonNR_PDU);
+  offset += 7; offset >>= 3;
+  return offset;
+}
+static int dissect_TimeSCG_Failure_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_) {
+  unsigned offset = 0;
+  asn1_ctx_t asn1_ctx;
+  asn1_ctx_init(&asn1_ctx, ASN1_ENC_PER, true, pinfo);
+  offset = dissect_x2ap_TimeSCG_Failure(tvb, offset, &asn1_ctx, tree, hf_x2ap_TimeSCG_Failure_PDU);
   offset += 7; offset >>= 3;
   return offset;
 }
@@ -23467,6 +23590,22 @@ static int dissect_RachIndication_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_,
   offset += 7; offset >>= 3;
   return offset;
 }
+static int dissect_SCGFailureInformationReport_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_) {
+  unsigned offset = 0;
+  asn1_ctx_t asn1_ctx;
+  asn1_ctx_init(&asn1_ctx, ASN1_ENC_PER, true, pinfo);
+  offset = dissect_x2ap_SCGFailureInformationReport(tvb, offset, &asn1_ctx, tree, hf_x2ap_SCGFailureInformationReport_PDU);
+  offset += 7; offset >>= 3;
+  return offset;
+}
+static int dissect_SCGFailureTransfer_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_) {
+  unsigned offset = 0;
+  asn1_ctx_t asn1_ctx;
+  asn1_ctx_init(&asn1_ctx, ASN1_ENC_PER, true, pinfo);
+  offset = dissect_x2ap_SCGFailureTransfer(tvb, offset, &asn1_ctx, tree, hf_x2ap_SCGFailureTransfer_PDU);
+  offset += 7; offset >>= 3;
+  return offset;
+}
 static int dissect_X2AP_PDU_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_) {
   unsigned offset = 0;
   asn1_ctx_t asn1_ctx;
@@ -24611,6 +24750,10 @@ void proto_register_x2ap(void) {
       { "SCGChangeIndication", "x2ap.SCGChangeIndication",
         FT_UINT32, BASE_DEC, VALS(x2ap_SCGChangeIndication_vals), 0,
         NULL, HFILL }},
+    { &hf_x2ap_SCG_FailureReportContainer_PDU,
+      { "SCG-FailureReportContainer", "x2ap.SCG_FailureReportContainer",
+        FT_BYTES, BASE_NONE, NULL, 0,
+        NULL, HFILL }},
     { &hf_x2ap_SCGreconfigNotification_PDU,
       { "SCGreconfigNotification", "x2ap.SCGreconfigNotification",
         FT_UINT32, BASE_DEC, VALS(x2ap_SCGreconfigNotification_vals), 0,
@@ -24746,6 +24889,10 @@ void proto_register_x2ap(void) {
     { &hf_x2ap_TDDULDLConfigurationCommonNR_PDU,
       { "TDDULDLConfigurationCommonNR", "x2ap.TDDULDLConfigurationCommonNR",
         FT_BYTES, BASE_NONE, NULL, 0,
+        NULL, HFILL }},
+    { &hf_x2ap_TimeSCG_Failure_PDU,
+      { "TimeSCG-Failure", "x2ap.TimeSCG_Failure",
+        FT_UINT32, BASE_DEC, NULL, 0,
         NULL, HFILL }},
     { &hf_x2ap_TimeToWait_PDU,
       { "TimeToWait", "x2ap.TimeToWait",
@@ -25793,6 +25940,14 @@ void proto_register_x2ap(void) {
         NULL, HFILL }},
     { &hf_x2ap_RachIndication_PDU,
       { "RachIndication", "x2ap.RachIndication_element",
+        FT_NONE, BASE_NONE, NULL, 0,
+        NULL, HFILL }},
+    { &hf_x2ap_SCGFailureInformationReport_PDU,
+      { "SCGFailureInformationReport", "x2ap.SCGFailureInformationReport_element",
+        FT_NONE, BASE_NONE, NULL, 0,
+        NULL, HFILL }},
+    { &hf_x2ap_SCGFailureTransfer_PDU,
+      { "SCGFailureTransfer", "x2ap.SCGFailureTransfer_element",
         FT_NONE, BASE_NONE, NULL, 0,
         NULL, HFILL }},
     { &hf_x2ap_X2AP_PDU_PDU,
@@ -29107,6 +29262,7 @@ void proto_register_x2ap(void) {
     &ett_x2ap_NRRAReportContainer,
     &ett_x2ap_rAT_RestrictionInformation,
     &ett_x2ap_PSCellListContainer,
+    &ett_x2ap_SCG_FailureReportContainer,
     &ett_x2ap_PrivateIE_ID,
     &ett_x2ap_ProtocolIE_Container,
     &ett_x2ap_ProtocolIE_Field,
@@ -29740,6 +29896,8 @@ void proto_register_x2ap(void) {
     &ett_x2ap_UERadioCapabilityIDMappingResponse,
     &ett_x2ap_CPC_cancel,
     &ett_x2ap_RachIndication,
+    &ett_x2ap_SCGFailureInformationReport,
+    &ett_x2ap_SCGFailureTransfer,
     &ett_x2ap_X2AP_PDU,
     &ett_x2ap_InitiatingMessage,
     &ett_x2ap_SuccessfulOutcome,
@@ -29749,7 +29907,7 @@ void proto_register_x2ap(void) {
   module_t *x2ap_module;
 
   /* Register protocol */
-  proto_x2ap = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_x2ap = proto_register_protocol("EUTRAN X2 Application Protocol (X2AP)", "X2AP", "x2ap");
   /* Register fields and subtrees */
   proto_register_field_array(proto_x2ap, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
@@ -30077,6 +30235,10 @@ proto_reg_handoff_x2ap(void)
   dissector_add_uint("x2ap.ies", id_SCGreconfigNotification, create_dissector_handle(dissect_SCGreconfigNotification_PDU, proto_x2ap));
   dissector_add_uint("x2ap.ies", id_RaReportIndicationList, create_dissector_handle(dissect_RaReportIndicationList_PDU, proto_x2ap));
   dissector_add_uint("x2ap.ies", id_IABAuthorized, create_dissector_handle(dissect_IABAuthorized_PDU, proto_x2ap));
+  dissector_add_uint("x2ap.ies", id_SourcePSCellCGI, create_dissector_handle(dissect_NRCGI_PDU, proto_x2ap));
+  dissector_add_uint("x2ap.ies", id_FailedPSCellCGI, create_dissector_handle(dissect_NRCGI_PDU, proto_x2ap));
+  dissector_add_uint("x2ap.ies", id_SCG_FailureReportContainer, create_dissector_handle(dissect_SCG_FailureReportContainer_PDU, proto_x2ap));
+  dissector_add_uint("x2ap.ies", id_TimeSCG_Failure, create_dissector_handle(dissect_TimeSCG_Failure_PDU, proto_x2ap));
   dissector_add_uint("x2ap.extension", id_Number_of_Antennaports, create_dissector_handle(dissect_Number_of_Antennaports_PDU, proto_x2ap));
   dissector_add_uint("x2ap.extension", id_CompositeAvailableCapacityGroup, create_dissector_handle(dissect_CompositeAvailableCapacityGroup_PDU, proto_x2ap));
   dissector_add_uint("x2ap.extension", id_PRACH_Configuration, create_dissector_handle(dissect_PRACH_Configuration_PDU, proto_x2ap));
@@ -30324,6 +30486,8 @@ proto_reg_handoff_x2ap(void)
   dissector_add_uint("x2ap.proc.imsg", id_accessAndMobilityIndication, create_dissector_handle(dissect_AccessAndMobilityIndication_PDU, proto_x2ap));
   dissector_add_uint("x2ap.proc.imsg", id_CPC_cancel, create_dissector_handle(dissect_CPC_cancel_PDU, proto_x2ap));
   dissector_add_uint("x2ap.proc.imsg", id_rachIndication, create_dissector_handle(dissect_RachIndication_PDU, proto_x2ap));
+  dissector_add_uint("x2ap.proc.imsg", id_scgFailureInformationReport, create_dissector_handle(dissect_SCGFailureInformationReport_PDU, proto_x2ap));
+  dissector_add_uint("x2ap.proc.imsg", id_scgFailureTransfer, create_dissector_handle(dissect_SCGFailureTransfer_PDU, proto_x2ap));
 
 }
 

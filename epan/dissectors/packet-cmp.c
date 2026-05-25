@@ -34,13 +34,9 @@
 #include "packet-tcp.h"
 #include "packet-http.h"
 #include <epan/prefs.h>
-
-#define PNAME  "Certificate Management Protocol"
-#define PSNAME "CMP"
-#define PFNAME "cmp"
-
 #define TCP_PORT_CMP 829
 
+void proto_reg_handoff_cmp(void);
 void proto_register_cmp(void);
 
 static dissector_handle_t cmp_http_handle;
@@ -1089,13 +1085,11 @@ static const ber_sequence_t PKIMessage_sequence[] = {
 unsigned
 dissect_cmp_PKIMessage(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // PKIMessage -> PKIBody -> NestedMessageContent -> PKIMessages -> PKIMessage
-  actx->pinfo->dissection_depth += 4;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 4);
   offset = dissect_ber_sequence(implicit_tag, actx, tree, tvb, offset,
                                    PKIMessage_sequence, hf_index, ett_cmp_PKIMessage);
 
-  actx->pinfo->dissection_depth -= 4;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 4);
   return offset;
 }
 
@@ -2377,7 +2371,7 @@ void proto_register_cmp(void) {
 	module_t *cmp_module;
 
 	/* Register protocol */
-	proto_cmp = proto_register_protocol(PNAME, PSNAME, PFNAME);
+	proto_cmp = proto_register_protocol("Certificate Management Protocol", "CMP", "cmp");
 
 	/* Register fields and subtrees */
 	proto_register_field_array(proto_cmp, hf, array_length(hf));
@@ -2411,9 +2405,9 @@ void proto_register_cmp(void) {
          * name, but leave it.
          * https://datatracker.ietf.org/doc/html/rfc6712#section-1
          */
-	cmp_http_handle = register_dissector_with_description("cmp.http", PSNAME, dissect_cmp_http, proto_cmp);
-	cmp_tcp_style_http_handle = register_dissector_with_description("cmp.tcp_pdu", PSNAME " TCP-Messaging PDU", dissect_cmp_tcp_pdu, proto_cmp);
-	cmp_tcp_handle = register_dissector_with_description("cmp", PSNAME " TCP-Messaging", dissect_cmp_tcp, proto_cmp);
+	cmp_http_handle = register_dissector_with_description("cmp.http", "CMP", dissect_cmp_http, proto_cmp);
+	cmp_tcp_style_http_handle = register_dissector_with_description("cmp.tcp_pdu", "CMP TCP-Messaging PDU", dissect_cmp_tcp_pdu, proto_cmp);
+	cmp_tcp_handle = register_dissector_with_description("cmp", "CMP TCP-Messaging", dissect_cmp_tcp, proto_cmp);
 	register_ber_syntax_dissector("PKIMessage", proto_cmp, dissect_cmp_pdu);
 }
 

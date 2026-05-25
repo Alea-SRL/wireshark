@@ -24,6 +24,7 @@
 #include <epan/asn1.h>
 #include <epan/dissectors/packet-windows-common.h>
 #include <epan/dissectors/packet-x509af.h>
+#include "opcua.h"
 #include "opcua_simpletypes.h"
 #include "opcua_hfindeces.h"
 #include "opcua_statuscode.h"
@@ -174,8 +175,6 @@ int hf_opcua_resultMask_typedefinition;
 
 static expert_field ei_array_length;
 static expert_field ei_nesting_depth;
-
-extern int proto_opcua;
 
 /** NodeId encoding mask table */
 static const value_string g_nodeidmasks[] = {
@@ -347,7 +346,7 @@ static const value_string g_ResultMask[] = {
 /* trees */
 static int ett_opcua_diagnosticinfo;
 static int ett_opcua_diagnosticinfo_encodingmask;
-static int ett_opcua_nodeid;
+int ett_opcua_nodeid;
 static int ett_opcua_expandednodeid;
 static int ett_opcua_expandednodeid_encodingmask;
 static int ett_opcua_localizedtext;
@@ -357,7 +356,7 @@ static int ett_opcua_datavalue;
 static int ett_opcua_datavalue_encodingmask;
 static int ett_opcua_variant;
 static int ett_opcua_variant_arraydims;
-static int ett_opcua_extensionobject;
+int ett_opcua_extensionobject;
 static int ett_opcua_extensionobject_encodingmask;
 static int ett_opcua_statuscode;
 static int ett_opcua_statuscode_info;
@@ -673,7 +672,7 @@ proto_item* parseString_ret_string_and_length(proto_tree *tree, tvbuff_t *tvb, p
     }
     else if (iLen > 0)
     {
-        item = proto_tree_add_item_ret_string_and_length(tree, hfIndex, tvb, iOffset, iLen, ENC_UTF_8|ENC_NA, NULL, retval, lenretval);
+        item = proto_tree_add_item_ret_string(tree, hfIndex, tvb, iOffset, iLen, ENC_UTF_8|ENC_NA, NULL, retval);
         iOffset += iLen; /* eat the whole string */
     }
     else

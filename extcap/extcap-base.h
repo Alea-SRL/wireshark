@@ -96,40 +96,191 @@ typedef struct _extcap_parameters
     void (*cleanup_postkill_cb)(void);
 } extcap_parameters;
 
-/* used to inform to extcap application that end of application is requested */
+/**
+ * @brief Flag indicating whether a graceful shutdown of the extcap application has been requested.
+ *
+ * This variable is set to true when a signal is received that indicates the application should exit gracefully.
+ * The extcap application can check this flag periodically to determine if it should perform cleanup and exit.
+ */
 extern bool extcap_end_application;
 
+/**
+ * @brief Registers a basic interface with the extcap framework.
+ *
+ * @param extcap Pointer to the extcap parameters structure.
+ * @param interface Name of the interface to register.
+ * @param ifdescription Description of the interface.
+ * @param dlt Data Link Type (DLT) for the interface.
+ * @param dltdescription Description of the DLT.
+ */
 void extcap_base_register_interface(extcap_parameters * extcap, const char * interface, const char * ifdescription, uint16_t dlt, const char * dltdescription );
+
+/**
+ * @brief Registers an interface with extended information for the extcap framework.
+ *
+ * @param extcap Pointer to the extcap parameters structure.
+ * @param interface Name of the interface to register.
+ * @param ifdescription Description of the interface.
+ * @param dlt Data Link Type (DLT) for the interface.
+ * @param dltname Name of the DLT.
+ * @param dltdescription Description of the DLT.
+ */
 void extcap_base_register_interface_ext(extcap_parameters * extcap, const char * interface, const char * ifdescription, uint16_t dlt, const char * dltname, const char * dltdescription );
 
-/* used to inform extcap framework that graceful shutdown supported by the extcap
+/**
+ * @brief Registers a callback function for graceful shutdown in the extcap framework.
+ *
+ * This function allows an extcap application to register a callback that will be called when a graceful shutdown is requested.
+ * The callback can be used to perform any necessary cleanup before the application exits.
+ *
+ * @param extcap Pointer to the extcap parameters structure.
+ * @param callback Function pointer to the callback function that will be called on graceful shutdown.
+ * @return true if the callback was successfully registered, false otherwise.
  */
 bool extcap_base_register_graceful_shutdown_cb(extcap_parameters * extcap, void (*callback)(void));
 
-/* used to cleanup extcap if previous program was terminated
+/**
+ * @brief Registers a callback function to be called after the extcap application is killed.
+ *
+ * This function allows an extcap application to register a callback that will be called after the application has been terminated.
+ * This can be useful for performing cleanup tasks that need to occur after the application has been killed.
+ *
+ * @param extcap Pointer to the extcap parameters structure.
+ * @param callback Function pointer to the callback function that will be called post-kill.
+ * @return true if the callback was successfully registered, false otherwise.
  */
 bool extcap_base_register_cleanup_postkill_cb(extcap_parameters* extcap, void (*callback)(void));
 
+/**
+ * @brief Set the version and help page information for an extcap utility.
+ *
+ * @param extcap    The extcap parameter block to populate.
+ * @param exename   The full path or name of the extcap executable. Only the
+ *                  basename is stored (path components are stripped).
+ * @param major     The major version number string (must not be NULL).
+ * @param minor     The minor version number string, or NULL if not applicable.
+ * @param release   The release/patch version number string, or NULL if not
+ *                  applicable.
+ * @param helppage  URL of the online help page for this extcap utility, or
+ *                  NULL if no help page is available.
+ */
 void extcap_base_set_util_info(extcap_parameters * extcap, const char * exename, const char * major, const char * minor, const char * release, const char * helppage);
+
+/**
+ * @brief Set the "compiled with" information string for an extcap utility.
+ *
+ * @param extcap The extcap parameter block to populate.
+ * @param fmt    A printf-style format string describing compiled-with
+ *               dependencies.
+ * @param ...    Arguments for the format string.
+ */
 void extcap_base_set_compiled_with(extcap_parameters * extcap, const char *fmt, ...);
+
+/**
+ * @brief Set the running_with field of extcap_parameters with a formatted string.
+ *
+ * @param extcap Pointer to the extcap_parameters structure.
+ * @param fmt Format string for the message.
+ * @param ... Additional arguments for the format string.
+ */
 void extcap_base_set_running_with(extcap_parameters * extcap, const char *fmt, ...);
+
+/**
+ * @brief Parses options for an extcap tool.
+ *
+ * @param extcap Pointer to the extcap_parameters structure.
+ * @param result The result of option parsing.
+ * @param optargument The argument associated with the option.
+ * @return 1 if successful, 0 otherwise.
+ */
 uint8_t extcap_base_parse_options(extcap_parameters * extcap, int result, char * optargument);
+
+/**
+ * @brief Handle interface operations based on provided parameters.
+ *
+ * This function processes various interface-related operations such as capturing,
+ * listing interfaces, and handling cleanup based on the settings in the extcap_parameters structure.
+ *
+ * @param extcap Pointer to the extcap_parameters structure containing configuration details.
+ * @return 1 if successful, 0 otherwise.
+ */
 uint8_t extcap_base_handle_interface(extcap_parameters * extcap);
+
+/**
+ * @brief Cleans up and frees memory allocated for extcap parameters.
+ *
+ * @param extcap Pointer to a pointer to extcap_parameters structure to be cleaned up.
+ */
 void extcap_base_cleanup(extcap_parameters ** extcap);
+
+/**
+ * @brief Adds a header to the help text.
+ *
+ * @param extcap Pointer to the extcap_parameters structure.
+ * @param help_header The header text to add.
+ */
 void extcap_help_add_header(extcap_parameters * extcap, char * help_header);
-void extcap_help_add_option(extcap_parameters * extcap, const char * help_option_name, const char * help_optionn_desc);
+
+/**
+ * @brief Adds a help option to the extcap parameters.
+ *
+ * @param extcap Pointer to the extcap_parameters structure.
+ * @param help_option_name Name of the help option.
+ * @param help_option_desc Description of the help option.
+ */
+void extcap_help_add_option(extcap_parameters * extcap, const char * help_option_name, const char * help_option_desc);
+
+/**
+ * @brief Print the version information of an extcap tool.
+ *
+ * @param extcap Pointer to the extcap_parameters structure containing the tool's name and version.
+ */
 void extcap_version_print(extcap_parameters * extcap);
+
+/**
+ * @brief Print help information for extcap.
+ *
+ * @param extcap Pointer to the extcap_parameters structure containing help information.
+ */
 void extcap_help_print(extcap_parameters * extcap);
+
+/**
+ * @brief Log the command line arguments for debugging purposes.
+ *
+ * Constructs a string from the provided array of command line arguments and logs it using ws_debug().
+ *
+ * @param ar Array of command line arguments.
+ * @param n Number of elements in the array.
+ */
 void extcap_cmdline_debug(char** ar, const unsigned n);
+
+/**
+ * @brief Initialize logging for extcap.
+ *
+ * Initializes the logging system used by extcap to handle messages and warnings.
+ */
 void extcap_config_debug(unsigned* count);
+
+/**
+ * @brief Display help information for extcap.
+ *
+ * Outputs usage instructions and available options for extcap to stdout.
+ */
 void extcap_base_help(void);
+
+/**
+ * @brief Initialize logging for extcap.
+ *
+ * Initializes the logging system for extcap, setting up a console writer to use stdout and
+ * logging an initialization message.
+ */
 void extcap_log_init(void);
 
-/*
- * Report errors and warnings through ws_warning().
+/**
+ * @brief Logs a command argument error message.
  *
- * Unfortunately, ws_warning() may be a macro, so we do it by calling
- * ws_logv() with the appropriate arguments.
+ * @param msg_format The format string for the error message.
+ * @param ap The variable arguments list for the format string.
  */
 void extcap_log_cmdarg_err(const char *msg_format, va_list ap);
 

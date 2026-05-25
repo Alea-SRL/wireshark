@@ -10,8 +10,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#include <config.h>
-
+#include "config.h"
 #define WS_LOG_DOMAIN LOG_DOMAIN_MAIN
 
 #include <stdlib.h>
@@ -66,9 +65,8 @@
 #include <epan/decode_as.h>
 #include <epan/print.h>
 #include <epan/addr_resolv.h>
-#include <epan/enterprises.h>
+#include <epan/iana-info.h>
 #include <epan/manuf.h>
-#include <epan/services.h>
 #include <epan/secrets.h>
 #include "ui/taps.h"
 #include "ui/util.h"
@@ -77,6 +75,7 @@
 #include "wsutil/filter_files.h"
 #include "ui/cli/strato-tap.h"
 #include "ui/cli/tap-exportobject.h"
+#include "ui/cli/cli_common.h"
 #include "ui/tap_export_pdu.h"
 #include "ui/dissect_opts.h"
 #include "ui/failure_message.h"
@@ -99,7 +98,7 @@
 
 #include <epan/funnel.h>
 
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>     //Stratoshark only
 #include <wsutil/path_config.h>
 #include <wsutil/str_util.h>
 #include <wsutil/utf8_entities.h>
@@ -251,7 +250,7 @@ print_elapsed_json(const char *cf_name, const char *dfilter)
 
     json_dumper_begin_object(&dumper);
     json_dumper_set_member_name(&dumper, "version");
-    json_dumper_value_string(&dumper, get_ws_vcs_version_info_short());
+    json_dumper_value_string(&dumper, application_get_vcs_version_info_short());
     if (cf_name) {
         json_dumper_set_member_name(&dumper, "path");
         json_dumper_value_string(&dumper, cf_name);
@@ -535,7 +534,7 @@ glossary_option_help(void)
     fprintf(output, "  -G elastic-mapping       dump ElasticSearch mapping file\n");
     fprintf(output, "  -G enterprises           dump IANA Private Enterprise Number (PEN) table\n");
     fprintf(output, "  -G fieldcount            dump count of header fields and exit\n");
-    fprintf(output, "  -G fields,[prefix]       dump fields glossary and exit\n");
+    fprintf(output, "  -G fields[,[<prefix>]]   dump fields glossary and exit\n");
     fprintf(output, "  -G ftypes                dump field type basic and descriptive names\n");
     fprintf(output, "  -G heuristic-decodes     dump heuristic dissector tables\n");
     fprintf(output, "  -G manuf                 dump ethernet manufacturer tables\n");
@@ -543,6 +542,7 @@ glossary_option_help(void)
     fprintf(output, "  -G protocols             dump protocols in registration database and exit\n");
     fprintf(output, "  -G services              dump transport service (port) names\n");
     fprintf(output, "  -G values                dump value, range, true/false strings and exit\n");
+    fprintf(output, "  -G profiles[,filter]     dump profiles and exit\n");
     fprintf(output, "\n");
     fprintf(output, "Preference reports:\n");
     fprintf(output, "  -G currentprefs          dump current preferences and exit\n");
@@ -847,6 +847,13 @@ dump_glossary(const char* glossary, const char* elastic_mapping_filter)
 #endif
         extcap_dump_all();
     }
+    else if (strcmp(glossary, "profiles") == 0) {
+        profiles_dump(application_configuration_environment_prefix(), NULL);
+    }
+    else if (strncmp(glossary, "profiles,", strlen("profiles,")) == 0) {
+        if (!profiles_dump(application_configuration_environment_prefix(), glossary + strlen("profiles,")))
+            exit_status = WS_EXIT_INVALID_OPTION;
+    }
     else if (strcmp(glossary, "protocols") == 0) {
         proto_registrar_dump_protocols();
     } else if (strcmp(glossary, "values") == 0)
@@ -932,6 +939,8 @@ main(int argc, char *argv[])
     char                 *volatile cf_name = NULL;
     char                 *rfilter = NULL;
     char                 *volatile dfilter = NULL;
+    char                 *volatile profile_name = NULL;
+    bool                 use_global_profile = false;
     dfilter_t            *rfcode = NULL;
     dfilter_t            *dfcode = NULL;
     e_prefs              *prefs_p;
@@ -1016,7 +1025,6 @@ main(int argc, char *argv[])
      * Attempt to get the pathname of the directory containing the
      * executable file.
      */
-    set_application_flavor(APPLICATION_FLAVOR_STRATOSHARK);
     err_msg = configuration_init(argv[0], "stratoshark");
     if (err_msg != NULL) {
         fprintf(stderr,
@@ -1034,7 +1042,7 @@ main(int argc, char *argv[])
 #endif /* _WIN32 */
 
     /* Initialize the version information. */
-    ws_init_version_info("strato", application_flavor_name_proper(), get_ss_vcs_version_info,
+    ws_init_version_info("strato", application_flavor_name_proper(), application_get_vcs_version_info,
             gather_strato_compile_info, gather_strato_runtime_info);
 
     /* Fail sometimes. Useful for testing fuzz scripts. */
@@ -1063,20 +1071,6 @@ main(int argc, char *argv[])
      */
     ws_opterr = 0;
 
-    /*  We should check at first if we should use a global profile before
-        parsing the profile name
-        XXX - We could check this in the next ws_getopt_long, and save the
-        profile name and only apply it after finishing the loop.  */
-    while ((opt = ws_getopt_long(argc, argv, optstring, long_options, NULL)) != -1) {
-        switch (opt) {
-            case LONGOPT_GLOBAL_PROFILE:
-                    set_persconffile_dir(get_datafile_dir(application_configuration_environment_prefix()));
-                    break;
-            default:
-                break;
-        }
-    }
-
     /*
      * Reset the options parser, set ws_optreset to 1 and set ws_optind to 1.
      * We still don't want to print error messages, though.
@@ -1087,36 +1081,10 @@ main(int argc, char *argv[])
     while ((opt = ws_getopt_long(argc, argv, optstring, long_options, NULL)) != -1) {
         switch (opt) {
             case 'C':        /* Configuration Profile */
-                if (profile_exists (application_configuration_environment_prefix(), ws_optarg, false)) {
-                    set_profile_name (ws_optarg);
-                } else if (profile_exists (application_configuration_environment_prefix(), ws_optarg, true)) {
-                    char  *pf_dir_path, *pf_dir_path2, *pf_filename;
-                    /* Copy from global profile */
-                    if (create_persconffile_profile(application_configuration_environment_prefix(), ws_optarg, &pf_dir_path) == -1) {
-                        cmdarg_err("Can't create directory\n\"%s\":\n%s.",
-                            pf_dir_path, g_strerror(errno));
-
-                        g_free(pf_dir_path);
-                        exit_status = WS_EXIT_INVALID_FILE;
-                        goto clean_exit;
-                    }
-                    if (copy_persconffile_profile(application_configuration_environment_prefix(), ws_optarg, ws_optarg, true, &pf_filename,
-                            &pf_dir_path, &pf_dir_path2) == -1) {
-                        cmdarg_err("Can't copy file \"%s\" in directory\n\"%s\" to\n\"%s\":\n%s.",
-                            pf_filename, pf_dir_path2, pf_dir_path, g_strerror(errno));
-
-                        g_free(pf_filename);
-                        g_free(pf_dir_path);
-                        g_free(pf_dir_path2);
-                        exit_status = WS_EXIT_INVALID_FILE;
-                        goto clean_exit;
-                    }
-                    set_profile_name (ws_optarg);
-                } else {
-                    cmdarg_err("Configuration Profile \"%s\" does not exist", ws_optarg);
-                    exit_status = WS_EXIT_INVALID_OPTION;
-                    goto clean_exit;
-                }
+                profile_name = g_strdup(ws_optarg);
+                break;
+            case LONGOPT_GLOBAL_PROFILE:
+                use_global_profile = true;
                 break;
             case 'G':
                 if (glossary != NULL) {
@@ -1174,6 +1142,21 @@ main(int argc, char *argv[])
         }
     }
 
+    if (profile_name != NULL)
+    {
+        if (profile_exists(application_configuration_environment_prefix(), profile_name, use_global_profile)) {
+            set_profile_name(profile_name);
+        }
+        else {
+            cmdarg_err("%sConfiguration Profile \"%s\" does not exist", use_global_profile ? "Global " : "", profile_name);
+            exit_status = WS_EXIT_INVALID_OPTION;
+            goto clean_exit;
+        }
+
+        if (use_global_profile)
+            set_persconffile_dir(get_datafile_dir(application_configuration_environment_prefix()));
+    }
+
 #ifndef HAVE_LUA
     if (ex_opt_count("lua_script") > 0) {
         cmdarg_err("This version of strato was not built with support for Lua scripting.");
@@ -1203,10 +1186,9 @@ main(int argc, char *argv[])
     app_data.env_var_prefix = application_configuration_environment_prefix();
     app_data.col_fmt = application_columns();
     app_data.num_cols = application_num_columns();
-    app_data.register_func = register_all_protocols;
-    app_data.handoff_func = register_all_protocol_handoffs;
+    app_data.register_func = register_all_event_dissectors;
+    app_data.handoff_func = register_all_event_dissectors_handoffs;
     app_data.tap_reg_listeners = tap_reg_listener;
-    app_data.supports_packets = application_flavor_is_wireshark();
     if (!epan_init(NULL, NULL, true, &app_data)) {
         exit_status = WS_EXIT_INIT_FAILED;
         goto clean_exit;
@@ -1223,7 +1205,7 @@ main(int argc, char *argv[])
          * set the extcap preferences from the preferences file and "-o"
          * options on the command line.
          */
-        extcap_register_preferences();
+        extcap_register_preferences(NULL, NULL);
     }
 
     conversation_table_set_gui_info(init_iousers);
@@ -1307,6 +1289,7 @@ main(int argc, char *argv[])
                 output_file_name = g_strdup(ws_optarg);
                 break;
             case 'C':
+            case LONGOPT_GLOBAL_PROFILE:
                 /* already processed; just ignore it now */
                 break;
             case 'D':        /* Print a list of capture devices and exit */
@@ -1705,9 +1688,6 @@ main(int argc, char *argv[])
             case LONGOPT_PRINT_TIMERS:
                 opt_print_timers = true;
                 break;
-            case LONGOPT_GLOBAL_PROFILE:
-                /* already processed; just ignore it now */
-                break;
             case LONGOPT_COMPRESS:        /* compress type */
                 compression_type = ws_name_to_compression_type(ws_optarg);
                 if (compression_type == WS_FILE_UNKNOWN_COMPRESSION) {
@@ -2027,7 +2007,7 @@ main(int argc, char *argv[])
             epan_cleanup();
             extcap_cleanup();
 
-            exit_status = WS_EXIT_INVALID_INTERFACE;
+            exit_status = WS_EXIT_INVALID_FILTER;
             goto clean_exit;
         }
     }
@@ -2272,11 +2252,9 @@ clean_exit:
     free_progdirs();
     dfilter_free(dfcode);
     g_free(dfilter);
+    g_free(profile_name);
     return exit_status;
 }
-
-bool loop_running;
-uint32_t packet_count;
 
 static epan_t *
 strato_epan_new(capture_file *cf)
@@ -3364,7 +3342,7 @@ write_preamble(capture_file *cf)
     switch (output_action) {
 
         case WRITE_TEXT:
-            return print_preamble(print_stream, cf->filename, get_ws_vcs_version_info());
+            return print_preamble(print_stream, cf->filename, application_get_vcs_version_info());
 
         case WRITE_XML:
             if (print_details)

@@ -12,7 +12,6 @@
 
 /*  Include Files */
 #include "config.h"
-
 #define WS_LOG_DOMAIN "zcl"
 
 #include <wireshark.h>
@@ -457,7 +456,7 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, unsigne
 
     zbee_security_packet    packet;
     unsigned        mic_len;
-    int             payload_len;
+    unsigned        payload_len;
     tvbuff_t       *payload_tvb;
 
     proto_item         *ti;

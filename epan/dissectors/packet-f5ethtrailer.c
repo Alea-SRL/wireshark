@@ -190,13 +190,13 @@ Notes:
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/epan_dissect.h>
-#include <epan/ipproto.h>
 #include <epan/tap.h>
 #include <epan/expert.h>
 #include <epan/proto.h>
 #include <epan/proto_data.h>
 #include <epan/conversation_filter.h>
 #include <epan/tfs.h>
+#include <epan/iana-info.h>
 
 #include "packet-ip.h"
 #include "packet-tcp.h"
@@ -1658,8 +1658,7 @@ dissect_high_trailer(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, unsign
     }
 
     /* Add in the high order structures. */
-    ipproto = tvb_get_uint8(tvb, o);
-    proto_tree_add_item(tree, hf_peer_ipproto, tvb, o, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_peer_ipproto, tvb, o, 1, ENC_BIG_ENDIAN, &ipproto);
     o += 1;
     proto_tree_add_item(tree, hf_peer_vlan, tvb, o, 2, ENC_BIG_ENDIAN);
     o += 2;
@@ -2167,8 +2166,7 @@ dissect_dpt_trailer_noise_high(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
     }
 
     /* Add in the high order structures. */
-    ipproto = tvb_get_uint8(tvb, o);
-    proto_tree_add_item(tree, hf_peer_ipproto, tvb, o, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_peer_ipproto, tvb, o, 1, ENC_BIG_ENDIAN, &ipproto);
     o += 1;
     proto_tree_add_item(tree, hf_peer_vlan, tvb, o, 2, ENC_BIG_ENDIAN);
     o += 2;
@@ -2252,7 +2250,7 @@ dissect_dpt_trailer_noise_med(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 {
     proto_item *pi;
     int o;
-    int rstcauselen    = 0;
+    unsigned rstcauselen    = 0;
     int badrstcauselen = 0;
     unsigned rstcausever  = 0xff;
     int len;
@@ -2482,7 +2480,7 @@ dissect_dpt_trailer_noise_low(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 
     if (ver < 4) {        /* Low noise versions 2 and 3 */
         /* VIP Name */
-        int viplen = tvb_get_uint8(tvb, offset);
+        unsigned viplen = tvb_get_uint8(tvb, offset);
         /* Make sure VIP Name Length does not extend past the TVB */
         if (tvb_reported_length_remaining(tvb, offset) < viplen) {
             pi = proto_tree_add_item(tree, hf_vip, tvb, offset, 0, ENC_ASCII);
@@ -2519,7 +2517,7 @@ dissect_dpt_trailer_noise_low(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
          * <type><len><string><type><len><string>
          */
 
-        int data_len = tvb_get_int8(tvb, offset);
+        unsigned data_len = tvb_get_uint8(tvb, offset);
         pi = proto_tree_add_item(tree, hf_data, tvb, offset, 1, ENC_NA);
         proto_item_set_text(pi, "Associated config object names");
         ti = proto_item_add_subtree(pi, ett_f5ethtrailer_obj_names);
@@ -2534,7 +2532,7 @@ dissect_dpt_trailer_noise_low(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 
         /* Begin parsing the data field and adding items for the strings contained */
         tvbuff_t *data_tvb = tvb_new_subset_length(tvb, offset, data_len);
-        int data_off = 0;
+        unsigned data_off = 0;
 
         while (data_off < data_len) {
             int field_name_len_idx;
@@ -2699,7 +2697,7 @@ dissect_dpt_trailer(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
 
     while (tvb_reported_length_remaining(tvb, o) >= F5_DPT_V1_TLV_HDR_LEN) {
         tvbuff_t *tvb_dpt_tlv;
-        int tvb_dpt_tlv_len;
+        unsigned tvb_dpt_tlv_len;
         int provider_id;
 
         tvb_dpt_tlv_len = tvb_get_ntohs(tvb, o + F5_DPT_V1_TLV_LENGTH_OFF);
@@ -3324,7 +3322,7 @@ dissect_dpt_trailer_tls_type2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
     int len;
     int ver;
     int o;
-    int secret_len;
+    unsigned secret_len;
     f5tls_conversation_data_t *conv_data = NULL;
     f5tls_packet_data_t *pdata           = NULL;
 
@@ -3342,9 +3340,8 @@ dissect_dpt_trailer_tls_type2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 
         o = F5_DPT_V1_TLV_HDR_LEN;
 
-        secret_len = tvb_get_uint8(tvb, o);
         /* Add our fields */
-        pi = proto_tree_add_item(tree, hf_f5tls_secret_len, tvb, o, 1, ENC_NA);
+        pi = proto_tree_add_item_ret_uint(tree, hf_f5tls_secret_len, tvb, o, 1, ENC_NA, &secret_len);
         o += 1;
         if (secret_len == 0) {
             /* nothing to render */

@@ -55,6 +55,8 @@ int dissect_options(proto_tree *tree, packet_info *pinfo,
 
 /* File info */
 struct info {
+    uint64_t       block_offset;
+    uint32_t       prev_block_length;
     uint32_t       block_number;
     uint32_t       section_number;
     uint32_t       interface_number;

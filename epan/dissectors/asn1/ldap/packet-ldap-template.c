@@ -103,10 +103,6 @@
 #include "packet-per.h"
 #include "packet-dns.h"
 
-#define PNAME  "Lightweight Directory Access Protocol"
-#define PSNAME "LDAP"
-#define PFNAME "ldap"
-
 void proto_register_ldap(void);
 void proto_reg_handoff_ldap(void);
 
@@ -530,7 +526,7 @@ get_hf_for_header(char* attribute_type)
 {
   int* hf_id = NULL;
 
-  if (attribute_types_hash) {
+  if (attribute_types_hash && attribute_type) {
     hf_id = (int*) g_hash_table_lookup(attribute_types_hash, attribute_type);
   } else {
     hf_id = NULL;
@@ -1685,7 +1681,7 @@ dissect_ldap_oid(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* 
 #define LDAP_ACCESSMASK_ADS_CONTROL_ACCESS  0x00000100
 
 static void
-ldap_specific_rights(tvbuff_t *tvb, int offset, proto_tree *tree, uint32_t access)
+ldap_specific_rights(tvbuff_t *tvb, unsigned offset, proto_tree *tree, uint32_t access)
 {
   static int * const access_flags[] = {
     &hf_ldap_AccessMask_ADS_CONTROL_ACCESS,
@@ -2202,7 +2198,7 @@ void proto_register_ldap(void) {
   uat_t *attributes_uat;
 
   /* Register protocol */
-  proto_ldap = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_ldap = proto_register_protocol("Lightweight Directory Access Protocol", "LDAP", "ldap");
   /* Register fields and subtrees */
   proto_register_field_array(proto_ldap, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));

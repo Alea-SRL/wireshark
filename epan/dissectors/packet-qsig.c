@@ -26,10 +26,6 @@
 #include "packet-ber.h"
 #include "packet-qsig.h"
 
-#define PNAME  "QSIG"
-#define PSNAME "QSIG"
-#define PFNAME "qsig"
-
 /* Shifted codeset values */
 #define CS0 0x000
 #define CS1 0x100
@@ -2033,6 +2029,12 @@ static dissector_table_t extension_dissector_table;
 
 /* --- Modules Manufacturer-specific-service-extension-class-asn1-97 PSS1-generic-parameters-definition-asn1-97 Addressing-Data-Elements-asn1-97 --- --- --- */
 
+/*--- Cyclic dependencies ---*/
+
+/* Extension/extensionArgument -> Extension/extensionArgument */
+static unsigned dissect_qsig_T_extensionArgument(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+
 
 
 static unsigned
@@ -2046,6 +2048,8 @@ dissect_qsig_T_extensionId(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned of
 
 static unsigned
 dissect_qsig_T_extensionArgument(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // Extension/extensionArgument -> Extension/extensionArgument
+  increment_dissection_depth_by_n(actx->pinfo, 1);
     tvbuff_t *next_tvb;
 
     next_tvb = tvb_new_subset_remaining(tvb, offset);
@@ -2060,6 +2064,7 @@ dissect_qsig_T_extensionArgument(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsig
 
     offset+=tvb_reported_length_remaining(tvb, offset);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -8938,6 +8943,12 @@ static int dissect_qsig_wtmch_Extension_PDU(tvbuff_t *tvb _U_, packet_info *pinf
 
 /* --- Module WTM-Authentication-Operations-asn1-97 --- --- ---               */
 
+/*--- Cyclic dependencies ---*/
+
+/* AuthAlgorithm/param -> AuthAlgorithm/param */
+static unsigned dissect_qsig_wtmau_T_param(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+
 
 
 static unsigned
@@ -9174,8 +9185,11 @@ dissect_qsig_wtmau_DefinedIDs(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned
 
 static unsigned
 dissect_qsig_wtmau_T_param(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // AuthAlgorithm/param -> AuthAlgorithm/param
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -12335,7 +12349,7 @@ static const qsig_err_t *get_err(uint32_t errcode) {
 /*--- dissect_qsig_arg ------------------------------------------------------*/
 static int
 dissect_qsig_arg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
-  int offset = 0;
+  unsigned offset = 0;
   rose_ctx_t *rctx;
   uint32_t opcode = 0, service, oid_num;
   const qsig_op_t *op_ptr = NULL;
@@ -12389,7 +12403,7 @@ dissect_qsig_arg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
     offset = op_ptr->arg_pdu(tvb, pinfo, qsig_tree, NULL);
   else
     if (tvb_reported_length_remaining(tvb, offset) > 0) {
-      proto_tree_add_expert(tree, pinfo, &ei_qsig_unsupported_error_type, tvb, offset, -1);
+      proto_tree_add_expert_remaining(tree, pinfo, &ei_qsig_unsupported_error_type, tvb, offset);
       offset += tvb_captured_length_remaining(tvb, offset);
     }
 
@@ -12399,7 +12413,7 @@ dissect_qsig_arg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
 /*--- dissect_qsig_res -------------------------------------------------------*/
 static int
 dissect_qsig_res(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
-  int offset = 0;
+  unsigned offset = 0;
   rose_ctx_t *rctx;
   uint32_t opcode, service;
   const qsig_op_t *op_ptr;
@@ -12443,7 +12457,7 @@ dissect_qsig_res(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
     offset = op_ptr->res_pdu(tvb, pinfo, qsig_tree, NULL);
   else
     if (tvb_reported_length_remaining(tvb, offset) > 0) {
-      proto_tree_add_expert(tree, pinfo, &ei_qsig_unsupported_result_type, tvb, offset, -1);
+      proto_tree_add_expert_remaining(tree, pinfo, &ei_qsig_unsupported_result_type, tvb, offset);
       offset += tvb_captured_length_remaining(tvb, offset);
     }
 
@@ -12453,7 +12467,7 @@ dissect_qsig_res(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
 /*--- dissect_qsig_err ------------------------------------------------------*/
 static int
 dissect_qsig_err(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
-  int offset = 0;
+  unsigned offset = 0;
   rose_ctx_t *rctx;
   uint32_t errcode;
   const qsig_err_t *err_ptr;
@@ -12492,7 +12506,7 @@ dissect_qsig_err(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
     offset = err_ptr->err_pdu(tvb, pinfo, qsig_tree, NULL);
   else
     if (tvb_reported_length_remaining(tvb, offset) > 0) {
-      proto_tree_add_expert(tree, pinfo, &ei_qsig_unsupported_error_type, tvb, offset, -1);
+      proto_tree_add_expert_remaining(tree, pinfo, &ei_qsig_unsupported_error_type, tvb, offset);
       offset += tvb_captured_length_remaining(tvb, offset);
     }
 
@@ -16321,7 +16335,7 @@ void proto_register_qsig(void) {
   expert_module_t* expert_qsig;
 
   /* Register protocol and dissector */
-  proto_qsig = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_qsig = proto_register_protocol("QSIG", "QSIG", "qsig");
 
   /* Register fields and subtrees */
   proto_register_field_array(proto_qsig, hf, array_length(hf));
@@ -16330,11 +16344,11 @@ void proto_register_qsig(void) {
   expert_register_field_array(expert_qsig, ei, array_length(ei));
 
   /* Register dissectors */
-  qsig_arg_handle = register_dissector(PFNAME "_arg", dissect_qsig_arg, proto_qsig);
-  qsig_res_handle = register_dissector(PFNAME "_res", dissect_qsig_res, proto_qsig);
-  qsig_err_handle = register_dissector(PFNAME "_err", dissect_qsig_err, proto_qsig);
-  qsig_ie4_handle = register_dissector(PFNAME "_ie_cs4", dissect_qsig_ie_cs4, proto_qsig);
-  qsig_ie5_handle = register_dissector(PFNAME "_ie_cs5", dissect_qsig_ie_cs5, proto_qsig);
+  qsig_arg_handle = register_dissector("qsig_arg", dissect_qsig_arg, proto_qsig);
+  qsig_res_handle = register_dissector("qsig_res", dissect_qsig_res, proto_qsig);
+  qsig_err_handle = register_dissector("qsig_err", dissect_qsig_err, proto_qsig);
+  qsig_ie4_handle = register_dissector("qsig_ie_cs4", dissect_qsig_ie_cs4, proto_qsig);
+  qsig_ie5_handle = register_dissector("qsig_ie_cs5", dissect_qsig_ie_cs5, proto_qsig);
 
   /* Register dissector tables */
   extension_dissector_table = register_dissector_table("qsig.ext", "QSIG Extension", proto_qsig, FT_STRING, STRING_CASE_SENSITIVE);

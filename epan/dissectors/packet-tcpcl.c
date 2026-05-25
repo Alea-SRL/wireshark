@@ -1013,8 +1013,7 @@ static void transfer_add_segment(tcpcl_dissect_ctx_t *ctx, uint64_t xfer_id, uin
         seg_meta = wmem_list_frame_data(frm);
     }
     else {
-        wmem_list_insert_sorted(xfer->seg_list, seg_meta, tcpcl_seg_meta_compare_loc);
-        frm = wmem_list_find_custom(xfer->seg_list, seg_meta, tcpcl_seg_meta_compare_loc);
+        frm = wmem_list_insert_sorted(xfer->seg_list, seg_meta, tcpcl_seg_meta_compare_loc);
         // Set for new item
         seg_meta->flags = flags;
     }
@@ -1113,7 +1112,6 @@ static void transfer_add_ack(tcpcl_dissect_ctx_t *ctx, uint64_t xfer_id, uint8_t
     }
     else {
         wmem_list_insert_sorted(xfer->ack_list, ack_meta, tcpcl_ack_meta_compare_loc);
-        wmem_list_find_custom(xfer->ack_list, ack_meta, tcpcl_ack_meta_compare_loc);
         // Set for new item
         ack_meta->flags = flags;
         ack_meta->seen_len = ack_len;
@@ -1465,7 +1463,7 @@ static unsigned get_v4_msg_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset
             offset += 2 + 8 + 8;
             uint16_t nodeid_len = tvb_get_uint16(tvb, offset, ENC_BIG_ENDIAN);
             offset += 2;
-            if (tvb_reported_length_remaining(tvb, offset) < nodeid_len + 4) {
+            if (tvb_reported_length_remaining(tvb, offset) < nodeid_len + 4U) {
                 return 0;
             }
             offset += nodeid_len;
@@ -2111,6 +2109,7 @@ static unsigned get_message_len(packet_info *pinfo, tvbuff_t *tvb, int ext_offse
 }
 
 static int dissect_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_) {
+    bool is_new_item_tcpcl = false;
     int offset = 0;
     tcpcl_dissect_ctx_t *ctx = tcpcl_dissect_ctx_get(tvb, pinfo, offset);
     if (!ctx) {
@@ -2134,8 +2133,9 @@ static int dissect_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
         tree_tcpcl = proto_item_get_subtree(item_tcpcl);
     }
     else {
-        item_tcpcl = proto_tree_add_item(tree, proto_tcpcl, tvb, 0, 0, ENC_NA);
+        item_tcpcl = proto_tree_add_item(tree, proto_tcpcl, tvb, 0, -1, ENC_NA);
         tree_tcpcl = proto_item_add_subtree(item_tcpcl, ett_proto_tcpcl);
+        is_new_item_tcpcl = true;
     }
 
     if (ctx->tx_peer->chdr_missing) {
@@ -2243,13 +2243,12 @@ static int dissect_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
         }
     }
 
-    const int item_len = proto_item_get_len(item_tcpcl);
-    bool is_new_item_tcpcl = (item_len <= 0);
     if (is_new_item_tcpcl) {
         proto_item_set_len(item_tcpcl, offset);
         proto_item_append_text(item_tcpcl, " Version %d", ctx->tx_peer->version);
     }
     else {
+        const int item_len = proto_item_get_len(item_tcpcl);
         proto_item_set_len(item_tcpcl, item_len + offset);
     }
 
@@ -2358,11 +2357,7 @@ proto_register_tcpcl(void)
 {
     expert_module_t *expert_tcpcl;
 
-    proto_tcpcl = proto_register_protocol(
-        "DTN TCP Convergence Layer Protocol",
-        "TCPCL",
-        "tcpcl"
-    );
+    proto_tcpcl = proto_register_protocol("DTN TCP Convergence Layer Protocol", "TCPCL", "tcpcl");
 
     proto_tcpcl_exts = proto_register_protocol_in_name_only(
         "TCPCL Extension Subdissectors",

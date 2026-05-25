@@ -59,7 +59,6 @@
 
 #include <epan/packet.h>
 #include <epan/exceptions.h>
-#include <epan/ipproto.h>
 #include <epan/addr_resolv.h>
 #include "packet-dns.h"
 #include "packet-tcp.h"
@@ -68,10 +67,10 @@
 #include <epan/prefs-int.h>
 #include <epan/strutil.h>
 #include <epan/expert.h>
-#include <epan/afn.h>
 #include <epan/tap.h>
 #include <epan/stats_tree.h>
 #include <epan/tfs.h>
+#include <epan/iana-info.h>
 #include "packet-tls.h"
 #include "packet-dtls.h"
 #include "packet-http2.h"
@@ -210,30 +209,6 @@ static void dns_qr_stats_tree_cleanup(stats_tree* st);
 
 void proto_register_dns(void);
 void proto_reg_handoff_dns(void);
-
-struct DnsTap {
-    unsigned packet_qr;
-    unsigned packet_qtype;
-    int packet_qclass;
-    unsigned packet_rcode;
-    unsigned packet_opcode;
-    unsigned payload_size;
-    unsigned qname_len;
-    unsigned qname_labels;
-    char* qname;
-    unsigned nquestions;
-    unsigned nanswers;
-    unsigned nauthorities;
-    unsigned nadditionals;
-    bool unsolicited;
-    bool retransmission;
-    nstime_t rrt;
-    wmem_list_t *rr_types;
-    char source[256];
-    char qhost[256];   // host or left-most part of query name
-    char qdomain[256]; // domain or remaining part of query name
-    unsigned flags;
-};
 
 static int dns_tap;
 
@@ -685,6 +660,9 @@ static expert_field ei_dns_retransmit_request;
 static expert_field ei_dns_retransmit_response;
 static expert_field ei_dns_extraneous_data;
 static expert_field ei_dns_response_missing;
+static expert_field ei_dns_svcb_param_truncated;
+static expert_field ei_dns_svcb_param_bad_length;
+static expert_field ei_dns_svcb_param_bad_value;
 
 static dissector_table_t dns_tsig_dissector_table;
 
@@ -760,113 +738,6 @@ typedef struct _dns_conv_info_t {
 /* Length of DNS header. */
 #define DNS_HDRLEN      12
 
-/* type values  */
-#define T_A              1              /* host address */
-#define T_NS             2              /* authoritative name server */
-#define T_MD             3              /* mail destination (obsolete) */
-#define T_MF             4              /* mail forwarder (obsolete) */
-#define T_CNAME          5              /* canonical name */
-#define T_SOA            6              /* start of authority zone */
-#define T_MB             7              /* mailbox domain name (experimental) */
-#define T_MG             8              /* mail group member (experimental) */
-#define T_MR             9              /* mail rename domain name (experimental) */
-#define T_NULL          10              /* null RR (experimental) */
-#define T_WKS           11              /* well known service */
-#define T_PTR           12              /* domain name pointer */
-#define T_HINFO         13              /* host information */
-#define T_MINFO         14              /* mailbox or mail list information */
-#define T_MX            15              /* mail routing information */
-#define T_TXT           16              /* text strings */
-#define T_RP            17              /* responsible person (RFC 1183) */
-#define T_AFSDB         18              /* AFS data base location (RFC 1183) */
-#define T_X25           19              /* X.25 address (RFC 1183) */
-#define T_ISDN          20              /* ISDN address (RFC 1183) */
-#define T_RT            21              /* route-through (RFC 1183) */
-#define T_NSAP          22              /* OSI NSAP (RFC 1706) */
-#define T_NSAP_PTR      23              /* PTR equivalent for OSI NSAP (RFC 1348 - obsolete) */
-#define T_SIG           24              /* digital signature (RFC 2535) */
-#define T_KEY           25              /* public key (RFC 2535) */
-#define T_PX            26              /* pointer to X.400/RFC822 mapping info (RFC 1664) */
-#define T_GPOS          27              /* geographical position (RFC 1712) */
-#define T_AAAA          28              /* IPv6 address (RFC 1886) */
-#define T_LOC           29              /* geographical location (RFC 1876) */
-#define T_NXT           30              /* "next" name (RFC 2535) */
-#define T_EID           31              /* Endpoint Identifier */
-#define T_NIMLOC        32              /* Nimrod Locator */
-#define T_SRV           33              /* service location (RFC 2052) */
-#define T_ATMA          34              /* ATM Address */
-#define T_NAPTR         35              /* naming authority pointer (RFC 3403) */
-#define T_KX            36              /* Key Exchange (RFC 2230) */
-#define T_CERT          37              /* Certificate (RFC 4398) */
-#define T_A6            38              /* IPv6 address with indirection (RFC 2874 - obsolete) */
-#define T_DNAME         39              /* Non-terminal DNS name redirection (RFC 2672) */
-#define T_SINK          40              /* SINK */
-#define T_OPT           41              /* OPT pseudo-RR (RFC 2671) */
-#define T_APL           42              /* Lists of Address Prefixes (APL RR) (RFC 3123) */
-#define T_DS            43              /* Delegation Signer (RFC 4034) */
-#define T_SSHFP         44              /* Using DNS to Securely Publish SSH Key Fingerprints (RFC 4255) */
-#define T_IPSECKEY      45              /* RFC 4025 */
-#define T_RRSIG         46              /* RFC 4034 */
-#define T_NSEC          47              /* RFC 4034 */
-#define T_DNSKEY        48              /* RFC 4034 */
-#define T_DHCID         49              /* DHCID RR (RFC 4701) */
-#define T_NSEC3         50              /* Next secure hash (RFC 5155) */
-#define T_NSEC3PARAM    51              /* NSEC3 parameters (RFC 5155) */
-#define T_TLSA          52              /* TLSA (RFC 6698) */
-#define T_HIP           55              /* Host Identity Protocol (HIP) RR (RFC 5205) */
-#define T_NINFO         56              /* NINFO */
-#define T_RKEY          57              /* RKEY */
-#define T_TALINK        58              /* Trust Anchor LINK */
-#define T_CDS           59              /* Child DS (RFC7344)*/
-#define T_CDNSKEY       60              /* DNSKEY(s) the Child wants reflected in DS ( [RFC7344])*/
-#define T_OPENPGPKEY    61              /* OPENPGPKEY draft-ietf-dane-openpgpkey-00 */
-#define T_CSYNC         62              /* Child To Parent Synchronization (RFC7477) */
-#define T_ZONEMD        63              /* Message Digest for DNS Zones (RFC8976) */
-#define T_SVCB          64              /* draft-ietf-dnsop-svcb-https-01 */
-#define T_HTTPS         65              /* draft-ietf-dnsop-svcb-https-01 */
-#define T_DSYNC         66              /* draft-ietf-dnsop-generalized-notify */
-#define T_SPF           99              /* SPF RR (RFC 4408) section 3 */
-#define T_UINFO        100              /* [IANA-Reserved] */
-#define T_UID          101              /* [IANA-Reserved] */
-#define T_GID          102              /* [IANA-Reserved] */
-#define T_UNSPEC       103              /* [IANA-Reserved] */
-#define T_NID          104              /* ILNP [RFC6742] */
-#define T_L32          105              /* ILNP [RFC6742] */
-#define T_L64          106              /* ILNP [RFC6742] */
-#define T_LP           107              /* ILNP [RFC6742] */
-#define T_EUI48        108              /* EUI 48 Address (RFC7043) */
-#define T_EUI64        109              /* EUI 64 Address (RFC7043) */
-#define T_TKEY         249              /* Transaction Key (RFC 2930) */
-#define T_TSIG         250              /* Transaction Signature (RFC 2845) */
-#define T_IXFR         251              /* incremental transfer (RFC 1995) */
-#define T_AXFR         252              /* transfer of an entire zone (RFC 5936) */
-#define T_MAILB        253              /* mailbox-related RRs (MB, MG or MR) (RFC 1035) */
-#define T_MAILA        254              /* mail agent RRs (OBSOLETE - see MX) (RFC 1035) */
-#define T_ANY          255              /* A request for all records (RFC 1035) */
-#define T_URI          256              /* URI */
-#define T_CAA          257              /* Certification Authority Authorization (RFC 6844) */
-#define T_AVC          258              /* Application Visibility and Control (Wolfgang_Riedel) */
-#define T_DOA          259              /* Digital Object Architecture (draft-durand-doa-over-dns) */
-#define T_AMTRELAY     260              /* Automatic Multicast Tunneling Relay (RFC8777) */
-#define T_RESINFO      261              /* Resolver Information */
-#define T_WALLET       262              /* Public wallet address */
-#define T_TA         32768              /* DNSSEC Trust Authorities */
-#define T_DLV        32769              /* DNSSEC Lookaside Validation (DLV) DNS Resource Record (RFC 4431) */
-#define T_WINS       65281              /* Microsoft's WINS RR */
-#define T_WINS_R     65282              /* Microsoft's WINS-R RR */
-#define T_XPF        65422              /* XPF draft-bellis-dnsop-xpf */
-
-/* Class values */
-#define C_IN             1              /* the Internet */
-#define C_CS             2              /* CSNET (obsolete) */
-#define C_CH             3              /* CHAOS */
-#define C_HS             4              /* Hesiod */
-#define C_NONE         254              /* none */
-#define C_ANY          255              /* any */
-
-#define C_QU            (1<<15)         /* High bit is set in queries for unicast queries */
-#define C_FLUSH         (1<<15)         /* High bit is set for MDNS cache flush */
-
 /* Bit fields in the flags */
 #define F_RESPONSE      (1<<15)         /* packet is response */
 #define F_OPCODE        (0xF<<11)       /* query opcode */
@@ -900,8 +771,6 @@ typedef struct _dns_conv_info_t {
 #define O_EXT_ERROR     15              /* Extended DNS Errors (RFC8914) */
 #define O_REPORT_CHANNEL 18             /* DNS Error Reporting (RFC9567) */
 #define O_ZONEVERSION   19              /* DNS Zone Version (ZONEVERSION) Option (RFC9660) */
-
-#define MIN_DNAME_LEN    2              /* minimum domain name length */
 
 static const true_false_string tfs_flags_response = {
   "Message is a response",
@@ -963,68 +832,37 @@ static const true_false_string tfs_dns_rr_z_do = {
   "Cannot handle DNSSEC security RRs"
 };
 
-/* Opcodes */
-#define OPCODE_QUERY    0         /* standard query */
-#define OPCODE_IQUERY   1         /* inverse query */
-#define OPCODE_STATUS   2         /* server status request */
-#define OPCODE_NOTIFY   4         /* zone change notification */
-#define OPCODE_UPDATE   5         /* dynamic update */
-#define OPCODE_DSO      6         /* DNS stateful operations */
-
 static const value_string opcode_vals[] = {
-  { OPCODE_QUERY,  "Standard query"                },
-  { OPCODE_IQUERY, "Inverse query"                 },
-  { OPCODE_STATUS, "Server status request"         },
-  { OPCODE_NOTIFY, "Zone change notification"      },
-  { OPCODE_UPDATE, "Dynamic update"                },
-  { OPCODE_DSO,    "DNS Stateful operations (DSO)" },
+  { DNS_OPCODE_QUERY,  "Standard query"                },
+  { DNS_OPCODE_IQUERY, "Inverse query"                 },
+  { DNS_OPCODE_STATUS, "Server status request"         },
+  { DNS_OPCODE_NOTIFY, "Zone change notification"      },
+  { DNS_OPCODE_UPDATE, "Dynamic update"                },
+  { DNS_OPCODE_DSO,    "DNS Stateful operations (DSO)" },
   { 0,              NULL                           } };
 
-/* Reply codes */
-#define RCODE_NOERROR    0
-#define RCODE_FORMERR    1
-#define RCODE_SERVFAIL   2
-#define RCODE_NXDOMAIN   3
-#define RCODE_NOTIMPL    4
-#define RCODE_REFUSED    5
-#define RCODE_YXDOMAIN   6
-#define RCODE_YXRRSET    7
-#define RCODE_NXRRSET    8
-#define RCODE_NOTAUTH    9
-#define RCODE_NOTZONE   10
-#define RCODE_DSOTYPENI 11
-
-#define RCODE_BAD       16
-#define RCODE_BADKEY    17
-#define RCODE_BADTIME   18
-#define RCODE_BADMODE   19
-#define RCODE_BADNAME   20
-#define RCODE_BADALG    21
-#define RCODE_BADTRUNC  22
-#define RCODE_BADCOOKIE 23
-
 static const value_string rcode_vals[] = {
-  { RCODE_NOERROR,    "No error"                 },
-  { RCODE_FORMERR,    "Format error"             },
-  { RCODE_SERVFAIL,   "Server failure"           },
-  { RCODE_NXDOMAIN,   "No such name"             },
-  { RCODE_NOTIMPL,    "Not implemented"          },
-  { RCODE_REFUSED,    "Refused"                  },
-  { RCODE_YXDOMAIN,   "Name exists"              },
-  { RCODE_YXRRSET,    "RRset exists"             },
-  { RCODE_NXRRSET,    "RRset does not exist"     },
-  { RCODE_NOTAUTH,    "Not authoritative"        },
-  { RCODE_NOTZONE,    "Name out of zone"         },
-  { RCODE_DSOTYPENI,  "DSO-Type not implemented" },
+  { DNS_RCODE_NOERROR,    "No error"                 },
+  { DNS_RCODE_FORMERR,    "Format error"             },
+  { DNS_RCODE_SERVFAIL,   "Server failure"           },
+  { DNS_RCODE_NXDOMAIN,   "No such name"             },
+  { DNS_RCODE_NOTIMPL,    "Not implemented"          },
+  { DNS_RCODE_REFUSED,    "Refused"                  },
+  { DNS_RCODE_YXDOMAIN,   "Name exists"              },
+  { DNS_RCODE_YXRRSET,    "RRset exists"             },
+  { DNS_RCODE_NXRRSET,    "RRset does not exist"     },
+  { DNS_RCODE_NOTAUTH,    "Not authoritative"        },
+  { DNS_RCODE_NOTZONE,    "Name out of zone"         },
+  { DNS_RCODE_DSOTYPENI,  "DSO-Type not implemented" },
   /* 12-15            Unassigned */
-  { RCODE_BAD,        "Bad OPT Version or TSIG Signature Failure" },
-  { RCODE_BADKEY,     "Key not recognized" },
-  { RCODE_BADTIME,    "Signature out of time window" },
-  { RCODE_BADMODE,    "Bad TKEY Mode" },
-  { RCODE_BADNAME,    "Duplicate key name" },
-  { RCODE_BADALG,     "Algorithm not supported" },
-  { RCODE_BADTRUNC,   "Bad Truncation" },
-  { RCODE_BADCOOKIE,  "Bad/missing Server Cookie" },
+  { DNS_RCODE_BAD,        "Bad OPT Version or TSIG Signature Failure" },
+  { DNS_RCODE_BADKEY,     "Key not recognized" },
+  { DNS_RCODE_BADTIME,    "Signature out of time window" },
+  { DNS_RCODE_BADMODE,    "Bad TKEY Mode" },
+  { DNS_RCODE_BADNAME,    "Duplicate key name" },
+  { DNS_RCODE_BADALG,     "Algorithm not supported" },
+  { DNS_RCODE_BADTRUNC,   "Bad Truncation" },
+  { DNS_RCODE_BADCOOKIE,  "Bad/missing Server Cookie" },
   { 0,                NULL }
  };
 
@@ -1148,100 +986,100 @@ static const value_string dns_qr_vals[] = {
 };
 static const value_string dns_types_vals[] = {
   { 0,            "Unused"     },
-  { T_A,          "A"          },
-  { T_NS,         "NS"         },
-  { T_MD,         "MD"         },
-  { T_MF,         "MF"         },
-  { T_CNAME,      "CNAME"      },
-  { T_SOA,        "SOA"        },
-  { T_MB,         "MB"         },
-  { T_MG,         "MG"         },
-  { T_MR,         "MR"         },
-  { T_NULL,       "NULL"       },
-  { T_WKS,        "WKS"        },
-  { T_PTR,        "PTR"        },
-  { T_HINFO,      "HINFO"      },
-  { T_MINFO,      "MINFO"      },
-  { T_MX,         "MX"         },
-  { T_TXT,        "TXT"        },
-  { T_RP,         "RP"         }, /* RFC 1183 */
-  { T_AFSDB,      "AFSDB"      }, /* RFC 1183 */
-  { T_X25,        "X25"        }, /* RFC 1183 */
-  { T_ISDN,       "ISDN"       }, /* RFC 1183 */
-  { T_RT,         "RT"         }, /* RFC 1183 */
-  { T_NSAP,       "NSAP"       }, /* RFC 1706 */
-  { T_NSAP_PTR,   "NSAP-PTR"   }, /* RFC 1348 */
-  { T_SIG,        "SIG"        }, /* RFC 2535 */
-  { T_KEY,        "KEY"        }, /* RFC 2535 */
-  { T_PX,         "PX"         }, /* RFC 1664 */
-  { T_GPOS,       "GPOS"       }, /* RFC 1712 */
-  { T_AAAA,       "AAAA"       }, /* RFC 1886 */
-  { T_LOC,        "LOC"        }, /* RFC 1886 */
-  { T_NXT,        "NXT"        }, /* RFC 1876 */
-  { T_EID,        "EID"        },
-  { T_NIMLOC,     "NIMLOC"     },
-  { T_SRV,        "SRV"        }, /* RFC 2052 */
-  { T_ATMA,       "ATMA"       },
-  { T_NAPTR,      "NAPTR"      }, /* RFC 3403 */
-  { T_KX,         "KX"         }, /* RFC 2230 */
-  { T_CERT,       "CERT"       }, /* RFC 4398 */
-  { T_A6,         "A6"         }, /* RFC 2874 */
-  { T_DNAME,      "DNAME"      }, /* RFC 2672 */
-  { T_SINK,       "SINK"       },
-  { T_OPT,        "OPT"        }, /* RFC 2671 */
-  { T_APL,        "APL"        }, /* RFC 3123 */
-  { T_DS,         "DS"         }, /* RFC 4034 */
-  { T_SSHFP,      "SSHFP"      }, /* RFC 4255 */
-  { T_IPSECKEY,   "IPSECKEY"   }, /* RFC 4025 */
-  { T_RRSIG,      "RRSIG"      }, /* RFC 4034 */
-  { T_NSEC,       "NSEC"       }, /* RFC 4034 */
-  { T_DNSKEY,     "DNSKEY"     }, /* RFC 4034 */
-  { T_DHCID,      "DHCID"      }, /* RFC 4701 */
-  { T_NSEC3,      "NSEC3"      }, /* RFC 5155 */
-  { T_NSEC3PARAM, "NSEC3PARAM" }, /* RFC 5155 */
-  { T_TLSA,       "TLSA"       },
-  { T_HIP,        "HIP"        }, /* RFC 5205 */
-  { T_RKEY,       "RKEY"       },
-  { T_TALINK,     "TALINK"     },
-  { T_CDS,        "CDS"        }, /* RFC 7344 */
-  { T_CDNSKEY,    "CDNSKEY"    }, /* RFC 7344*/
-  { T_OPENPGPKEY, "OPENPGPKEY" }, /* draft-ietf-dane-openpgpkey */
-  { T_CSYNC,      "CSYNC"      }, /* RFC 7477 */
-  { T_ZONEMD,     "ZONEMD"     }, /* RFC 8976 */
-  { T_SVCB,       "SVCB"       }, /* draft-ietf-dnsop-svcb-https-01 */
-  { T_HTTPS,      "HTTPS"      }, /* draft-ietf-dnsop-svcb-https-01 */
-  { T_DSYNC,      "DSYNC"      }, /* draft-ietf-dnsop-generalized-notify */
-  { T_SPF,        "SPF"        }, /* RFC 4408 */
-  { T_UINFO,      "UINFO"      }, /* IANA reserved */
-  { T_UID,        "UID"        }, /* IANA reserved */
-  { T_GID,        "GID"        }, /* IANA reserved */
-  { T_UNSPEC,     "UNSPEC"     }, /* IANA reserved */
-  { T_NID,        "NID"        }, /* RFC 6742 */
-  { T_L32,        "L32"        }, /* RFC 6742 */
-  { T_L64,        "L64"        }, /* RFC 6742 */
-  { T_LP,         "LP"         }, /* RFC 6742 */
-  { T_EUI48,      "EUI48"      }, /* RFC 7043 */
-  { T_EUI64,      "EUI64"      }, /* RFC 7043 */
-  { T_TKEY,       "TKEY"       },
-  { T_TSIG,       "TSIG"       },
-  { T_IXFR,       "IXFR"       },
-  { T_AXFR,       "AXFR"       },
-  { T_MAILB,      "MAILB"      },
-  { T_MAILA,      "MAILA"      },
-  { T_ANY,        "ANY"        },
-  { T_URI,        "URI"        },
-  { T_CAA,        "CAA"        }, /* RFC 6844 */
-  { T_AVC,        "AVC"        },
-  { T_DOA,        "DOA"        }, /* (draft-durand-doa-over-dns) */
-  { T_AMTRELAY,   "AMTRELAY"   }, /* RFC8777 */
-  { T_RESINFO,    "RESINFO"    },
-  { T_WALLET,     "WALLET"     },
-  { T_TA,         "TA"         },
-  { T_DLV,        "DLV"        }, /* RFC 4431 */
+  { DNS_T_A,          "A"          },
+  { DNS_T_NS,         "NS"         },
+  { DNS_T_MD,         "MD"         },
+  { DNS_T_MF,         "MF"         },
+  { DNS_T_CNAME,      "CNAME"      },
+  { DNS_T_SOA,        "SOA"        },
+  { DNS_T_MB,         "MB"         },
+  { DNS_T_MG,         "MG"         },
+  { DNS_T_MR,         "MR"         },
+  { DNS_T_NULL,       "NULL"       },
+  { DNS_T_WKS,        "WKS"        },
+  { DNS_T_PTR,        "PTR"        },
+  { DNS_T_HINFO,      "HINFO"      },
+  { DNS_T_MINFO,      "MINFO"      },
+  { DNS_T_MX,         "MX"         },
+  { DNS_T_TXT,        "TXT"        },
+  { DNS_T_RP,         "RP"         }, /* RFC 1183 */
+  { DNS_T_AFSDB,      "AFSDB"      }, /* RFC 1183 */
+  { DNS_T_X25,        "X25"        }, /* RFC 1183 */
+  { DNS_T_ISDN,       "ISDN"       }, /* RFC 1183 */
+  { DNS_T_RT,         "RT"         }, /* RFC 1183 */
+  { DNS_T_NSAP,       "NSAP"       }, /* RFC 1706 */
+  { DNS_T_NSAP_PTR,   "NSAP-PTR"   }, /* RFC 1348 */
+  { DNS_T_SIG,        "SIG"        }, /* RFC 2535 */
+  { DNS_T_KEY,        "KEY"        }, /* RFC 2535 */
+  { DNS_T_PX,         "PX"         }, /* RFC 1664 */
+  { DNS_T_GPOS,       "GPOS"       }, /* RFC 1712 */
+  { DNS_T_AAAA,       "AAAA"       }, /* RFC 1886 */
+  { DNS_T_LOC,        "LOC"        }, /* RFC 1886 */
+  { DNS_T_NXT,        "NXT"        }, /* RFC 1876 */
+  { DNS_T_EID,        "EID"        },
+  { DNS_T_NIMLOC,     "NIMLOC"     },
+  { DNS_T_SRV,        "SRV"        }, /* RFC 2052 */
+  { DNS_T_ATMA,       "ATMA"       },
+  { DNS_T_NAPTR,      "NAPTR"      }, /* RFC 3403 */
+  { DNS_T_KX,         "KX"         }, /* RFC 2230 */
+  { DNS_T_CERT,       "CERT"       }, /* RFC 4398 */
+  { DNS_T_A6,         "A6"         }, /* RFC 2874 */
+  { DNS_T_DNAME,      "DNAME"      }, /* RFC 2672 */
+  { DNS_T_SINK,       "SINK"       },
+  { DNS_T_OPT,        "OPT"        }, /* RFC 2671 */
+  { DNS_T_APL,        "APL"        }, /* RFC 3123 */
+  { DNS_T_DS,         "DS"         }, /* RFC 4034 */
+  { DNS_T_SSHFP,      "SSHFP"      }, /* RFC 4255 */
+  { DNS_T_IPSECKEY,   "IPSECKEY"   }, /* RFC 4025 */
+  { DNS_T_RRSIG,      "RRSIG"      }, /* RFC 4034 */
+  { DNS_T_NSEC,       "NSEC"       }, /* RFC 4034 */
+  { DNS_T_DNSKEY,     "DNSKEY"     }, /* RFC 4034 */
+  { DNS_T_DHCID,      "DHCID"      }, /* RFC 4701 */
+  { DNS_T_NSEC3,      "NSEC3"      }, /* RFC 5155 */
+  { DNS_T_NSEC3PARAM, "NSEC3PARAM" }, /* RFC 5155 */
+  { DNS_T_TLSA,       "TLSA"       },
+  { DNS_T_HIP,        "HIP"        }, /* RFC 5205 */
+  { DNS_T_RKEY,       "RKEY"       },
+  { DNS_T_TALINK,     "TALINK"     },
+  { DNS_T_CDS,        "CDS"        }, /* RFC 7344 */
+  { DNS_T_CDNSKEY,    "CDNSKEY"    }, /* RFC 7344*/
+  { DNS_T_OPENPGPKEY, "OPENPGPKEY" }, /* draft-ietf-dane-openpgpkey */
+  { DNS_T_CSYNC,      "CSYNC"      }, /* RFC 7477 */
+  { DNS_T_ZONEMD,     "ZONEMD"     }, /* RFC 8976 */
+  { DNS_T_SVCB,       "SVCB"       }, /* draft-ietf-dnsop-svcb-https-01 */
+  { DNS_T_HTTPS,      "HTTPS"      }, /* draft-ietf-dnsop-svcb-https-01 */
+  { DNS_T_DSYNC,      "DSYNC"      }, /* draft-ietf-dnsop-generalized-notify */
+  { DNS_T_SPF,        "SPF"        }, /* RFC 4408 */
+  { DNS_T_UINFO,      "UINFO"      }, /* IANA reserved */
+  { DNS_T_UID,        "UID"        }, /* IANA reserved */
+  { DNS_T_GID,        "GID"        }, /* IANA reserved */
+  { DNS_T_UNSPEC,     "UNSPEC"     }, /* IANA reserved */
+  { DNS_T_NID,        "NID"        }, /* RFC 6742 */
+  { DNS_T_L32,        "L32"        }, /* RFC 6742 */
+  { DNS_T_L64,        "L64"        }, /* RFC 6742 */
+  { DNS_T_LP,         "LP"         }, /* RFC 6742 */
+  { DNS_T_EUI48,      "EUI48"      }, /* RFC 7043 */
+  { DNS_T_EUI64,      "EUI64"      }, /* RFC 7043 */
+  { DNS_T_TKEY,       "TKEY"       },
+  { DNS_T_TSIG,       "TSIG"       },
+  { DNS_T_IXFR,       "IXFR"       },
+  { DNS_T_AXFR,       "AXFR"       },
+  { DNS_T_MAILB,      "MAILB"      },
+  { DNS_T_MAILA,      "MAILA"      },
+  { DNS_T_ANY,        "ANY"        },
+  { DNS_T_URI,        "URI"        },
+  { DNS_T_CAA,        "CAA"        }, /* RFC 6844 */
+  { DNS_T_AVC,        "AVC"        },
+  { DNS_T_DOA,        "DOA"        }, /* (draft-durand-doa-over-dns) */
+  { DNS_T_AMTRELAY,   "AMTRELAY"   }, /* RFC8777 */
+  { DNS_T_RESINFO,    "RESINFO"    },
+  { DNS_T_WALLET,     "WALLET"     },
+  { DNS_T_TA,         "TA"         },
+  { DNS_T_DLV,        "DLV"        }, /* RFC 4431 */
 
-  { T_WINS,       "WINS"       },
-  { T_WINS_R,     "WINS-R"     },
-  { T_XPF,        "XPF"        }, /* draft-bellis-dnsop-xpf */
+  { DNS_T_WINS,       "WINS"       },
+  { DNS_T_WINS_R,     "WINS-R"     },
+  { DNS_T_XPF,        "XPF"        }, /* draft-bellis-dnsop-xpf */
 
   {0,             NULL}
 };
@@ -1250,124 +1088,124 @@ static value_string_ext dns_types_vals_ext = VALUE_STRING_EXT_INIT(dns_types_val
 
 static const value_string dns_types_description_vals[] = {
   { 0,            "" },
-  { T_A,          "(Host Address)" },
-  { T_NS,         "(authoritative Name Server)" },
-  { T_MD,         "(Mail Destination)" },
-  { T_MF,         "(Mail Forwarder)" },
-  { T_CNAME,      "(Canonical NAME for an alias)" },
-  { T_SOA,        "(Start Of a zone of Authority)" },
-  { T_MB,         "(MailBox domain name)"},
-  { T_MG,         "(Mail Group member)" },
-  { T_MR,         "(Mail Rename domain)" },
-  { T_NULL,       "(RR)" },
-  { T_WKS,        "(Well Known Service)" },
-  { T_PTR,        "(domain name PoinTeR)" },
-  { T_HINFO,      "(host information)" },
-  { T_MINFO,      "(Mailbox or mail list information)" },
-  { T_MX,         "(Mail eXchange)" },
-  { T_TXT,        "(Text strings)" },
-  { T_RP,         "(Responsible Person)" }, /* RFC 1183 */
-  { T_AFSDB,      "(AFS Data Base location)" }, /* RFC 1183 */
-  { T_X25,        "(XX.25 PSDN address)" }, /* RFC 1183 */
-  { T_ISDN,       "(ISDN address)" }, /* RFC 1183 */
-  { T_RT,         "(Route Through)" }, /* RFC 1183 */
-  { T_NSAP,       "(NSAP address)" },
-  { T_NSAP_PTR,   "(NSAP domain name pointer)" },
-  { T_SIG,        "(security signature)" },
-  { T_KEY,        "(security key)" },
-  { T_PX,         "(X.400 mail mapping information)" },
-  { T_GPOS,       "(Geographical Position)" },
-  { T_AAAA,       "(IP6 Address)" },
-  { T_LOC,        "(Location Information)" },
-  { T_NXT,        "(Next Domain)" },
-  { T_EID,        "(Endpoint Identifier)" },
-  { T_NIMLOC,     "(Nimrod Locator)" },
-  { T_SRV,        "(Server Selection)" },
-  { T_ATMA,       "(ATM Address)" },
-  { T_NAPTR,      "(Naming Authority Pointer)" },
-  { T_KX,         "(Key Exchanger)" },
-  { T_CERT,       "" },
-  { T_A6,         "(OBSOLETE - use AAAA)" },
-  { T_DNAME,      "" },
-  { T_SINK,       "" },
-  { T_OPT,        "" },
-  { T_APL,        "" },
-  { T_DS,         "(Delegation Signer)" },
-  { T_SSHFP,      "(SSH Key Fingerprint)" },
-  { T_IPSECKEY,   "" },
-  { T_RRSIG,      "(Resource Record Signature)" },
-  { T_NSEC,       "(Next Secure)" },
-  { T_DNSKEY,     "(DNS Public Key)" },
-  { T_DHCID,      "" },
-  { T_NSEC3,      "" },
-  { T_NSEC3PARAM, "" },
-  { T_TLSA,       "" },
-  { T_HIP,        "(Host Identity Protocol)" }, /* RFC 5205 */
-  { T_RKEY,       "" },
-  { T_TALINK,     "(Trust Anchor LINK)" },
-  { T_CDS,        "(Child DS)" }, /* RFC 7344 */
-  { T_CDNSKEY,    "(DNSKEY(s) the Child wants reflected in DS)" }, /* RFC 7344 */
-  { T_OPENPGPKEY, "(OpenPGP Key)" }, /* draft-ietf-dane-openpgpkey */
-  { T_CSYNC,      "(Child-to-Parent Synchronization)" }, /* RFC 7477 */
-  { T_ZONEMD,     "" }, /* RFC 8976 */
-  { T_SVCB,       "(General Purpose Service Endpoints)" }, /*  draft-ietf-dnsop-svcb-https*/
-  { T_HTTPS,      "(HTTPS Specific Service Endpoints)" }, /*  draft-ietf-dnsop-svcb-https*/
-  { T_DSYNC,      "(Endpoint discovery for delegation synchronization)" }, /* draft-ietf-dnsop-generalized-notify */
-  { T_SPF,        "" }, /* RFC 4408 */
-  { T_UINFO,      "" }, /* IANA reserved */
-  { T_UID,        "" }, /* IANA reserved */
-  { T_GID,        "" }, /* IANA reserved */
-  { T_UNSPEC,     "" }, /* IANA reserved */
-  { T_NID,        "(NodeID)" },
-  { T_L32,        "(Locator32)" },
-  { T_L64,        "(Locator64)" },
-  { T_LP,         "(Locator FQDN)" },
-  { T_EUI48,      "" },
-  { T_EUI64,      "" },
-  { T_TKEY,       "(Transaction Key)"  },
-  { T_TSIG,       "(Transaction Signature)" },
-  { T_IXFR,       "(incremental transfer)" },
-  { T_AXFR,       "(transfer of an entire zone)" },
-  { T_MAILB,      "(mailbox-related RRs)" },
-  { T_MAILA,      "(mail agent RRs)" },
-  { T_ANY,        "(A request for all records the server/cache has available)" },
-  { T_URI,        "" },
-  { T_CAA,        "(Certification Authority Restriction)" }, /* RFC 6844 */
-  { T_AVC,        "(Application Visibility and Control)" },
-  { T_DOA,        "(Digital Object Architecture)" }, /* (draft-durand-doa-over-dns) */
-  { T_AMTRELAY,   "(Automatic Multicast Tunneling Relay)" }, /* RFC8777 */
-  { T_RESINFO,    "(Resolver Information) " },
-  { T_WALLET,     "(Public Wallet Address) " },
-  { T_TA,         "(DNSSEC Trust Authorities)" },
-  { T_DLV,        "(DNSSEC Lookaside Validation)" }, /* RFC 4431 */
-  { T_WINS,       "" },
-  { T_WINS_R,     "" },
-  { T_XPF,        "" }, /* draft-bellis-dnsop-xpf */
+  { DNS_T_A,          "(Host Address)" },
+  { DNS_T_NS,         "(authoritative Name Server)" },
+  { DNS_T_MD,         "(Mail Destination)" },
+  { DNS_T_MF,         "(Mail Forwarder)" },
+  { DNS_T_CNAME,      "(Canonical NAME for an alias)" },
+  { DNS_T_SOA,        "(Start Of a zone of Authority)" },
+  { DNS_T_MB,         "(MailBox domain name)"},
+  { DNS_T_MG,         "(Mail Group member)" },
+  { DNS_T_MR,         "(Mail Rename domain)" },
+  { DNS_T_NULL,       "(RR)" },
+  { DNS_T_WKS,        "(Well Known Service)" },
+  { DNS_T_PTR,        "(domain name PoinTeR)" },
+  { DNS_T_HINFO,      "(host information)" },
+  { DNS_T_MINFO,      "(Mailbox or mail list information)" },
+  { DNS_T_MX,         "(Mail eXchange)" },
+  { DNS_T_TXT,        "(Text strings)" },
+  { DNS_T_RP,         "(Responsible Person)" }, /* RFC 1183 */
+  { DNS_T_AFSDB,      "(AFS Data Base location)" }, /* RFC 1183 */
+  { DNS_T_X25,        "(XX.25 PSDN address)" }, /* RFC 1183 */
+  { DNS_T_ISDN,       "(ISDN address)" }, /* RFC 1183 */
+  { DNS_T_RT,         "(Route Through)" }, /* RFC 1183 */
+  { DNS_T_NSAP,       "(NSAP address)" },
+  { DNS_T_NSAP_PTR,   "(NSAP domain name pointer)" },
+  { DNS_T_SIG,        "(security signature)" },
+  { DNS_T_KEY,        "(security key)" },
+  { DNS_T_PX,         "(X.400 mail mapping information)" },
+  { DNS_T_GPOS,       "(Geographical Position)" },
+  { DNS_T_AAAA,       "(IP6 Address)" },
+  { DNS_T_LOC,        "(Location Information)" },
+  { DNS_T_NXT,        "(Next Domain)" },
+  { DNS_T_EID,        "(Endpoint Identifier)" },
+  { DNS_T_NIMLOC,     "(Nimrod Locator)" },
+  { DNS_T_SRV,        "(Server Selection)" },
+  { DNS_T_ATMA,       "(ATM Address)" },
+  { DNS_T_NAPTR,      "(Naming Authority Pointer)" },
+  { DNS_T_KX,         "(Key Exchanger)" },
+  { DNS_T_CERT,       "" },
+  { DNS_T_A6,         "(OBSOLETE - use AAAA)" },
+  { DNS_T_DNAME,      "" },
+  { DNS_T_SINK,       "" },
+  { DNS_T_OPT,        "" },
+  { DNS_T_APL,        "" },
+  { DNS_T_DS,         "(Delegation Signer)" },
+  { DNS_T_SSHFP,      "(SSH Key Fingerprint)" },
+  { DNS_T_IPSECKEY,   "" },
+  { DNS_T_RRSIG,      "(Resource Record Signature)" },
+  { DNS_T_NSEC,       "(Next Secure)" },
+  { DNS_T_DNSKEY,     "(DNS Public Key)" },
+  { DNS_T_DHCID,      "" },
+  { DNS_T_NSEC3,      "" },
+  { DNS_T_NSEC3PARAM, "" },
+  { DNS_T_TLSA,       "" },
+  { DNS_T_HIP,        "(Host Identity Protocol)" }, /* RFC 5205 */
+  { DNS_T_RKEY,       "" },
+  { DNS_T_TALINK,     "(Trust Anchor LINK)" },
+  { DNS_T_CDS,        "(Child DS)" }, /* RFC 7344 */
+  { DNS_T_CDNSKEY,    "(DNSKEY(s) the Child wants reflected in DS)" }, /* RFC 7344 */
+  { DNS_T_OPENPGPKEY, "(OpenPGP Key)" }, /* draft-ietf-dane-openpgpkey */
+  { DNS_T_CSYNC,      "(Child-to-Parent Synchronization)" }, /* RFC 7477 */
+  { DNS_T_ZONEMD,     "" }, /* RFC 8976 */
+  { DNS_T_SVCB,       "(General Purpose Service Endpoints)" }, /*  draft-ietf-dnsop-svcb-https*/
+  { DNS_T_HTTPS,      "(HTTPS Specific Service Endpoints)" }, /*  draft-ietf-dnsop-svcb-https*/
+  { DNS_T_DSYNC,      "(Endpoint discovery for delegation synchronization)" }, /* draft-ietf-dnsop-generalized-notify */
+  { DNS_T_SPF,        "" }, /* RFC 4408 */
+  { DNS_T_UINFO,      "" }, /* IANA reserved */
+  { DNS_T_UID,        "" }, /* IANA reserved */
+  { DNS_T_GID,        "" }, /* IANA reserved */
+  { DNS_T_UNSPEC,     "" }, /* IANA reserved */
+  { DNS_T_NID,        "(NodeID)" },
+  { DNS_T_L32,        "(Locator32)" },
+  { DNS_T_L64,        "(Locator64)" },
+  { DNS_T_LP,         "(Locator FQDN)" },
+  { DNS_T_EUI48,      "" },
+  { DNS_T_EUI64,      "" },
+  { DNS_T_TKEY,       "(Transaction Key)"  },
+  { DNS_T_TSIG,       "(Transaction Signature)" },
+  { DNS_T_IXFR,       "(incremental transfer)" },
+  { DNS_T_AXFR,       "(transfer of an entire zone)" },
+  { DNS_T_MAILB,      "(mailbox-related RRs)" },
+  { DNS_T_MAILA,      "(mail agent RRs)" },
+  { DNS_T_ANY,        "(A request for all records the server/cache has available)" },
+  { DNS_T_URI,        "" },
+  { DNS_T_CAA,        "(Certification Authority Restriction)" }, /* RFC 6844 */
+  { DNS_T_AVC,        "(Application Visibility and Control)" },
+  { DNS_T_DOA,        "(Digital Object Architecture)" }, /* (draft-durand-doa-over-dns) */
+  { DNS_T_AMTRELAY,   "(Automatic Multicast Tunneling Relay)" }, /* RFC8777 */
+  { DNS_T_RESINFO,    "(Resolver Information) " },
+  { DNS_T_WALLET,     "(Public Wallet Address) " },
+  { DNS_T_TA,         "(DNSSEC Trust Authorities)" },
+  { DNS_T_DLV,        "(DNSSEC Lookaside Validation)" }, /* RFC 4431 */
+  { DNS_T_WINS,       "" },
+  { DNS_T_WINS_R,     "" },
+  { DNS_T_XPF,        "" }, /* draft-bellis-dnsop-xpf */
   {0,             NULL}
 };
 
 static value_string_ext dns_types_description_vals_ext = VALUE_STRING_EXT_INIT(dns_types_description_vals);
 
 static const value_string edns0_opt_code_vals[] = {
-  {0,            "Reserved"},
-  {O_LLQ,        "LLQ - Long-lived query"},
-  {O_UL,         "UL - Update lease"},
-  {O_NSID,       "NSID - Name Server Identifier"},
-  {O_OWNER,      "Owner (reserved)"},
-  {O_DAU,        "DAU - DNSSEC Algorithm Understood (RFC6975)"},
-  {O_DHU,        "DHU - DS Hash Understood (RFC6975)"},
-  {O_N3U,        "N3U - NSEC3 Hash Understood (RFC6975)"},
-  {O_CLIENT_SUBNET_EXP, "Experimental - CSUBNET - Client subnet" },
-  {O_CLIENT_SUBNET, "CSUBNET - Client subnet" },
-  {O_EDNS_EXPIRE, "EDNS EXPIRE (RFC7314)"},
-  {O_COOKIE,      "COOKIE"},
-  {O_EDNS_TCP_KA, "EDNS TCP Keepalive"},
-  {O_PADDING,     "PADDING"},
-  {O_CHAIN,       "CHAIN"},
-  {O_EXT_ERROR,   "Extended DNS Error"},
-  {O_REPORT_CHANNEL, "Report-Channel"},
-  {O_ZONEVERSION, "Zone Version"},
-  {0,             NULL}
+  { 0,                       "Reserved" },
+  { O_LLQ,               "LLQ - Long-lived query" },
+  { O_UL,                "UL - Update lease" },
+  { O_NSID,              "NSID - Name Server Identifier" },
+  { O_OWNER,             "Owner (reserved)" },
+  { O_DAU,               "DAU - DNSSEC Algorithm Understood (RFC6975)" },
+  { O_DHU,               "DHU - DS Hash Understood (RFC6975)" },
+  { O_N3U,               "N3U - NSEC3 Hash Understood (RFC6975)" },
+  { O_CLIENT_SUBNET_EXP, "Experimental - CSUBNET - Client subnet"  },
+  { O_CLIENT_SUBNET,     "CSUBNET - Client subnet"  },
+  { O_EDNS_EXPIRE,       "EDNS EXPIRE (RFC7314)" },
+  { O_COOKIE,            "COOKIE" },
+  { O_EDNS_TCP_KA,       "EDNS TCP Keepalive" },
+  { O_PADDING,           "PADDING" },
+  { O_CHAIN,             "CHAIN" },
+  { O_EXT_ERROR,         "Extended DNS Error" },
+  { O_REPORT_CHANNEL,    "Report-Channel" },
+  { O_ZONEVERSION,       "Zone Version" },
+  { 0,                       NULL }
  };
 /* DNS-Based Authentication of Named Entities (DANE) Parameters
    http://www.iana.org/assignments/dane-parameters (last updated 2014-04-23)
@@ -1436,13 +1274,13 @@ static const value_string amtrelay_type_vals[] = {
 };
 
 const value_string dns_classes[] = {
-  {C_IN,   "IN"},
-  {C_CS,   "CS"},
-  {C_CH,   "CH"},
-  {C_HS,   "HS"},
-  {C_NONE, "NONE"},
-  {C_ANY,  "ANY"},
-  {0,NULL}
+  { DNS_C_IN,   "IN" },
+  { DNS_C_CS,   "CS" },
+  { DNS_C_CH,   "CH" },
+  { DNS_C_HS,   "HS" },
+  { DNS_C_NONE, "NONE" },
+  { DNS_C_ANY,  "ANY" },
+  { 0,          NULL }
 };
 
 /* DSO Type Opcodes RFC8490 */
@@ -1942,13 +1780,13 @@ dissect_dns_query(tvbuff_t *tvb, int offset, int dns_data_offset,
 
   if (is_mdns) {
     /* Split the QU flag and the class */
-    qu = dns_class & C_QU;
-    dns_class &= ~C_QU;
+    qu = dns_class & DNS_C_QU;
+    dns_class &= ~DNS_C_QU;
   } else {
     qu = 0;
   }
 
-  if (type == T_AXFR || type == T_IXFR) {
+  if (type == DNS_T_AXFR || type == DNS_T_IXFR) {
     *is_multiple_responds = true;
   }
 
@@ -2014,7 +1852,7 @@ add_rr_to_tree(proto_tree  *rr_tree, tvbuff_t *tvb, int offset,
   char       **srv_rr_info;
   proto_item *ti;
 
-  if (type == T_SRV && name[0]) {
+  if (type == DNS_T_SRV && name[0]) {
     srv_rr_info = wmem_strsplit(pinfo->pool, name, ".", 4);
 
     // If there are >=3 labels and the third label starts with an underscore,
@@ -2355,6 +2193,18 @@ dissect_svc_params(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
   proto_tree    *svcb_param_tree;
 
   while (cur_offset < offset_end) {
+    int bytes_remaining = offset_end - cur_offset;
+    int param_start;
+    int param_end;
+    bool malformed = false;
+
+    if (bytes_remaining < 4) {
+      svcb_param_ti = proto_tree_add_item(tree, proto_svc_params, tvb, cur_offset, bytes_remaining, ENC_NA);
+      expert_add_info_format(pinfo, svcb_param_ti, &ei_dns_svcb_param_truncated,
+                             "Truncated SvcParam header: only %d byte(s) remain", bytes_remaining);
+      break;
+    }
+
     svcb_param_ti = proto_tree_add_item(tree, proto_svc_params, tvb, cur_offset, -1, ENC_NA);
     svcb_param_tree = proto_item_add_subtree(svcb_param_ti, ett_svc_param);
 
@@ -2365,10 +2215,26 @@ dissect_svc_params(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
     cur_offset += 2;
 
     proto_item_append_text(svcb_param_ti, ": %s", val_to_str(pinfo->pool, svc_param_key, dns_svcb_param_key_vals, "key%u"));
+    param_start = cur_offset;
+    if (svc_param_length > (uint32_t)(offset_end - param_start)) {
+      proto_item_set_len(svcb_param_ti, offset_end - (param_start - 4));
+      expert_add_info_format(pinfo, svcb_param_ti, &ei_dns_svcb_param_truncated,
+                             "SvcParamValue length %u exceeds remaining bytes (%d)",
+                             svc_param_length, offset_end - param_start);
+      break;
+    }
+    param_end = param_start + (int)svc_param_length;
     proto_item_set_len(svcb_param_ti, svc_param_length + 4);
 
     switch(svc_param_key) {
       case DNS_SVCB_KEY_MANDATORY:
+        if ((svc_param_length % 2) != 0) {
+          malformed = true;
+          expert_add_info_format(pinfo, svcb_param_ti, &ei_dns_svcb_param_bad_length,
+                                 "mandatory SvcParamValue length must be a multiple of 2 bytes, got %u",
+                                 svc_param_length);
+          break;
+        }
         for (svc_param_offset = 0; svc_param_offset < svc_param_length; svc_param_offset += 2) {
           uint32_t key;
           proto_tree_add_item_ret_uint(svcb_param_tree, hf_svc_param_mandatory_key, tvb, cur_offset, 2, ENC_BIG_ENDIAN, &key);
@@ -2379,8 +2245,20 @@ dissect_svc_params(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
       case DNS_SVCB_KEY_ALPN:
         for (svc_param_offset = 0; svc_param_offset < svc_param_length; ) {
           const uint8_t *alpn;
+          if (cur_offset >= param_end) {
+            malformed = true;
+            expert_add_info_format(pinfo, svcb_param_ti, &ei_dns_svcb_param_bad_length,
+                                   "ALPN SvcParamValue ended unexpectedly");
+            break;
+          }
           proto_tree_add_item_ret_uint(svcb_param_tree, hf_svc_param_alpn_length, tvb, cur_offset, 1, ENC_BIG_ENDIAN, &svc_param_alpn_length);
           cur_offset += 1;
+          if (svc_param_alpn_length == 0 || (int)svc_param_alpn_length > (param_end - cur_offset)) {
+            malformed = true;
+            expert_add_info_format(pinfo, svcb_param_ti, &ei_dns_svcb_param_bad_value,
+                                   "Invalid ALPN item length %u in SvcParamValue", svc_param_alpn_length);
+            break;
+          }
           proto_tree_add_item_ret_string(svcb_param_tree, hf_svc_param_alpn, tvb, cur_offset, svc_param_alpn_length, ENC_ASCII|ENC_NA, pinfo->pool, &alpn);
           cur_offset += svc_param_alpn_length;
           proto_item_append_text(svcb_param_ti, "%c%s", (svc_param_offset == 0 ? '=' : ','), alpn);
@@ -2388,13 +2266,32 @@ dissect_svc_params(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
         }
         break;
       case DNS_SVCB_KEY_NOALPN:
+        if (svc_param_length != 0) {
+          malformed = true;
+          expert_add_info_format(pinfo, svcb_param_ti, &ei_dns_svcb_param_bad_length,
+                                 "no-default-alpn SvcParamValue length must be 0, got %u",
+                                 svc_param_length);
+        }
         break;
       case DNS_SVCB_KEY_PORT:
+        if (svc_param_length != 2) {
+          malformed = true;
+          expert_add_info_format(pinfo, svcb_param_ti, &ei_dns_svcb_param_bad_length,
+                                 "port SvcParamValue length must be 2, got %u", svc_param_length);
+          break;
+        }
         proto_tree_add_item_ret_uint(svcb_param_tree, hf_svc_param_port, tvb, cur_offset, 2, ENC_BIG_ENDIAN, &value);
         proto_item_append_text(svcb_param_ti, "=%u", value);
         cur_offset += 2;
         break;
       case DNS_SVCB_KEY_IPV4HINT:
+        if ((svc_param_length % 4) != 0) {
+          malformed = true;
+          expert_add_info_format(pinfo, svcb_param_ti, &ei_dns_svcb_param_bad_length,
+                                 "ipv4hint SvcParamValue length must be a multiple of 4, got %u",
+                                 svc_param_length);
+          break;
+        }
         for (svc_param_offset = 0; svc_param_offset < svc_param_length; svc_param_offset += 4) {
           proto_tree_add_item(svcb_param_tree, hf_svc_param_ipv4hint_ip, tvb, cur_offset, 4, ENC_BIG_ENDIAN);
           proto_item_append_text(svcb_param_ti, "%c%s", (svc_param_offset == 0 ? '=' : ','), tvb_ip_to_str(pinfo->pool, tvb, cur_offset));
@@ -2408,6 +2305,13 @@ dissect_svc_params(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
         break;
       }
       case DNS_SVCB_KEY_IPV6HINT:
+        if ((svc_param_length % 16) != 0) {
+          malformed = true;
+          expert_add_info_format(pinfo, svcb_param_ti, &ei_dns_svcb_param_bad_length,
+                                 "ipv6hint SvcParamValue length must be a multiple of 16, got %u",
+                                 svc_param_length);
+          break;
+        }
         for (svc_param_offset = 0; svc_param_offset < svc_param_length; svc_param_offset += 16) {
           proto_tree_add_item(svcb_param_tree, hf_svc_param_ipv6hint_ip, tvb, cur_offset, 16, ENC_NA);
           proto_item_append_text(svcb_param_ti, "%c%s", (svc_param_offset == 0 ? '=' : ','), tvb_ip6_to_str(pinfo->pool, tvb, cur_offset));
@@ -2420,6 +2324,12 @@ dissect_svc_params(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
         proto_item_append_text(svcb_param_ti, "=%s", dohpath);
         break;
       case DNS_SVCB_KEY_OHTTP:
+        if (svc_param_length != 0) {
+          malformed = true;
+          expert_add_info_format(pinfo, svcb_param_ti, &ei_dns_svcb_param_bad_length,
+                                 "ohttp SvcParamValue length must be 0, got %u",
+                                 svc_param_length);
+        }
         break;
       case DNS_SVCB_KEY_ODOHCONFIG:
         dissect_dns_svcparam_base64(svcb_param_tree, pinfo, svcb_param_ti, hf_svc_param_odohconfig, tvb, cur_offset, svc_param_length);
@@ -2433,6 +2343,12 @@ dissect_svc_params(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
         }
         break;
     }
+
+    if (malformed && cur_offset > param_end) {
+      expert_add_info_format(pinfo, svcb_param_ti, &ei_dns_svcb_param_bad_length,
+                             "SvcParam parser advanced beyond SvcParamValue boundary");
+    }
+    cur_offset = param_end;
   }
 
   return tvb_captured_length(tvb);
@@ -2524,8 +2440,8 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
   cur_offset += used_bytes;
   if (is_mdns) {
     /* Split the FLUSH flag and the class */
-    flush = dns_class & C_FLUSH;
-    dns_class &= ~C_FLUSH;
+    flush = dns_class & DNS_C_FLUSH;
+    dns_class &= ~DNS_C_FLUSH;
   } else {
     flush = 0;
   }
@@ -2552,7 +2468,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
    * format it for display.
    */
   name_out = format_text(pinfo->pool, name, name_len);
-  if (dns_type != T_OPT) {
+  if (dns_type != DNS_T_OPT) {
     rr_tree = proto_tree_add_subtree_format(dns_tree, tvb, offsetx,
                               (data_offset - data_start) + data_len,
                               ett_dns_rr, &trr, "%s: type %s, class %s",
@@ -2575,7 +2491,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
 
   switch (dns_type) {
 
-    case T_A: /* a host Address (1) */
+    case DNS_T_A: /* a host Address (1) */
     {
       switch (dns_class) {
           /* RFC 1034 Section 3.6
@@ -2585,7 +2501,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
            *             For the CH class, a domain name followed
            *             by a 16 bit octal Chaos address.
            */
-        case C_IN:
+        case DNS_C_IN:
         {
           const char *addr;
 
@@ -2595,7 +2511,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
           proto_item_append_text(trr, ", addr %s", addr);
           proto_tree_add_item(rr_tree, hf_dns_a, tvb, cur_offset, 4, ENC_BIG_ENDIAN);
 
-          if (gbl_resolv_flags.dns_pkt_addr_resolution && dns_class == C_IN &&
+          if (gbl_resolv_flags.dns_pkt_addr_resolution && dns_class == DNS_C_IN &&
               !PINFO_FD_VISITED(pinfo)) {
             uint32_t addr_int;
             tvb_memcpy(tvb, &addr_int, cur_offset, sizeof(addr_int));
@@ -2604,7 +2520,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
         }
         break;
 
-        case C_CH:
+        case DNS_C_CH:
         {
           const char *domain_name;
           int domain_name_len;
@@ -2635,7 +2551,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_NS: /* an authoritative Name Server (2) */
+    case DNS_T_NS: /* an authoritative Name Server (2) */
     {
       const char *ns_name;
       int ns_name_len;
@@ -2649,7 +2565,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_MD: /* Mail Destination  (3) */
+    case DNS_T_MD: /* Mail Destination  (3) */
     {
       int           hostname_len;
       const char   *hostname_str;
@@ -2662,7 +2578,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_MF: /* Mail Forwarder  (4) */
+    case DNS_T_MF: /* Mail Forwarder  (4) */
     {
       int           hostname_len;
       const char   *hostname_str;
@@ -2675,7 +2591,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_CNAME: /* the Canonical NAME for an alias (5) */
+    case DNS_T_CNAME: /* the Canonical NAME for an alias (5) */
     {
       const char *cname;
       int cname_len;
@@ -2689,7 +2605,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_SOA: /* Start Of Authority zone (6) */
+    case DNS_T_SOA: /* Start Of Authority zone (6) */
     {
       const char   *mname;
       int           mname_len;
@@ -2733,7 +2649,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_MB: /* MailBox domain (7) */
+    case DNS_T_MB: /* MailBox domain (7) */
     {
       int           hostname_len;
       const char   *hostname_str;
@@ -2746,7 +2662,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_MG: /* Mail Group member (8) */
+    case DNS_T_MG: /* Mail Group member (8) */
     {
       int           hostname_len;
       const char   *hostname_str;
@@ -2759,7 +2675,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_MR: /* Mail Rename domain (9) */
+    case DNS_T_MR: /* Mail Rename domain (9) */
     {
       int           hostname_len;
       const char   *hostname_str;
@@ -2772,14 +2688,14 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_NULL: /* Null (10) */
+    case DNS_T_NULL: /* Null (10) */
     {
       col_append_fstr(pinfo->cinfo, COL_INFO, " %s", name_out);
       proto_tree_add_item(rr_tree, hf_dns_null, tvb, cur_offset, data_len, ENC_NA);
     }
     break;
 
-    case T_WKS: /* Well Known Service (11) */
+    case DNS_T_WKS: /* Well Known Service (11) */
     {
       int            rr_len   = data_len;
       const char    *wks_addr;
@@ -2798,8 +2714,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
       cur_offset += 4;
       rr_len     -= 4;
 
-      proto_tree_add_item(rr_tree, hf_dns_wks_protocol, tvb, cur_offset, 1, ENC_BIG_ENDIAN);
-      protocol = tvb_get_uint8(tvb, cur_offset);
+      proto_tree_add_item_ret_uint8(rr_tree, hf_dns_wks_protocol, tvb, cur_offset, 1, ENC_BIG_ENDIAN, &protocol);
       cur_offset += 1;
       rr_len     -= 1;
 
@@ -2844,7 +2759,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_PTR: /* Domain Name Pointer (12) */
+    case DNS_T_PTR: /* Domain Name Pointer (12) */
     {
       const char   *pname;
       int           pname_len;
@@ -2855,7 +2770,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
       proto_item_append_text(trr, ", %s", name_out);
       proto_tree_add_string(rr_tree, hf_dns_ptr_domain_name, tvb, cur_offset, used_bytes, name_out);
 
-      if (gbl_resolv_flags.dns_pkt_addr_resolution && (dns_class & 0x7f) == C_IN &&
+      if (gbl_resolv_flags.dns_pkt_addr_resolution && (dns_class & 0x7f) == DNS_C_IN &&
           !PINFO_FD_VISITED(pinfo)) {
         uint32_t addr_int;
         char** name_tokens;
@@ -2894,7 +2809,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_HINFO: /* Host Information (13) */
+    case DNS_T_HINFO: /* Host Information (13) */
     {
       int         cpu_offset;
       int         cpu_len;
@@ -2924,7 +2839,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_MINFO: /* Mailbox or Mail list INFOrmation (14) */
+    case DNS_T_MINFO: /* Mailbox or Mail list INFOrmation (14) */
     {
       int rmailbx_len, emailbx_len;
       const char *rmailbx_str, *emailbx_str;
@@ -2942,7 +2857,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_MX: /* Mail eXchange (15) */
+    case DNS_T_MX: /* Mail eXchange (15) */
     {
       uint16_t      preference = 0;
       const char   *mx_name;
@@ -2962,7 +2877,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_TXT: /* TeXT strings (16) */
+    case DNS_T_TXT: /* TeXT strings (16) */
     {
       int rr_len = data_len;
       int txt_offset;
@@ -2990,7 +2905,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_RP: /* Responsible Person (17) */
+    case DNS_T_RP: /* Responsible Person (17) */
     {
       int           mbox_dname_len, txt_dname_len;
       const char   *mbox_dname, *txt_dname;
@@ -3008,7 +2923,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_AFSDB: /* AFS data base location (18) */
+    case DNS_T_AFSDB: /* AFS data base location (18) */
     {
       const char   *host_name;
       int           host_name_len;
@@ -3025,7 +2940,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_X25: /* X.25 address (19) */
+    case DNS_T_X25: /* X.25 address (19) */
     {
       uint8_t x25_len;
 
@@ -3040,7 +2955,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_ISDN: /* ISDN address (20) */
+    case DNS_T_ISDN: /* ISDN address (20) */
     {
       uint8_t isdn_address_len, isdn_sa_len;
       int    rr_len = data_len;
@@ -3066,7 +2981,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_RT: /* Route-Through (21) */
+    case DNS_T_RT: /* Route-Through (21) */
     {
       const char   *host_name;
       int           host_name_len;
@@ -3083,14 +2998,14 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_NSAP: /* for NSAP address, NSAP style A record (22) */
+    case DNS_T_NSAP: /* for NSAP address, NSAP style A record (22) */
     {
       col_append_fstr(pinfo->cinfo, COL_INFO, " %s", name_out);
       proto_tree_add_item(rr_tree, hf_dns_nsap_rdata, tvb, cur_offset, data_len, ENC_NA);
     }
     break;
 
-    case T_NSAP_PTR: /* for domain name pointer, NSAP style (23) */
+    case DNS_T_NSAP_PTR: /* for domain name pointer, NSAP style (23) */
     {
       int           nsap_ptr_owner_len;
       const char   *nsap_ptr_owner;
@@ -3104,7 +3019,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     break;
 
 
-    case T_KEY: /* Public Key (25) */
+    case DNS_T_KEY: /* Public Key (25) */
     {
       int         rr_len = data_len;
       uint16_t    flags;
@@ -3151,7 +3066,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_PX: /* Pointer to X.400/RFC822 mapping info (26)*/
+    case DNS_T_PX: /* Pointer to X.400/RFC822 mapping info (26)*/
     {
       int            px_map822_len, px_mapx400_len;
       const char *px_map822_dnsname, *px_mapx400_dnsname;
@@ -3172,7 +3087,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_GPOS: /* Geographical POSition (27) */
+    case DNS_T_GPOS: /* Geographical POSition (27) */
     {
       uint8_t long_len, lat_len, alt_len;
 
@@ -3200,7 +3115,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_AAAA: /* IPv6 Address (28) */
+    case DNS_T_AAAA: /* IPv6 Address (28) */
     {
       const char        *addr6;
 
@@ -3210,7 +3125,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
       proto_item_append_text(trr, ", addr %s", addr6);
       proto_tree_add_item(rr_tree, hf_dns_aaaa, tvb, cur_offset, 16, ENC_NA);
 
-      if (gbl_resolv_flags.dns_pkt_addr_resolution && (dns_class & 0x7f) == C_IN &&
+      if (gbl_resolv_flags.dns_pkt_addr_resolution && (dns_class & 0x7f) == DNS_C_IN &&
           !PINFO_FD_VISITED(pinfo)) {
         ws_in6_addr  addr_in6;
         tvb_memcpy(tvb, &addr_in6, cur_offset, sizeof(addr_in6));
@@ -3219,13 +3134,12 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_LOC: /* Geographical Location (29) */
+    case DNS_T_LOC: /* Geographical Location (29) */
     {
       uint8_t version;
       proto_item *ti;
 
-      version = tvb_get_uint8(tvb, cur_offset);
-      proto_tree_add_item(rr_tree, hf_dns_loc_version, tvb, cur_offset, 1, ENC_BIG_ENDIAN);
+      proto_tree_add_item_ret_uint8(rr_tree, hf_dns_loc_version, tvb, cur_offset, 1, ENC_BIG_ENDIAN, &version);
       if (version == 0) {
         /* Version 0, the only version RFC 1876 discusses. */
         cur_offset++;
@@ -3258,7 +3172,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_NXT: /* Next name (30) */
+    case DNS_T_NXT: /* Next name (30) */
     {
       int           rr_len = data_len;
       const char   *next_domain_name;
@@ -3276,7 +3190,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_SRV: /* Service Location (33) */
+    case DNS_T_SRV: /* Service Location (33) */
     {
       uint16_t      priority = 0;
       uint16_t      weight   = 0;
@@ -3284,16 +3198,13 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
       const char   *target;
       int           target_len;
 
-      proto_tree_add_item(rr_tree, hf_dns_srv_priority, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
-      priority = tvb_get_ntohs(tvb, cur_offset);
+      proto_tree_add_item_ret_uint16(rr_tree, hf_dns_srv_priority, tvb, cur_offset, 2, ENC_BIG_ENDIAN, &priority);
       cur_offset += 2;
 
-      proto_tree_add_item(rr_tree, hf_dns_srv_weight, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
-      weight = tvb_get_ntohs(tvb, cur_offset);
+      proto_tree_add_item_ret_uint16(rr_tree, hf_dns_srv_weight, tvb, cur_offset, 2, ENC_BIG_ENDIAN, &weight);
       cur_offset += 2;
 
-      proto_tree_add_item(rr_tree, hf_dns_srv_port, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
-      port = tvb_get_ntohs(tvb, cur_offset);
+      proto_tree_add_item_ret_uint16(rr_tree, hf_dns_srv_port, tvb, cur_offset, 2, ENC_BIG_ENDIAN, &port);
       cur_offset += 2;
 
       used_bytes = get_dns_name(pinfo->pool, tvb, cur_offset, 0, dns_data_offset, &target, &target_len);
@@ -3308,7 +3219,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_NAPTR: /*  Naming Authority PoinTeR (35) */
+    case DNS_T_NAPTR: /*  Naming Authority PoinTeR (35) */
     {
       proto_item    *ti_len;
       int           offset = cur_offset;
@@ -3322,32 +3233,27 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
       int           replacement_len;
 
       /* Order */
-      proto_tree_add_item(rr_tree, hf_dns_naptr_order, tvb, offset, 2, ENC_BIG_ENDIAN);
-      order = tvb_get_ntohs(tvb, offset);
+      proto_tree_add_item_ret_uint16(rr_tree, hf_dns_naptr_order, tvb, offset, 2, ENC_BIG_ENDIAN, &order);
       offset += 2;
 
       /* Preference */
-      proto_tree_add_item(rr_tree, hf_dns_naptr_preference, tvb, offset, 2, ENC_BIG_ENDIAN);
-      preference = tvb_get_ntohs(tvb, offset);
+      proto_tree_add_item_ret_uint16(rr_tree, hf_dns_naptr_preference, tvb, offset, 2, ENC_BIG_ENDIAN, &preference);
       offset += 2;
 
        /* Flags */
-      proto_tree_add_item(rr_tree, hf_dns_naptr_flags_length, tvb, offset, 1, ENC_BIG_ENDIAN);
-      flags_len = tvb_get_uint8(tvb, offset);
+      proto_tree_add_item_ret_uint8(rr_tree, hf_dns_naptr_flags_length, tvb, offset, 1, ENC_BIG_ENDIAN, &flags_len);
       offset += 1;
       proto_tree_add_item_ret_string(rr_tree, hf_dns_naptr_flags, tvb, offset, flags_len, ENC_ASCII|ENC_NA, pinfo->pool, &flags);
       offset += flags_len;
 
       /* Service */
-      proto_tree_add_item(rr_tree, hf_dns_naptr_service_length, tvb, offset, 1, ENC_BIG_ENDIAN);
-      service_len = tvb_get_uint8(tvb, offset);
+      proto_tree_add_item_ret_uint8(rr_tree, hf_dns_naptr_service_length, tvb, offset, 1, ENC_BIG_ENDIAN, &service_len);
       offset += 1;
       proto_tree_add_item(rr_tree, hf_dns_naptr_service, tvb, offset, service_len, ENC_ASCII);
       offset += service_len;
 
       /* Regex */
-      proto_tree_add_item(rr_tree, hf_dns_naptr_regex_length, tvb, offset, 1, ENC_BIG_ENDIAN);
-      regex_len = tvb_get_uint8(tvb, offset);
+      proto_tree_add_item_ret_uint8(rr_tree, hf_dns_naptr_regex_length, tvb, offset, 1, ENC_BIG_ENDIAN, &regex_len);
       offset += 1;
       proto_tree_add_item(rr_tree, hf_dns_naptr_regex, tvb, offset, regex_len, ENC_ASCII);
       offset += regex_len;
@@ -3367,7 +3273,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_KX: /* Key Exchange (36) */
+    case DNS_T_KX: /* Key Exchange (36) */
     {
       const char   *kx_name;
       int           kx_name_len;
@@ -3382,7 +3288,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_CERT: /* Certificate (37) */
+    case DNS_T_CERT: /* Certificate (37) */
     {
       int     rr_len = data_len;
 
@@ -3404,7 +3310,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_A6: /* IPv6 address with indirection (38) Obso */
+    case DNS_T_A6: /* IPv6 address with indirection (38) Obso */
     {
       unsigned short     pre_len;
       unsigned short     suf_len;
@@ -3461,7 +3367,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_DNAME: /* Non-terminal DNS name redirection (39) */
+    case DNS_T_DNAME: /* Non-terminal DNS name redirection (39) */
     {
       const char   *dname;
       int           dname_len;
@@ -3475,7 +3381,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_OPT: /* Option (41) */
+    case DNS_T_OPT: /* Option (41) */
     {
       int rropt_len = data_len;
       uint16_t optcode, optlen;
@@ -3522,7 +3428,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
           }
           break;
 
-          case O_N3U: /* N3SEC Hash Understood (RFC6975) */
+           case O_N3U: /* N3SEC Hash Understood (RFC6975) */
           {
             while (optlen != 0) {
               proto_tree_add_item(rropt_tree, hf_dns_opt_n3u, tvb, cur_offset, 1, ENC_BIG_ENDIAN);
@@ -3547,8 +3453,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
               uint8_t bytes[16];
             } ip_addr = {0};
 
-            family = tvb_get_ntohs(tvb, cur_offset);
-            proto_tree_add_item(rropt_tree, hf_dns_opt_client_family, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint16(rropt_tree, hf_dns_opt_client_family, tvb, cur_offset, 2, ENC_BIG_ENDIAN, &family);
             cur_offset += 2;
             proto_tree_add_item(rropt_tree, hf_dns_opt_client_netmask, tvb, cur_offset, 1, ENC_BIG_ENDIAN);
             cur_offset += 1;
@@ -3564,14 +3469,14 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
             tvb_memcpy(tvb, ip_addr.bytes, cur_offset, addr_len);
             switch (family) {
 
-              case AFNUM_INET:
+              case AFNUM_IP:
               {
                 proto_tree_add_ipv4(rropt_tree, hf_dns_opt_client_addr4, tvb,
                                     cur_offset, addr_len, ip_addr.addr);
               }
               break;
 
-              case AFNUM_INET6:
+              case AFNUM_IP6:
               {
                 proto_tree_add_ipv6(rropt_tree, hf_dns_opt_client_addr6, tvb,
                                     cur_offset, addr_len, (ws_in6_addr *)&ip_addr);
@@ -3698,7 +3603,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_APL: /* Lists of Address Prefixes (42) */
+    case DNS_T_APL: /* Lists of Address Prefixes (42) */
     {
       int      rr_len = data_len;
       uint16_t afamily;
@@ -3722,13 +3627,13 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
         cur_offset += 1;
         rr_len     -= 1;
 
-        if (afamily == AFNUM_INET && afdpart_len <= 4) {
+        if (afamily == AFNUM_IP && afdpart_len <= 4) {
           ws_in4_addr *addr4_copy;
 
           addr4_copy = (ws_in4_addr *)wmem_alloc0(pinfo->pool, 4);
           tvb_memcpy(tvb, (void *)addr4_copy, cur_offset, afdpart_len);
           proto_tree_add_ipv4(rr_tree, hf_dns_apl_afdpart_ipv4, tvb, cur_offset, afdpart_len, *addr4_copy);
-        } else if (afamily == AFNUM_INET6 && afdpart_len <= 16) {
+        } else if (afamily == AFNUM_IP6 && afdpart_len <= 16) {
           ws_in6_addr *addr6_copy;
 
           addr6_copy = (ws_in6_addr *)wmem_alloc0(pinfo->pool, 16);
@@ -3743,9 +3648,9 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_DS: /* Delegation Signature (43) */
-    case T_CDS: /* Child DS (59) */
-    case T_DLV:
+    case DNS_T_DS: /* Delegation Signature (43) */
+    case DNS_T_CDS: /* Child DS (59) */
+    case DNS_T_DLV:
     {
       int     rr_len = data_len;
 
@@ -3765,7 +3670,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_SSHFP: /* Securely Publish SSH Key Fingerprints (44) */
+    case DNS_T_SSHFP: /* Securely Publish SSH Key Fingerprints (44) */
     {
       int    rr_len = data_len;
 
@@ -3784,7 +3689,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_IPSECKEY: /* IPsec Key (45) */
+    case DNS_T_IPSECKEY: /* IPsec Key (45) */
     {
       int           rr_len = data_len;
       uint8_t       gw_type;
@@ -3848,8 +3753,8 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_RRSIG: /* RRSIG (46) */
-    case T_SIG: /* Security SIgnature (24) */
+    case DNS_T_RRSIG: /* RRSIG (46) */
+    case DNS_T_SIG: /* Security SIgnature (24) */
     {
       int           rr_len = data_len;
       const char   *signer_name;
@@ -3899,7 +3804,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_NSEC: /* NSEC (47) */
+    case DNS_T_NSEC: /* NSEC (47) */
     {
       int           rr_len = data_len;
       const char   *next_domain_name;
@@ -3918,8 +3823,8 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_DNSKEY: /* DNSKEY (48) */
-    case T_CDNSKEY: /* CDNSKEY (60) */
+    case DNS_T_DNSKEY: /* DNSKEY (48) */
+    case DNS_T_CDNSKEY: /* CDNSKEY (60) */
     {
       int         rr_len = data_len;
       proto_item *tf, *ti_gen;
@@ -3957,14 +3862,14 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_DHCID: /* DHCID (49) */
+    case DNS_T_DHCID: /* DHCID (49) */
     {
       col_append_fstr(pinfo->cinfo, COL_INFO, " %s", name_out);
       proto_tree_add_item(rr_tree, hf_dns_dhcid_rdata, tvb, cur_offset, data_len, ENC_NA);
     }
     break;
 
-    case T_NSEC3: /* NSEC3 (50) */
+    case DNS_T_NSEC3: /* NSEC3 (50) */
     {
       int         rr_len, initial_offset = cur_offset;
       uint8_t     salt_len, hash_len;
@@ -4002,10 +3907,8 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
         /* Base 32 Encoding with Extended Hex Alphabet (see RFC 4648 section 7) */
         const char    *base32hex = "0123456789abcdefghijklmnopqrstuv";
         wmem_strbuf_t *hash_value_base32hex = wmem_strbuf_new(pinfo->pool, "");
-        int            group, in_offset, out_offset;
-        for (in_offset = 0, out_offset = 0;
-            in_offset / 8 < hash_len;
-            in_offset += 5, out_offset += 1) {
+        unsigned       group, in_offset;
+        for (in_offset = 0; in_offset / 8 < hash_len; in_offset += 5) {
           group = tvb_get_bits8(tvb, cur_offset * 8 + in_offset, 5);
           wmem_strbuf_append_c(hash_value_base32hex, base32hex[group]);
         }
@@ -4019,7 +3922,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_NSEC3PARAM: /* NSEC3PARAM (51) */
+    case DNS_T_NSEC3PARAM: /* NSEC3PARAM (51) */
     {
       int salt_len;
       col_append_fstr(pinfo->cinfo, COL_INFO, " %s", name_out);
@@ -4041,7 +3944,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_TLSA: /* DNS-Based Authentication of Named Entities (52) */
+    case DNS_T_TLSA: /* DNS-Based Authentication of Named Entities (52) */
     {
       int     rr_len = data_len;
       col_append_fstr(pinfo->cinfo, COL_INFO, " %s", name_out);
@@ -4062,7 +3965,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_HIP: /* Host Identity Protocol (55) */
+    case DNS_T_HIP: /* Host Identity Protocol (55) */
     {
       uint8_t       hit_len;
       uint16_t      pk_len;
@@ -4104,13 +4007,13 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_OPENPGPKEY: /* OpenPGP Key (61) */
+    case DNS_T_OPENPGPKEY: /* OpenPGP Key (61) */
     {
       proto_tree_add_item(rr_tree, hf_dns_openpgpkey, tvb, cur_offset, data_len, ENC_ASCII);
     }
     break;
 
-    case T_CSYNC: /* Child-to-Parent Synchronization (62) */
+    case DNS_T_CSYNC: /* Child-to-Parent Synchronization (62) */
     {
       int         rr_len, initial_offset = cur_offset;
 
@@ -4128,7 +4031,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_ZONEMD: /* Message Digest for DNS Zones (63) */
+    case DNS_T_ZONEMD: /* Message Digest for DNS Zones (63) */
     {
       proto_tree_add_item(rr_tree, hf_dns_zonemd_serial, tvb, cur_offset, 4, ENC_BIG_ENDIAN);
       cur_offset += 4;
@@ -4140,8 +4043,8 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_SVCB: /* Service binding and parameter specification (64) */
-    case T_HTTPS: /* Service binding and parameter specification (65) */
+    case DNS_T_SVCB: /* Service binding and parameter specification (64) */
+    case DNS_T_HTTPS: /* Service binding and parameter specification (65) */
     {
       uint32_t      priority = 0;
       const char   *target;
@@ -4165,7 +4068,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_DSYNC: /* Endpoint discovery for delegation synchronization (66) */
+    case DNS_T_DSYNC: /* Endpoint discovery for delegation synchronization (66) */
     {
       const char   *dsync_name;
       int           dsync_name_len;
@@ -4181,7 +4084,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_SPF: /* Sender Policy Framework (99) */
+    case DNS_T_SPF: /* Sender Policy Framework (99) */
     {
       int rr_len = data_len;
       int spf_offset;
@@ -4200,7 +4103,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_NID: /* NodeID (104) */
+    case DNS_T_NID: /* NodeID (104) */
     {
       proto_tree_add_item(rr_tree, hf_dns_ilnp_nodeid_preference, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
       cur_offset += 2;
@@ -4210,7 +4113,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_L32: /* Locator (105) */
+    case DNS_T_L32: /* Locator (105) */
     {
       proto_tree_add_item(rr_tree, hf_dns_ilnp_locator32_preference, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
       cur_offset += 2;
@@ -4220,7 +4123,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_L64: /* Locator64 (106) */
+    case DNS_T_L64: /* Locator64 (106) */
     {
       proto_tree_add_item(rr_tree, hf_dns_ilnp_locator64_preference, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
       cur_offset += 2;
@@ -4230,7 +4133,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_LP: /* Locator FQDN (107) */
+    case DNS_T_LP: /* Locator FQDN (107) */
     {
       int           lp_len;
       const char   *lp_str;
@@ -4245,21 +4148,21 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_EUI48: /* EUI48 (108) */
+    case DNS_T_EUI48: /* EUI48 (108) */
     {
       proto_tree_add_item(rr_tree, hf_dns_eui48, tvb, cur_offset, 6, ENC_NA);
       /*cur_offset += 6;*/
     }
     break;
 
-    case T_EUI64: /* EUI64 (109) */
+    case DNS_T_EUI64: /* EUI64 (109) */
     {
       proto_tree_add_item(rr_tree, hf_dns_eui64, tvb, cur_offset, 8, ENC_BIG_ENDIAN);
       /*cur_offset += 8;*/
     }
     break;
 
-    case T_TKEY: /* Transaction Key (249) */
+    case DNS_T_TKEY: /* Transaction Key (249) */
     {
       const char   *tkey_algname;
       int           tkey_algname_len;
@@ -4279,15 +4182,13 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
       proto_tree_add_item(rr_tree, hf_dns_tkey_signature_expiration, tvb, cur_offset, 4, ENC_BIG_ENDIAN);
       cur_offset += 4;
 
-      proto_tree_add_item(rr_tree, hf_dns_tkey_mode, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
-      tkey_mode = tvb_get_ntohs(tvb, cur_offset);
+      proto_tree_add_item_ret_uint16(rr_tree, hf_dns_tkey_mode, tvb, cur_offset, 2, ENC_BIG_ENDIAN, &tkey_mode);
       cur_offset += 2;
 
       proto_tree_add_item(rr_tree, hf_dns_tkey_error, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
       cur_offset += 2;
 
-      proto_tree_add_item(rr_tree, hf_dns_tkey_key_size, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
-      tkey_keylen = tvb_get_ntohs(tvb, cur_offset);
+      proto_tree_add_item_ret_uint16(rr_tree, hf_dns_tkey_key_size, tvb, cur_offset, 2, ENC_BIG_ENDIAN, &tkey_keylen);
       cur_offset += 2;
 
       if (tkey_keylen != 0) {
@@ -4343,7 +4244,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_TSIG: /* Transaction Signature (250) */
+    case DNS_T_TSIG: /* Transaction Signature (250) */
     {
       uint16_t      tsig_siglen, tsig_otherlen;
       const char   *tsig_algname;
@@ -4393,8 +4294,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
       proto_tree_add_item(rr_tree, hf_dns_tsig_error, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
       cur_offset += 2;
 
-      proto_tree_add_item(rr_tree, hf_dns_tsig_other_len, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
-      tsig_otherlen = tvb_get_ntohs(tvb, cur_offset);
+      proto_tree_add_item_ret_uint16(rr_tree, hf_dns_tsig_other_len, tvb, cur_offset, 2, ENC_BIG_ENDIAN, &tsig_otherlen);
       cur_offset += 2;
 
       if (tsig_otherlen != 0) {
@@ -4403,7 +4303,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_URI: /* Uniform Resource Locator (256) */
+    case DNS_T_URI: /* Uniform Resource Locator (256) */
     {
       int           rr_len   = data_len;
       uint16_t      priority = 0;
@@ -4411,12 +4311,10 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
       int           target_len = rr_len - 4;
       const char   *target;
 
-      proto_tree_add_item(rr_tree, hf_dns_srv_priority, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
-      priority = tvb_get_ntohs(tvb, cur_offset);
+      proto_tree_add_item_ret_uint16(rr_tree, hf_dns_srv_priority, tvb, cur_offset, 2, ENC_BIG_ENDIAN, &priority);
       cur_offset += 2;
 
-      proto_tree_add_item(rr_tree, hf_dns_srv_weight, tvb, cur_offset, 2, ENC_BIG_ENDIAN);
-      weight = tvb_get_ntohs(tvb, cur_offset);
+      proto_tree_add_item_ret_uint16(rr_tree, hf_dns_srv_weight, tvb, cur_offset, 2, ENC_BIG_ENDIAN, &weight);
       cur_offset += 2;
 
       target = (const char*)tvb_get_string_enc(pinfo->pool, tvb, cur_offset, target_len, ENC_ASCII|ENC_NA);
@@ -4431,7 +4329,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     break;
 
 
-    case T_CAA: /* Certification Authority Restriction (257) */
+    case DNS_T_CAA: /* Certification Authority Restriction (257) */
     {
       proto_item *caa_item;
       proto_tree *caa_tree;
@@ -4473,7 +4371,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_AMTRELAY: /* Automatic Multicast Tunneling Relay (260) */
+    case DNS_T_AMTRELAY: /* Automatic Multicast Tunneling Relay (260) */
     {
       uint32_t    relay_type;
       const char  *relay_name;
@@ -4521,7 +4419,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     break;
 
 
-    case T_WINS:  /* Microsoft's WINS (65281)*/
+    case DNS_T_WINS:  /* Microsoft's WINS (65281)*/
     {
       int     rr_len = data_len;
       uint32_t nservers;
@@ -4553,7 +4451,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_WINS_R: /* Microsoft's WINS-R (65282)*/
+    case DNS_T_WINS_R: /* Microsoft's WINS-R (65282)*/
     {
       const char   *dname;
       int           dname_len;
@@ -4575,7 +4473,7 @@ dissect_dns_answer(tvbuff_t *tvb, int offsetx, int dns_data_offset,
     }
     break;
 
-    case T_XPF: /* XPF draft-bellis-dnsop-xpf */
+    case DNS_T_XPF: /* XPF draft-bellis-dnsop-xpf */
     {
       uint32_t address_family;
 
@@ -4772,13 +4670,13 @@ dissect_dns_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                       (flags&F_RESPONSE)?" response":"", id);
 
   if (flags & F_RESPONSE) {
-    if (rcode != RCODE_NOERROR) {
+    if (rcode != DNS_RCODE_NOERROR) {
       col_append_fstr(pinfo->cinfo, COL_INFO, " %s",
               val_to_str(pinfo->pool, rcode, rcode_vals, "Unknown error (%u)"));
     }
   }
 
-  if (opcode == OPCODE_UPDATE) {
+  if (opcode == DNS_OPCODE_UPDATE) {
     isupdate = true;
   } else {
     isupdate = false;
@@ -5032,7 +4930,7 @@ dissect_dns_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
   cur_off = offset + DNS_HDRLEN;
 
-  if (opcode == OPCODE_DSO && quest == 0 && ans == 0 && auth == 0 && add == 0) {
+  if (opcode == DNS_OPCODE_DSO && quest == 0 && ans == 0 && auth == 0 && add == 0) {
     /* DSO messages differs somewhat from the traditional DNS message format.
        the four count fields (QDCOUNT, ANCOUNT, NSCOUNT, ARCOUNT) are set to zero */
       cur_off += dissect_dso_data(tvb, cur_off, pinfo, dns_tree);
@@ -5327,7 +5225,7 @@ dissect_dns_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
    * - Assume a common QTYPE and QCLASS (IN/CH).
    * - Potentially implement heuristics for TCP by checking the length prefix?
    */
-  int               offset = 0;
+  unsigned          offset = 0;
   uint16_t          flags, quest, ans, auth, add;
   /*
    * max_ans=10 was sufficient for recognizing the majority of DNS messages from
@@ -5364,7 +5262,7 @@ dissect_dns_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
     return false;
 
   /* Do we even have enough space left? */
-  if ( (quest * 6 + (ans + auth + add) * 11) > tvb_reported_length_remaining(tvb, offset + DNS_HDRLEN))
+  if ( (quest * 6U + (ans + auth + add) * 11U) > tvb_reported_length_remaining(tvb, offset + DNS_HDRLEN))
     return false;
 
   dissect_dns(tvb, pinfo, tree, NULL);
@@ -6493,7 +6391,7 @@ proto_register_dns(void)
 
     { &hf_dns_qry_qu,
       { "\"QU\" question", "dns.qry.qu",
-        FT_BOOLEAN, 16, NULL, C_QU,
+        FT_BOOLEAN, 16, NULL, DNS_C_QU,
         "QU flag", HFILL }},
 
     { &hf_dns_qry_name,
@@ -6528,7 +6426,7 @@ proto_register_dns(void)
 
     { &hf_dns_rr_cache_flush,
       { "Cache flush", "dns.resp.cache_flush",
-        FT_BOOLEAN, 16, NULL, C_FLUSH,
+        FT_BOOLEAN, 16, NULL, DNS_C_FLUSH,
         "Cache flush flag", HFILL }},
 
     { &hf_dns_rr_ext_rcode,
@@ -8156,6 +8054,9 @@ proto_register_dns(void)
     { &ei_dns_retransmit_response, { "dns.retransmit_response", PI_PROTOCOL, PI_WARN, "DNS response retransmission", EXPFILL }},
     { &ei_dns_extraneous_data, { "dns.extraneous", PI_UNDECODED, PI_NOTE, "Extraneous data", EXPFILL }},
     { &ei_dns_response_missing, { "dns.response_missing", PI_PROTOCOL, PI_WARN, "DNS response missing", EXPFILL }},
+    { &ei_dns_svcb_param_truncated, { "dns.svcb.param.truncated", PI_MALFORMED, PI_ERROR, "Truncated SvcParam", EXPFILL }},
+    { &ei_dns_svcb_param_bad_length, { "dns.svcb.param.bad_length", PI_MALFORMED, PI_ERROR, "Invalid SvcParam length", EXPFILL }},
+    { &ei_dns_svcb_param_bad_value, { "dns.svcb.param.bad_value", PI_MALFORMED, PI_ERROR, "Invalid SvcParam value", EXPFILL }},
   };
 
   static int *ett[] = {

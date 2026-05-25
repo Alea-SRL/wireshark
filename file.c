@@ -21,11 +21,10 @@
 
 #include <wsutil/file_util.h>
 #include <wsutil/filesystem.h>
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>
 #include <wsutil/json_dumper.h>
 #include <wsutil/wslog.h>
 #include <wsutil/ws_assert.h>
-#include <wsutil/version_info.h>
 #include <wsutil/report_message.h>
 
 #include <wiretap/merge.h>
@@ -46,7 +45,7 @@
 #include <epan/color_filters.h>
 #include <epan/secrets.h>
 
-#include "cfile.h"
+#include <epan/cfile.h>
 #include "file.h"
 #include "fileset.h"
 
@@ -301,6 +300,7 @@ cf_open(capture_file *cf, const char *fname, unsigned int type, bool is_tempfile
     cf->count     = 0;
     cf->packet_comment_count = 0;
     cf->displayed_count = 0;
+    cf->aggregation_count = 0;
     cf->marked_count = 0;
     cf->ignored_count = 0;
     cf->ref_time_count = 0;
@@ -2056,7 +2056,7 @@ rescan_packets(capture_file *cf, const char *action, const char *action_item, bo
            found the nearest displayed frame to that frame.  Select it, make
            it the focus row, and make it visible. */
         /* Set to invalid to force update of packet list and packet details */
-        if (selected_frame_num == 0) {
+        if (selected_frame_num == 0 || (selected_frame && selected_frame->aggregated)) {
             packet_list_select_row_from_data(NULL);
         }else{
             if (!packet_list_select_row_from_data(selected_frame)) {
@@ -2659,7 +2659,7 @@ cf_print_packets(capture_file *cf, print_args_t *print_args,
     callback_args.num_visible_cols = 0;
     callback_args.visible_cols = NULL;
 
-    if (!print_preamble(print_args->stream, cf->filename, get_ws_vcs_version_info())) {
+    if (!print_preamble(print_args->stream, cf->filename, application_get_vcs_version_info())) {
         destroy_print_stream(print_args->stream);
         return CF_PRINT_WRITE_ERROR;
     }
@@ -4901,6 +4901,15 @@ cf_select_packet(capture_file *cf, frame_data *fdata)
     /* We don't need the columns here. */
     cf->edt = epan_dissect_new(cf->epan, true, true);
 
+    /* Prime for color filter evaluation so dissect_frame stores all matching
+     * filters in proto_data, reflecting current session state (e.g., after
+     * pause/resume of coloring rules which triggers a full redissect that
+     * clears per-frame proto_data). */
+    if (color_filters_used()) {
+        color_filters_prime_edt(cf->edt);
+        cf->current_frame->need_colorize = 1;
+    }
+
     epan_dissect_run(cf->edt, cf->cd_t, &cf->rec, cf->current_frame, NULL);
 
     if (old_edt != NULL)
@@ -5682,6 +5691,7 @@ cf_save_records(capture_file *cf, const char *fname, unsigned save_format,
         params.idb_inf = NULL;
 
         if (pdh == NULL) {
+            wtap_dump_params_cleanup(&params);
             report_cfile_dump_open_failure(fname, err, err_info, save_format);
             goto fail;
         }

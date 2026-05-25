@@ -32,10 +32,6 @@
 #include "packet-p1.h"
 #include <epan/strutil.h>
 
-#define PNAME  "X.413 Message Store Service"
-#define PSNAME "P7"
-#define PFNAME "p7"
-
 void proto_register_p7(void);
 void proto_reg_handoff_p7(void);
 
@@ -640,9 +636,42 @@ static const value_string p7_err_code_string_vals[] = {
 
 /*--- Cyclic dependencies ---*/
 
+/* Attribute/attribute-values/_item -> Attribute/attribute-values/_item */
+static unsigned dissect_p7_AttributeItem(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* AutoActionRegistration/registration-parameter -> AutoActionRegistration/registration-parameter */
+static unsigned dissect_p7_T_registration_parameter(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* AttributeValueAssertion/attribute-value -> AttributeValueAssertion/attribute-value */
+static unsigned dissect_p7_T_attribute_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* FilterItem/substrings/strings/_item/initial -> FilterItem/substrings/strings/_item/initial */
+static unsigned dissect_p7_T_initial(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* FilterItem/substrings/strings/_item/any -> FilterItem/substrings/strings/_item/any */
+static unsigned dissect_p7_T_any(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* FilterItem/substrings/strings/_item/final -> FilterItem/substrings/strings/_item/final */
+static unsigned dissect_p7_T_final(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* MatchingRuleAssertion/match-value -> MatchingRuleAssertion/match-value */
+static unsigned dissect_p7_T_match_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
 /* Filter -> Filter/and -> Filter */
 /* Filter -> Filter */
 static unsigned dissect_p7_Filter(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* Summary/present/_item/value -> Summary/present/_item/value */
+static unsigned dissect_p7_SummaryPresentItemValue(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* OrderedAttribute/attribute-values/_item/value -> OrderedAttribute/attribute-values/_item/value */
+static unsigned dissect_p7_OrderedAttributeValue(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* PAR-attribute-error/problems/_item/value -> PAR-attribute-error/problems/_item/value */
+static unsigned dissect_p7_T_attr_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* RTABapdu/userdataAB -> RTABapdu/userdataAB */
+static unsigned dissect_p7_T_userdataAB(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
 
 
 
@@ -658,10 +687,13 @@ dissect_p7_AttributeType(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offs
 
 static unsigned
 dissect_p7_AttributeItem(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // Attribute/attribute-values/_item -> Attribute/attribute-values/_item
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	if(actx->external.direct_reference)
 		call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -716,11 +748,14 @@ dissect_p7_INTEGER_1_ub_per_auto_action(bool implicit_tag _U_, tvbuff_t *tvb _U_
 
 static unsigned
 dissect_p7_T_registration_parameter(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // AutoActionRegistration/registration-parameter -> AutoActionRegistration/registration-parameter
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	if(actx->external.direct_reference)
 		call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
 
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -1361,10 +1396,13 @@ dissect_p7_Range(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, 
 
 static unsigned
 dissect_p7_T_attribute_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // AttributeValueAssertion/attribute-value -> AttributeValueAssertion/attribute-value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	if(actx->external.direct_reference)
 		call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -1387,10 +1425,13 @@ dissect_p7_AttributeValueAssertion(bool implicit_tag _U_, tvbuff_t *tvb _U_, uns
 
 static unsigned
 dissect_p7_T_initial(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // FilterItem/substrings/strings/_item/initial -> FilterItem/substrings/strings/_item/initial
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	if(actx->external.direct_reference)
 		call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -1398,10 +1439,13 @@ dissect_p7_T_initial(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _
 
 static unsigned
 dissect_p7_T_any(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // FilterItem/substrings/strings/_item/any -> FilterItem/substrings/strings/_item/any
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	if(actx->external.direct_reference)
 		call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -1409,10 +1453,13 @@ dissect_p7_T_any(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, 
 
 static unsigned
 dissect_p7_T_final(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // FilterItem/substrings/strings/_item/final -> FilterItem/substrings/strings/_item/final
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	if(actx->external.direct_reference)
 		call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -1472,10 +1519,13 @@ dissect_p7_T_substrings(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offse
 
 static unsigned
 dissect_p7_T_match_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // MatchingRuleAssertion/match-value -> MatchingRuleAssertion/match-value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	if(actx->external.direct_reference)
 		call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -1560,14 +1610,12 @@ static const ber_choice_t Filter_choice[] = {
 static unsigned
 dissect_p7_Filter(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // Filter -> Filter/and -> Filter
-  actx->pinfo->dissection_depth += 2;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 2);
   offset = dissect_ber_choice(actx, tree, tvb, offset,
                                  Filter_choice, hf_index, ett_p7_Filter,
                                  NULL);
 
-  actx->pinfo->dissection_depth -= 2;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 2);
   return offset;
 }
 
@@ -1846,10 +1894,13 @@ dissect_p7_Span(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, a
 
 static unsigned
 dissect_p7_SummaryPresentItemValue(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // Summary/present/_item/value -> Summary/present/_item/value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	if(actx->external.direct_reference)
 		call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -2562,10 +2613,13 @@ dissect_p7_T_entries(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _
 
 static unsigned
 dissect_p7_OrderedAttributeValue(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // OrderedAttribute/attribute-values/_item/value -> OrderedAttribute/attribute-values/_item/value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	if(actx->external.direct_reference)
 		call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -2852,11 +2906,14 @@ dissect_p7_AttributeProblem(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned o
 
 static unsigned
 dissect_p7_T_attr_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // PAR-attribute-error/problems/_item/value -> PAR-attribute-error/problems/_item/value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	if(actx->external.direct_reference)
 		call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
 
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -3641,9 +3698,12 @@ dissect_p7_AbortReason(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset
 
 static unsigned
 dissect_p7_T_userdataAB(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // RTABapdu/userdataAB -> RTABapdu/userdataAB
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	offset = dissect_unknown_ber(actx->pinfo, tvb, offset, tree);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -5756,7 +5816,7 @@ void proto_register_p7(void) {
   module_t *p7_module;
 
   /* Register protocol */
-  proto_p7 = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_p7 = proto_register_protocol("X.413 Message Store Service", "P7", "p7");
 
   /* Register fields and subtrees */
   proto_register_field_array(proto_p7, hf, array_length(hf));

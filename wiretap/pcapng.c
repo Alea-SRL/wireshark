@@ -460,7 +460,7 @@ pcapng_get_cb_section_info_data(section_info_t *section_info, uint32_t pen,
          * No entry found - create a new one, and add it to the
          * hash table.
          */
-        data = funcs->new();
+        data = funcs->provision();
         g_hash_table_insert(section_info->custom_block_data,
                             GUINT_TO_POINTER(pen), data);
     }
@@ -514,7 +514,7 @@ pcapng_get_lb_section_info_data(section_info_t *section_info,
          * No entry found - create a new one, and add it to the
          * hash table.
          */
-        data = funcs->new();
+        data = funcs->provision();
         g_hash_table_insert(section_info->local_block_data,
                             GUINT_TO_POINTER(block_type), data);
     }
@@ -2200,8 +2200,20 @@ pcapng_read_packet_block(wtap *wth _U_, FILE_T fh, uint32_t block_type,
         return false;
     }
     block_read += pseudo_header_len;
-    wblock->rec->rec_header.packet_header.caplen = packet.cap_len - pseudo_header_len;
-    wblock->rec->rec_header.packet_header.len = packet.packet_len - pseudo_header_len;
+    if (ckd_sub(&wblock->rec->rec_header.packet_header.caplen, packet.cap_len, pseudo_header_len)) {
+        /* pcap_process_pseudo_header should never return a length greater
+         * than the cap_len it is given. */
+        *err = WTAP_ERR_INTERNAL;
+        *err_info = ws_strdup_printf("pcapng: pseudo_header_len (%u) > cap_len (%u)",
+                                    pseudo_header_len, packet.cap_len);
+        return false;
+    }
+    if (ckd_sub(&wblock->rec->rec_header.packet_header.len, packet.packet_len, pseudo_header_len)) {
+        /* This means that the reported length was less than the captured
+         * length. Set it to zero, and let the frame dissector fix it, which
+         * will add an expert warning. */
+        wblock->rec->rec_header.packet_header.len = 0;
+    }
 
     /* Combine the two 32-bit pieces of the timestamp into one 64-bit value */
     ts = (((uint64_t)packet.ts_high) << 32) | ((uint64_t)packet.ts_low);
@@ -2421,8 +2433,20 @@ pcapng_read_simple_packet_block(wtap *wth _U_, FILE_T fh,
     if (pseudo_header_len < 0) {
         return false;
     }
-    wblock->rec->rec_header.packet_header.caplen = simple_packet.cap_len - pseudo_header_len;
-    wblock->rec->rec_header.packet_header.len = simple_packet.packet_len - pseudo_header_len;
+    if (ckd_sub(&wblock->rec->rec_header.packet_header.caplen, simple_packet.cap_len, pseudo_header_len)) {
+        /* pcap_process_pseudo_header should never return a length greater
+         * than the cap_len it is given. */
+        *err = WTAP_ERR_INTERNAL;
+        *err_info = ws_strdup_printf("pcapng: pseudo_header_len (%u) > cap_len (%u)",
+                                    pseudo_header_len, simple_packet.cap_len);
+        return false;
+    }
+    if (ckd_sub(&wblock->rec->rec_header.packet_header.len, simple_packet.packet_len, pseudo_header_len)) {
+        /* This means that the reported length was less than the captured
+         * length. Set it to zero, and let the frame dissector fix it, which
+         * will add an expert warning. */
+        wblock->rec->rec_header.packet_header.len = 0;
+    }
 
     /* "Simple Packet Block" read capture data */
     if (!wtap_read_bytes_buffer(fh, &wblock->rec->data,
@@ -3707,7 +3731,9 @@ pcapng_open(wtap *wth, int *err, char **err_info)
         }
 
         /* go back to where we were */
-        file_seek(wth->fh, saved_offset, SEEK_SET, err);
+        if (file_seek(wth->fh, saved_offset, SEEK_SET, err) == -1) {
+            return WTAP_OPEN_ERROR;
+        }
 
         /*
          * Get a pointer to the current section's section_info_t.
@@ -3964,9 +3990,11 @@ static uint32_t pcapng_compute_custom_string_option_size(wtap_optval_t *optval)
 {
     uint32_t size = 0;
 
-    size = (uint32_t)strlen(optval->custom_stringval.string) & 0xffff;
+    /* PEN */
+    size = sizeof(uint32_t) + (uint32_t)strlen(optval->custom_stringval.string);
 
-    return size;
+    /* pcapng_write_custom_string_option writes nothing if size > 65535 */
+    return size <= 65535 ? size : 0;
 }
 
 static uint32_t pcapng_compute_custom_binary_option_size(wtap_optval_t *optval)
@@ -5475,8 +5503,8 @@ put_nrb_option(wtap_block_t block _U_, unsigned option_id, wtap_opttype_e option
 
         memcpy(*opt_ptrp, &optval->custom_stringval.pen, sizeof(uint32_t));
         *opt_ptrp += sizeof(uint32_t);
-        memcpy(*opt_ptrp, optval->custom_stringval.string, size);
-        *opt_ptrp += size;
+        memcpy(*opt_ptrp, optval->custom_stringval.string, stringlen);
+        *opt_ptrp += stringlen;
 
         /* put padding (if any) */
         pad = WS_PADDING_TO_4(size);

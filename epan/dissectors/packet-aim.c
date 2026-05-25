@@ -2419,8 +2419,7 @@ static int dissect_aim_generic_ext_status_repl(tvbuff_t *tvb, packet_info *pinfo
 	offset += 2;
 	proto_tree_add_item(gen_tree, hf_generic_ext_status_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
 	offset += 1;
-	proto_tree_add_item(gen_tree, hf_generic_ext_status_length, tvb, offset, 1, ENC_BIG_ENDIAN);
-	length = tvb_get_uint8(tvb, offset);
+	proto_tree_add_item_ret_uint8(gen_tree, hf_generic_ext_status_length, tvb, offset, 1, ENC_BIG_ENDIAN, &length);
 	offset += 1;
 	proto_tree_add_item(gen_tree, hf_generic_ext_status_data, tvb, offset, length, ENC_NA);
 	offset += 1;
@@ -3714,8 +3713,7 @@ static int dissect_aim_sst_buddy_down_req (tvbuff_t *tvb, packet_info *pinfo, pr
 	proto_tree_add_item(tree, hf_aim_sst_unknown, tvb, offset, 4, ENC_NA);
 	offset+=4;
 
-	proto_tree_add_item(tree, hf_aim_sst_md5_hash_size, tvb, offset, 1, ENC_BIG_ENDIAN);
-	md5_size = tvb_get_uint8(tvb, offset);
+	proto_tree_add_item_ret_uint8(tree, hf_aim_sst_md5_hash_size, tvb, offset, 1, ENC_BIG_ENDIAN, &md5_size);
 	offset++;
 
 	proto_tree_add_item(tree, hf_aim_sst_md5_hash, tvb, offset, md5_size, ENC_NA);
@@ -3733,16 +3731,14 @@ static int dissect_aim_sst_buddy_down_repl (tvbuff_t *tvb, packet_info *pinfo, p
 	proto_tree_add_item(tree, hf_aim_sst_unknown, tvb, offset, 3, ENC_NA);
 	offset+=3;
 
-	proto_tree_add_item(tree, hf_aim_sst_md5_hash_size, tvb, offset, 1, ENC_BIG_ENDIAN);
-	md5_size = tvb_get_uint8(tvb, offset);
+	proto_tree_add_item_ret_uint8(tree, hf_aim_sst_md5_hash_size, tvb, offset, 1, ENC_BIG_ENDIAN, &md5_size);
 	offset++;
 
 	proto_tree_add_item(tree, hf_aim_sst_md5_hash, tvb, offset, md5_size, ENC_NA);
 
 	offset+=md5_size;
 
-	proto_tree_add_item(tree, hf_aim_sst_icon_size, tvb, offset, 2, ENC_BIG_ENDIAN);
-	icon_size = tvb_get_ntohs(tvb, offset);
+	proto_tree_add_item_ret_uint16(tree, hf_aim_sst_icon_size, tvb, offset, 2, ENC_BIG_ENDIAN, &icon_size);
 	offset+=2;
 
 	if (icon_size)
@@ -3781,8 +3777,7 @@ static int dissect_aim_sst_buddy_up_req (tvbuff_t *tvb, packet_info *pinfo _U_, 
 	proto_tree_add_item(tree, hf_aim_sst_ref_num, tvb, offset, 2, ENC_BIG_ENDIAN);
 	offset+=2;
 
-	proto_tree_add_item(tree, hf_aim_sst_icon_size, tvb, offset, 2, ENC_BIG_ENDIAN);
-	icon_size = tvb_get_ntohs(tvb, offset);
+	proto_tree_add_item_ret_uint16(tree, hf_aim_sst_icon_size, tvb, offset, 2, ENC_BIG_ENDIAN, &icon_size);
 	offset+=2;
 
 	if (icon_size)

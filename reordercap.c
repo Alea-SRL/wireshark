@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#include <config.h>
+#include "config.h"
 #define WS_LOG_DOMAIN  LOG_DOMAIN_MAIN
 
 #include <stdio.h>
@@ -23,7 +23,7 @@
 
 #include <wsutil/cmdarg_err.h>
 #include <wsutil/filesystem.h>
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>
 #include <wsutil/file_util.h>
 #include <wsutil/privileges.h>
 #include <wsutil/report_message.h>
@@ -203,7 +203,7 @@ main(int argc, char *argv[])
     }
 
     /* Initialize the version information. */
-    ws_init_version_info("Reordercap", NULL, get_ws_vcs_version_info, NULL, NULL);
+    ws_init_version_info("Reordercap", NULL, application_get_vcs_version_info, NULL, NULL);
 
     init_report_failure_message("reordercap");
 

@@ -177,6 +177,7 @@ bool ShowPacketBytesDialog::enableShowSelected()
     // "Show Selected" only works when showing all bytes:
     // - DecodeAs must not alter the number of bytes in the buffer
     // - ShowAs must show all bytes in the buffer
+    // - please update tooltip (minus ROT13) if logic changes
 
     return (((recent.gui_show_bytes_decode == DecodeAsNone) ||
              (recent.gui_show_bytes_decode == DecodeAsROT13)) &&
@@ -691,7 +692,6 @@ void ShowPacketBytesDialog::updatePacketBytes(void)
     static const char hexchars[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
 
     ui->tePacketBytes->clear();
-    ui->tePacketBytes->setCurrentFont(mainApp->monospaceFont());
 
     switch (recent.gui_show_bytes_show) {
 
@@ -924,6 +924,15 @@ DIAG_ON(stringop-overread)
     }
 }
 
+ShowPacketBytesTextEdit::ShowPacketBytesTextEdit(QWidget *parent) :
+    QTextEdit(parent),
+    show_selected_enabled_(true),
+    menus_enabled_(true)
+{
+    /* Should this pass true to use the current zoom level? */
+    setFont(mainApp->monospaceFont());
+}
+
 void ShowPacketBytesTextEdit::contextMenuEvent(QContextMenuEvent *event)
 {
     QMenu *menu = createStandardContextMenu();
@@ -932,13 +941,17 @@ void ShowPacketBytesTextEdit::contextMenuEvent(QContextMenuEvent *event)
     menu->setAttribute(Qt::WA_DeleteOnClose);
     menu->addSeparator();
 
+    QString displayToolTip = tr("<html>Mouse byte selection is enabled when<p>\"Decode as\" = None<p>AND<p>\"Show as\" = ASCII, ASCII & Control, EBCDIC or Raw</html>");
     action = menu->addAction(tr("Show Selected"));
     action->setEnabled(menus_enabled_ && show_selected_enabled_ && textCursor().hasSelection());
+    action->setToolTip(displayToolTip);
     connect(action, SIGNAL(triggered()), this, SLOT(showSelected()));
 
     action = menu->addAction(tr("Show All"));
     action->setEnabled(menus_enabled_);
     connect(action, SIGNAL(triggered()), this, SLOT(showAll()));
+
+    menu->setToolTipsVisible(true);
 
     menu->popup(event->globalPos());
 }

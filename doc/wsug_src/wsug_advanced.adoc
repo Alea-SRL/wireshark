@@ -1220,6 +1220,12 @@ You can adjust name resolution behavior in the Name Resolution section in the <<
 You can control resolution itself by adding a __hosts__ file to your <<ChAppFilesConfigurationSection,personal configuration directory>>.
 You can also edit your system __hosts__ file, but that isn’t generally recommended.
 
+Another option is to group addresses by their subnet. For instance a common
+private network is 192.168.0.0/16. Adding this to the __subnets__ file allows
+Wireshark to show an unknown host in this address range to be part of this
+network, e.g. "private:18.145". A similar file exists for IPv6 subnets.
+See <<ChAppFilesConfigurationSection>> for more details.
+
 ==== TCP/UDP Port Name Resolution (Transport Layer)
 
 Try to resolve a TCP/UDP port (e.g., 80) to a human readable name.

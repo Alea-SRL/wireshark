@@ -18,7 +18,6 @@
 
 #include <epan/column.h>
 #include <epan/expert.h>
-#include <epan/ipproto.h>
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/proto.h>
@@ -34,7 +33,7 @@
 #include "ui/util.h"
 
 #include "wiretap/wtap_opttypes.h"
-#include "wsutil/application_flavor.h"
+#include "app/application_flavor.h"
 #include "wsutil/str_util.h"
 #include <wsutil/wslog.h>
 
@@ -108,7 +107,33 @@ packet_list_select_row_from_data(frame_data *fdata_needle)
 {
     if (! gbl_cur_packet_list || ! gbl_cur_packet_list->model())
         return false;
-    return gbl_cur_packet_list->selectRow(fdata_needle);
+
+    PacketListModel* model = qobject_cast<PacketListModel*>(gbl_cur_packet_list->model());
+
+    if (!model)
+        return false;
+
+    model->flushVisibleRows();
+    int row = -1;
+    if (!fdata_needle)
+        row = 0;
+    else
+        row = model->visibleIndexOf(fdata_needle);
+
+    if (row >= 0) {
+        /* Calling ClearAndSelect with setCurrentIndex clears the "current"
+         * item, but doesn't clear the "selected" item. We want to clear
+         * the "selected" item as well so that selectionChanged() will be
+         * emitted in order to force an update of the packet details and
+         * packet bytes after a search.
+         */
+        gbl_cur_packet_list->selectionModel()->clearSelection();
+        gbl_cur_packet_list->selectionModel()->setCurrentIndex(model->index(row, 0), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        gbl_cur_packet_list->scrollTo(gbl_cur_packet_list->currentIndex(), PacketList::PositionAtCenter);
+        return true;
+    }
+
+    return false;
 }
 
 /*
@@ -211,7 +236,14 @@ PacketList::PacketList(QWidget *parent) :
     setRootIsDecorated(false);
     setSortingEnabled(prefs.gui_packet_list_sortable);
     setUniformRowHeights(true);
-    setAccessibleName("Packet list");
+    setFocusPolicy(Qt::StrongFocus);
+
+#ifdef Q_OS_MAC
+    setAttribute(Qt::WA_MacShowFocusRect, true);
+#endif
+
+    verticalScrollBar()->setFocusPolicy(Qt::NoFocus);
+    horizontalScrollBar()->setFocusPolicy(Qt::NoFocus);
 
     packet_list_header_ = new PacketListHeader(header()->orientation());
     connect(packet_list_header_, &PacketListHeader::resetColumnWidth, this, &PacketList::setRecentColumnWidth);
@@ -798,7 +830,7 @@ void PacketList::ctxDecodeAsDialog()
 void PacketList::timerEvent(QTimerEvent *event)
 {
     if (event->timerId() == overlay_timer_id_) {
-        if (!capture_in_progress_) {
+        if (!capture_in_progress_ && model() != nullptr) {
             if (create_near_overlay_) drawNearOverlay();
             if (create_far_overlay_) drawFarOverlay();
         }
@@ -1010,6 +1042,28 @@ void PacketList::keyPressEvent(QKeyEvent *event)
     }
 }
 
+void PacketList::focusInEvent(QFocusEvent *event)
+{
+    QTreeView::focusInEvent(event);
+
+    if (event->reason() == Qt::TabFocusReason || event->reason() == Qt::BacktabFocusReason) {
+        if (model() && model()->rowCount() > 0 && selectionModel()) {
+            if (!selectionModel()->hasSelection()) {
+                QModelIndex first = model()->index(0, 0);
+                if (first.isValid()) {
+                    selectionModel()->setCurrentIndex(first, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+                    setCurrentIndex(first);
+                }
+            }
+            
+            // ALWAYS scroll to the current index if we have one
+            if (currentIndex().isValid()) {
+                scrollTo(currentIndex());
+            }
+        }
+    }
+}
+
 void PacketList::resizeEvent(QResizeEvent *event)
 {
     create_near_overlay_ = true;
@@ -1033,7 +1087,16 @@ void PacketList::setColumnDelegate()
         setItemDelegateForColumn(i, nullptr);   // Reset all delegates
     }
 
-    if (prefs.gui_packet_list_show_related) {
+    // Multi-color delegate takes precedence over related packet delegate (row stripes only, not scrollbar-only mode)
+    if (prefs.gui_packet_list_multi_color_mode == PACKET_LIST_MULTI_COLOR_MODE_FULL ||
+        prefs.gui_packet_list_multi_color_mode == PACKET_LIST_MULTI_COLOR_MODE_SHIFT_RIGHT) {
+        for (unsigned i = 0; i < prefs.num_cols; i++) {
+            if (get_column_visible(i)) {
+                setItemDelegateForColumn(i, &multi_color_delegate_);
+            }
+        }
+    }
+    else if (prefs.gui_packet_list_show_related) {
         for (unsigned i = 0; i < prefs.num_cols; i++) {
             if (get_column_visible(i)) {
                 setItemDelegateForColumn(i, &related_packet_delegate_);
@@ -1217,8 +1280,6 @@ void PacketList::applyRecentColumnWidths()
         setColumnHidden(col, false);
         setRecentColumnWidth(col);
     }
-
-    column_state_ = header()->saveState();
 }
 
 void PacketList::preferencesChanged()
@@ -1611,14 +1672,8 @@ void PacketList::setCaptureFile(capture_file *cf)
 {
     cap_file_ = cf;
     packet_list_model_->setCaptureFile(cf);
-    if (cf) {
-        if (columns_changed_) {
-            columnsChanged();
-        } else {
-            // Restore columns widths and visibility.
-            header()->restoreState(column_state_);
-            setColumnVisibility();
-        }
+    if (cap_file_ && columns_changed_) {
+        columnsChanged();
     }
     create_near_overlay_ = true;
     changing_profile_ = false;
@@ -2256,17 +2311,70 @@ void PacketList::drawNearOverlay()
             packet_list_model_->ensureRowColorized(row);
 
             frame_data *fdata = packet_list_model_->getRowFdata(row);
-            const color_t *bgcolor = NULL;
-            if (fdata->color_filter) {
-                const color_filter_t *color_filter = (const color_filter_t *) fdata->color_filter;
-                bgcolor = &color_filter->bg_color;
+            int next_line = (row - start + 1) * o_height / o_rows;
+            int row_height = next_line - cur_line;
+
+            // Multi-color support in minimap (enabled for all non-Off modes)
+            if (prefs.gui_packet_list_multi_color_mode != PACKET_LIST_MULTI_COLOR_MODE_OFF) {
+                QModelIndex idx = packet_list_model_->index(row, 0);
+                PacketListRecord *record = static_cast<PacketListRecord*>(idx.internalPointer());
+                // Conversation color filters take full precedence — skip multi-color stripe rendering
+                bool is_conversation_color = fdata->color_filter &&
+                    strncmp(((const color_filter_t *)fdata->color_filter)->filter_name,
+                            CONVERSATION_COLOR_PREFIX, strlen(CONVERSATION_COLOR_PREFIX)) == 0;
+                if (record && record->hasMultipleColors() && !is_conversation_color) {
+                    // Draw vertical stripes for multiple colors (skip paused filters)
+                    const GSList *filters = record->matchingColorFilters();
+
+                    // Count non-paused filters
+                    int num_active_colors = 0;
+                    for (const GSList *item = filters; item != NULL; item = g_slist_next(item)) {
+                        const color_filter_t *colorf = (const color_filter_t *)item->data;
+                        if (!color_filter_is_session_disabled(colorf->filter_name)) {
+                            num_active_colors++;
+                        }
+                    }
+
+                    if (num_active_colors > 0) {
+                        int stripe_width = o_width / num_active_colors;
+                        int x_pos = 0;
+                        int stripe_idx = 0;
+
+                        for (const GSList *item = filters; item != NULL; item = g_slist_next(item)) {
+                            const color_filter_t *colorf = (const color_filter_t *)item->data;
+                            // Skip paused filters
+                            if (!color_filter_is_session_disabled(colorf->filter_name)) {
+                                QColor color(ColorUtils::fromColorT(&colorf->bg_color));
+                                int width = (stripe_idx == num_active_colors - 1) ? (o_width - x_pos) : stripe_width;
+                                painter.fillRect(x_pos, cur_line, width, row_height, color);
+                                x_pos += stripe_width;
+                                stripe_idx++;
+                            }
+                        }
+                    } else {
+                        // All filters paused, draw no color
+                        painter.fillRect(0, cur_line, o_width, row_height, QColor(Qt::white));
+                    }
+                } else if (fdata->color_filter) {
+                    // Single color fallback
+                    const color_filter_t *color_filter = (const color_filter_t *) fdata->color_filter;
+                    QColor color(ColorUtils::fromColorT(&color_filter->bg_color));
+                    painter.fillRect(0, cur_line, o_width, row_height, color);
+                }
+            } else {
+                // Original single-color behavior
+                const color_t *bgcolor = NULL;
+                if (fdata->color_filter) {
+                    const color_filter_t *color_filter = (const color_filter_t *) fdata->color_filter;
+                    bgcolor = &color_filter->bg_color;
+                }
+
+                if (bgcolor) {
+                    QColor color(ColorUtils::fromColorT(bgcolor));
+                    painter.fillRect(0, cur_line, o_width, row_height, color);
+                }
             }
 
-            int next_line = (row - start + 1) * o_height / o_rows;
-            if (bgcolor) {
-                QColor color(ColorUtils::fromColorT(bgcolor));
-                painter.fillRect(0, cur_line, o_width, next_line - cur_line, color);
-            }
             cur_line = next_line;
         }
 
@@ -2392,8 +2500,15 @@ void PacketList::drawFarOverlay()
 void PacketList::rowsInserted(const QModelIndex &parent, int start, int end)
 {
     QTreeView::rowsInserted(parent, start, end);
-    if (recent.aggregation_view && currentIndex().isValid() && currentIndex().row() >= 0) {
-        selectRow(getFDataForRow(currentIndex().row()), false);
+    const QModelIndex& cIndex = currentIndex();
+    bool aggregation_mode = recent.aggregation_view && prefs.aggregation_fields_num > 0;
+    if (aggregation_mode && cIndex.isValid() && cIndex.row() >= 0) {
+        int row = cIndex.row();
+        frame_data* fdata = getFDataForRow(row);
+        if (fdata && cap_file_->current_frame->num != fdata->num) {
+            cf_select_packet(cap_file_, fdata);
+            emit framesSelected(QList<int>() << row);
+        }
     }
     if (capture_in_progress_ && tail_at_end_) {
         scrollToBottom();
@@ -2410,36 +2525,4 @@ void PacketList::resizeAllColumns(bool onlyTimeFormatted)
             resizeColumnToContents(col);
         }
     }
-}
-
-bool PacketList::selectRow(const frame_data* fdata, bool flushRows)
-{
-    PacketListModel* pktListModel = qobject_cast<PacketListModel*>(model());
-
-    if (!pktListModel)
-        return false;
-
-    if (flushRows) {
-        pktListModel->flushVisibleRows();
-    }
-    int row = -1;
-    if (!fdata)
-        row = 0;
-    else
-        row = pktListModel->visibleIndexOf(fdata);
-
-    if (row >= 0) {
-        /* Calling ClearAndSelect with setCurrentIndex clears the "current"
-         * item, but doesn't clear the "selected" item. We want to clear
-         * the "selected" item as well so that selectionChanged() will be
-         * emitted in order to force an update of the packet details and
-         * packet bytes after a search.
-         */
-        selectionModel()->clearSelection();
-        selectionModel()->setCurrentIndex(pktListModel->index(row, 0), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
-        scrollTo(currentIndex(), PacketList::PositionAtCenter);
-        return true;
-    }
-
-    return false;
 }

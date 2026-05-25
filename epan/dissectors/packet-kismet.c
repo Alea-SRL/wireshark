@@ -38,7 +38,7 @@ static expert_field ei_time_invalid;
 
 #define TCP_PORT_KISMET	2501 /* Not IANA registered */
 
-static bool response_is_continuation(const char * data);
+static bool response_is_continuation(char data);
 void proto_reg_handoff_kismet(void);
 void proto_register_kismet(void);
 
@@ -52,42 +52,32 @@ dissect_kismet(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void * da
 	proto_tree *kismet_tree=NULL, *reqresp_tree=NULL;
 	proto_item *ti;
 	proto_item *tmp_item;
-	int offset = 0;
+	unsigned offset = 0;
 	const unsigned char *line;
-	int next_offset;
-	int linelen;
-	int tokenlen;
-	int i;
+	unsigned next_offset;
+	unsigned linelen;
+	unsigned tokenlen;
 	const unsigned char *next_token;
 
 	/*
 	 * Find the end of the first line.
 	 *
-	 * Note that "tvb_find_line_end()" will return a value that is
+	 * Note that "tvb_find_line_end_remaining()" will return a value that is
 	 * not longer than what's in the buffer, so the "tvb_get_ptr()"
 	 * call won't throw an exception.
 	 */
-	linelen = tvb_find_line_end(tvb, offset, -1, &next_offset, false);
+	tvb_find_line_end_remaining(tvb, offset, &linelen, &next_offset);
 	line = tvb_get_ptr(tvb, offset, linelen);
 
 	/*
 	 * Check if it is an ASCII based protocol with reasonable length
 	 * packets, if not return, and try another dissector.
 	 */
-	if (linelen < 8) {
-		/*
-		 * Packet is too short
-		 */
+	if (linelen < 8)
 		return 0;
-	} else {
-		for (i = 0; i < 8; ++i) {
-			/*
-			 * Packet contains non-ASCII data
-			 */
-			if (line[i] < 32 || line[i] > 128)
-				return 0;
-		}
-	}
+
+	if (!tvb_ascii_isprint(tvb, offset, 8))
+		return 0;
 
 	/*
 	 * If it is Kismet traffic set COL_PROTOCOL.
@@ -102,7 +92,7 @@ dissect_kismet(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void * da
 		is_continuation = false;
 	} else {
 		is_request = false;
-		is_continuation = response_is_continuation((char*)line);
+		is_continuation = response_is_continuation(line[0]);
 	}
 
 	/*
@@ -144,9 +134,7 @@ dissect_kismet(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void * da
 		/*
 		 * Find the end of the line.
 		 */
-		linelen = tvb_find_line_end(tvb, offset, -1, &next_offset, false);
-
-		if (linelen) {
+		if (tvb_find_line_end_remaining(tvb, offset, &linelen, &next_offset)) {
 			/*
 			 * Put this line.
 			 */
@@ -172,48 +160,42 @@ dissect_kismet(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void * da
 						linelen -= (int) (next_token - line);
 						line = next_token;
 						tokenlen = get_token_len(line, line + linelen, &next_token);
-						proto_tree_add_string(reqresp_tree, hf_kismet_version, tvb, offset,
-							tokenlen, format_text(pinfo->pool, (char*)line, tokenlen));
+						proto_tree_add_item(reqresp_tree, hf_kismet_version, tvb, offset, tokenlen, ENC_ASCII);
 
 						offset += (int) (next_token - line);
 						linelen -= (int) (next_token - line);
 						line = next_token;
 						tokenlen = get_token_len(line, line + linelen, &next_token);
-						proto_tree_add_string(reqresp_tree, hf_kismet_start_time, tvb, offset,
-							tokenlen, format_text(pinfo->pool, (char*)line, tokenlen));
+						proto_tree_add_item(reqresp_tree, hf_kismet_start_time, tvb, offset, tokenlen, ENC_ASCII);
 
 						offset += (int) (next_token - line);
 						linelen -= (int) (next_token - line);
 						line = next_token;
 						tokenlen = get_token_len(line, line + linelen, &next_token);
-						proto_tree_add_string(reqresp_tree, hf_kismet_server_name, tvb, offset,
-							tokenlen, format_text(pinfo->pool, (char*)line + 1, tokenlen - 2));
+						proto_tree_add_item(reqresp_tree, hf_kismet_server_name, tvb, offset+1, tokenlen-2, ENC_ASCII);
 
 						offset += (int) (next_token - line);
 						linelen -= (int) (next_token - line);
 						line = next_token;
 						tokenlen = get_token_len(line, line + linelen, &next_token);
-						proto_tree_add_string(reqresp_tree, hf_kismet_build_revision, tvb, offset,
-							tokenlen, format_text(pinfo->pool, (char*)line, tokenlen));
+						proto_tree_add_item(reqresp_tree, hf_kismet_build_revision, tvb, offset, tokenlen, ENC_ASCII);
 
 						offset += (int) (next_token - line);
 						linelen -= (int) (next_token - line);
 						line = next_token;
 						tokenlen = get_token_len(line, line + linelen, &next_token);
-						proto_tree_add_string(reqresp_tree, hf_kismet_unknown_field, tvb, offset,
-							tokenlen, format_text(pinfo->pool, (char*)line, tokenlen));
+						proto_tree_add_item(reqresp_tree, hf_kismet_unknown_field, tvb, offset, tokenlen, ENC_ASCII);
 
 						offset += (int) (next_token - line);
 						linelen -= (int) (next_token - line);
 						line = next_token;
 						tokenlen = get_token_len(line, line + linelen, &next_token);
-						proto_tree_add_string(reqresp_tree, hf_kismet_extended_version_string, tvb, offset,
-							tokenlen, format_text(pinfo->pool, (char*)line, tokenlen));
+						proto_tree_add_item(reqresp_tree, hf_kismet_extended_version_string, tvb, offset, tokenlen, ENC_ASCII);
 					}
 					/*
 					 * *TIME: {Time}
 					 */
-					if (!strncmp(reqresp, "*TIME", 5)) {
+					else if (!strncmp(reqresp, "*TIME", 5)) {
 						nstime_t t;
 						char *ptr = NULL;
 						proto_tree* time_item;
@@ -252,15 +234,16 @@ dissect_kismet(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void * da
 }
 
 static bool
-response_is_continuation(const char * data)
+response_is_continuation(char data)
 {
-	if (!strncmp(data, "*", 1))
+	switch (data)
+	{
+	case '*':
+	case '!':
 		return false;
-
-	if (!strncmp(data, "!", 1))
-		return false;
-
-	return true;
+	default:
+		return true;
+	}
 }
 
 void

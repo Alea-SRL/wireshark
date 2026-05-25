@@ -8,10 +8,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __TIMESTATS_H__
-#define __TIMESTATS_H__
-
+#pragma once
 #include "epan/packet_info.h"
 #include "wsutil/nstime.h"
 
@@ -32,16 +29,33 @@ typedef struct _timestat_t {
 
 /* functions */
 
-/* Initialize a timestat_t struct */
+/**
+ * @brief Initialize a timestat_t structure.
+ *
+ * @param stats Pointer to the timestat_t structure to initialize.
+ */
 WS_DLL_PUBLIC void time_stat_init(timestat_t *stats);
 
-/* Update a timestat_t struct with a new sample */
+/**
+ * @brief Update time statistics with a new sample.
+ *
+ * This function updates the minimum, maximum, and total time statistics based on the given delta.
+ *
+ * @param stats Pointer to the timestat_t structure to be updated.
+ * @param delta Pointer to the nstime_t structure representing the time difference.
+ * @param pinfo Pointer to the packet_info structure containing information about the current packet.
+ */
 WS_DLL_PUBLIC void time_stat_update(timestat_t *stats, const nstime_t *delta, packet_info *pinfo);
 
+/**
+ * @brief Calculate the average time from a sum of time values.
+ *
+ * @param sum Pointer to the nstime_t structure containing the total time.
+ * @param num Number of time values included in the sum.
+ * @return double The calculated average time in milliseconds.
+ */
 WS_DLL_PUBLIC double get_average(const nstime_t *sum, uint32_t num);
 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* __TIMESTATS_H__ */

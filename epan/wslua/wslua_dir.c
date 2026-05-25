@@ -197,9 +197,10 @@ WSLUA_CONSTRUCTOR Dir_open(lua_State* L) {
 
     dir = (Dir)g_malloc(sizeof(struct _wslua_dir));
     dir->dir = g_dir_open(dirname_clean, 0, NULL);
-    g_free(dirname_clean);
+    dir->path = dirname_clean;
 
     if (dir->dir == NULL) {
+        g_free(dir->path);
         g_free(dir);
 
         WSLUA_ARG_ERROR(Dir_open,PATHNAME,"could not open directory");
@@ -322,9 +323,22 @@ static int Dir__gc(lua_State* L) {
     }
 
     g_free(dir->ext);
+    g_free(dir->path);
     g_free(dir);
 
     return 0;
+}
+
+WSLUA_METAMETHOD Dir__tostring(lua_State* L) {
+    /* Returns a short label of the form `Dir: path=<path>` (with
+       `(closed)` appended once `Dir:close()` has run). `path` is
+       the directory Dir.open() resolved to, so symlinks and
+       relative paths show as their canonical form. */
+    Dir dir = checkDir(L,1);
+    lua_pushfstring(L, "Dir: path=%s%s",
+                    dir->path ? dir->path : "?",
+                    dir->dir ? "" : " (closed)");
+    WSLUA_RETURN(1); /* The string. */
 }
 
 WSLUA_METHODS Dir_methods[] = {
@@ -343,6 +357,7 @@ WSLUA_METHODS Dir_methods[] = {
 
 WSLUA_META Dir_meta[] = {
     WSLUA_CLASS_MTREG(Dir,call),
+    WSLUA_CLASS_MTREG(Dir,tostring),
     { NULL, NULL }
 };
 

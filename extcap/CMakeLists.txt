@@ -8,7 +8,7 @@
 #
 
 if(EXTCAP_ANDROIDDUMP_LIBPCAP)
-	set(ANDROIDDUMP_USE_LIBPCAP 1)
+	set(ANDROIDDUMP_USE_LIBPCAP 1 PARENT_SCOPE)
 endif()
 
 if(LIBSSH_FOUND)
@@ -91,8 +91,12 @@ macro(set_extlog_executable_properties _executable)
 	set_common_executable_properties(${_executable} Stratoshark)
 endmacro()
 
+add_compile_options("${WERROR_COMMON_FLAGS}")
+
 add_custom_target(extcaps)
 
+# XXX - Should this be a shared library, and the headers installed as public
+# headers, for development of extcaps outside the source tree?
 add_library(extcap-base OBJECT extcap-base.c)
 if(LIBSSH_FOUND)
 	add_library(ssh-base OBJECT ssh-base.c)
@@ -106,8 +110,6 @@ if(BUILD_androiddump)
 	if(EXTCAP_ANDROIDDUMP_LIBPCAP)
 		if(HAVE_LIBPCAP)
 			set(androiddump_LIBS
-				ui
-				wiretap
 				wsutil
 				${WIN_WS2_32_LIBRARY}
 				$<$<BOOL:${PCAP_FOUND}>:pcap::pcap>
@@ -128,6 +130,7 @@ if(BUILD_androiddump)
 		$<TARGET_OBJECTS:cli_main>
 		$<TARGET_OBJECTS:extcap-base>
 		androiddump.c
+		../app/wireshark_flavor.c
 	)
 
 	set_executable_resources(androiddump "Androiddump")
@@ -150,6 +153,7 @@ if(BUILD_sshdump AND LIBSSH_FOUND)
 		$<TARGET_OBJECTS:extcap-base>
 		$<TARGET_OBJECTS:ssh-base>
 		sshdump.c
+		../app/wireshark_flavor.c
 	)
 
 	set_executable_resources(sshdump "Sshdump")
@@ -176,6 +180,7 @@ if(BUILD_ciscodump AND LIBSSH_FOUND)
 		$<TARGET_OBJECTS:extcap-base>
 		$<TARGET_OBJECTS:ssh-base>
 		ciscodump.c
+		../app/wireshark_flavor.c
 	)
 
 	set_executable_resources(ciscodump "Ciscodump")
@@ -202,6 +207,7 @@ if(BUILD_wifidump AND LIBSSH_FOUND)
 		$<TARGET_OBJECTS:extcap-base>
 		$<TARGET_OBJECTS:ssh-base>
 		wifidump.c
+		../app/wireshark_flavor.c
 	)
 
 	set_executable_resources(wifidump "Wifidump")
@@ -244,13 +250,13 @@ if(BUILD_udpdump)
 		wsutil
 		${CMAKE_DL_LIBS}
 		${WIN_WS2_32_LIBRARY}
-		wsutil
 		writecap
 	)
 	set(udpdump_FILES
 		$<TARGET_OBJECTS:cli_main>
 		$<TARGET_OBJECTS:extcap-base>
 		udpdump.c
+		../app/wireshark_flavor.c
 	)
 
 	set_executable_resources(udpdump "udpdump")
@@ -273,6 +279,7 @@ if(BUILD_randpktdump)
 		$<TARGET_OBJECTS:cli_main>
 		$<TARGET_OBJECTS:extcap-base>
 		randpktdump.c
+		../app/wireshark_flavor.c
 	)
 
 	set_executable_resources(randpktdump "randpktdump")
@@ -301,6 +308,7 @@ if(BUILD_etwdump AND WIN32)
 		etl.c
 		etw_message.c
 		etw_ndiscap.c
+		../app/wireshark_flavor.c
 	)
 
 	set_executable_resources(etwdump "etwdump")
@@ -321,14 +329,15 @@ if(BUILD_sdjournal AND SYSTEMD_FOUND)
 	set(sdjournal_FILES
 		$<TARGET_OBJECTS:extcap-base>
 		sdjournal.c
+		../app/stratoshark_flavor.c
 	)
 
 	set_executable_resources(sdjournal "sdjournal")
 	add_executable(sdjournal ${sdjournal_FILES})
-	set_extcap_executable_properties(sdjournal)
+	set_extlog_executable_properties(sdjournal)
 	target_link_libraries(sdjournal ${sdjournal_LIBS})
 	target_include_directories(sdjournal SYSTEM PRIVATE ${SYSTEMD_INCLUDE_DIRS})
-	install(TARGETS sdjournal RUNTIME DESTINATION ${EXTCAP_INSTALL_LIBDIR})
+	install(TARGETS sdjournal RUNTIME DESTINATION ${STRATOSHARK_EXTCAP_INSTALL_LIBDIR})
 	add_dependencies(extcaps sdjournal)
 endif()
 
@@ -342,6 +351,7 @@ if(BUILD_dumpcalls AND SINSP_FOUND)
 	set(dumpcalls_FILES
 		$<TARGET_OBJECTS:extcap-base>
 		dumpcalls.cpp
+		../app/stratoshark_flavor.c
 	)
 
 	set_executable_resources(dumpcalls "dumpcalls")
@@ -368,6 +378,7 @@ if(BUILD_falcodump AND SINSP_FOUND)
 	set(falcodump_FILES
 		$<TARGET_OBJECTS:extcap-base>
 		falcodump.cpp
+		../app/stratoshark_flavor.c
 	)
 
 	set_executable_resources(falcodump "falcodump")
@@ -396,6 +407,7 @@ if(BUILD_sshdig AND LIBSSH_FOUND)
 		$<TARGET_OBJECTS:extcap-base>
 		$<TARGET_OBJECTS:ssh-base>
 		sshdig.c
+		../app/stratoshark_flavor.c
 	)
 
 	set_executable_resources(sshdig "Sshdig")
@@ -403,7 +415,7 @@ if(BUILD_sshdig AND LIBSSH_FOUND)
 	set_extlog_executable_properties(sshdig)
 	target_link_libraries(sshdig ${sshdig_LIBS})
 	target_include_directories(sshdig SYSTEM PRIVATE ${LIBSSH_INCLUDE_DIRS})
-	install(TARGETS sshdig RUNTIME DESTINATION ${EXTCAP_INSTALL_LIBDIR})
+	install(TARGETS sshdig RUNTIME DESTINATION ${STRATOSHARK_EXTCAP_INSTALL_LIBDIR})
 	add_dependencies(extcaps sshdig)
 elseif (BUILD_sshdig)
 	#message( WARNING "Cannot find libssh, cannot build sshdig" )

@@ -26,6 +26,10 @@
 #include <wsutil/report_message.h>
 #include <wsutil/wslog.h>
 
+#ifdef HAVE_VALGRIND_H
+#include <valgrind/valgrind.h>
+#endif
+
 typedef struct _plugin {
     GModule        *handle;       /* handle returned by g_module_open */
     char           *name;         /* plugin name */
@@ -36,6 +40,7 @@ typedef struct _plugin {
 #define TYPE_DIR_EPAN       "epan"
 #define TYPE_DIR_WIRETAP    "wiretap"
 #define TYPE_DIR_CODECS     "codecs"
+#define TYPE_DIR_UI         "ui"
 
 static GSList *plugins_module_list;
 
@@ -50,6 +55,8 @@ type_to_dir(plugin_type_e type)
         return TYPE_DIR_WIRETAP;
     case WS_PLUGIN_CODEC:
         return TYPE_DIR_CODECS;
+    case WS_PLUGIN_UI:
+        return TYPE_DIR_UI;
     default:
         ws_error("Unknown plugin type: %u. Aborting.", (unsigned) type);
         break;
@@ -74,6 +81,8 @@ flags_to_str(uint32_t flags)
         return "tap listener";
     else if (flags & WS_PLUGIN_DESC_DFILTER)
         return "dfilter";
+    else if (flags & WS_PLUGIN_DESC_UI)
+        return "ui";
     else
         return "unknown";
 }
@@ -229,9 +238,11 @@ DIAG_ON_PEDANTIC
         ws_info("Registered plugin: %s (%s)", new_plug->name, plugin_file);
         g_free(plugin_file);
 #if defined (ENABLE_ASAN) || defined (ENABLE_LSAN)
-        // XXX - Look for valgrind.h so we can also check RUNNING_ON_VALGRIND?
-        // https://valgrind.org/docs/manual/manual-core-adv.html
         g_module_make_resident(handle);
+#elif defined(HAVE_VALGRIND_H)
+        // https://valgrind.org/docs/manual/manual-core-adv.html
+        if (RUNNING_ON_VALGRIND)
+            g_module_make_resident(handle);
 #endif
     }
     ws_dir_close(dir);

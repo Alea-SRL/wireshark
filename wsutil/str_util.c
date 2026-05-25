@@ -416,7 +416,7 @@ static const char* decimal_point = NULL;
 static void truncate_numeric_strbuf(wmem_strbuf_t *strbuf, int n) {
 
     const char *s = wmem_strbuf_get_str(strbuf);
-    char *p;
+    const char *p;
     int count;
 
     if (decimal_point == NULL) {
@@ -638,12 +638,15 @@ format_size_wmem(wmem_allocator_t *allocator, int64_t size,
         case FORMAT_SIZE_UNIT_PACKETS_S:
             wmem_strbuf_append(human_str, is_small ? "packets/s" : "pkts/s");
             break;
+        case FORMAT_SIZE_UNIT_EVENTS:
+            wmem_strbuf_append(human_str, is_small ? "events" : "evts");
+            break;
+        case FORMAT_SIZE_UNIT_EVENTS_S:
+            wmem_strbuf_append(human_str, is_small ? "events/s" : "evts/s");
+            break;
         case FORMAT_SIZE_UNIT_FIELDS:
             wmem_strbuf_append(human_str, is_small ? "fields" : "flds");
             break;
-        /* These aren't that practical to use with integers, but
-         * perhaps better than asserting.
-         */
         case FORMAT_SIZE_UNIT_SECONDS:
             wmem_strbuf_append(human_str, is_small ? "seconds" : "s");
             break;
@@ -851,7 +854,11 @@ ws_strdup_underline(wmem_allocator_t *allocator, long offset, size_t len)
          * adds at least another 128 bytes, which is more than enough \
          * for one more character plus a terminating '\0'. \
          */ \
-        fmtbuf_len *= 2; \
+        if (ckd_mul(&fmtbuf_len, fmtbuf_len, 2)) { \
+            ws_debug("overflow!"); \
+            FMTBUF_ENDSTR; \
+            return fmtbuf; \
+        } \
         fmtbuf = (char *)wmem_realloc(allocator, fmtbuf, fmtbuf_len); \
     }
 

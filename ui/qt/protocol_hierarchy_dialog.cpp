@@ -10,14 +10,14 @@
 #include "protocol_hierarchy_dialog.h"
 #include <ui_protocol_hierarchy_dialog.h>
 
-#include "cfile.h"
+#include <epan/cfile.h>
 
 #include "ui/proto_hier_stats.h"
 
 #include <ui/qt/utils/variant_pointer.h>
 
 #include <wsutil/utf8_entities.h>
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>
 
 #include <ui/qt/utils/qt_ui_utils.h>
 #include "main_application.h"

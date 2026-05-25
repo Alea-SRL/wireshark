@@ -25,10 +25,6 @@
 #include "packet-per.h"
 #include "packet-h450-ros.h"
 
-#define PNAME  "H.450 Remote Operations Apdus"
-#define PSNAME "H450.ROS"
-#define PFNAME "h450.ros"
-
 void proto_register_h450_ros(void);
 void proto_reg_handoff_h450_ros(void);
 
@@ -95,6 +91,18 @@ error_cb(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree _U_, void* data
   return tvb_captured_length(tvb);
 }
 
+/*--- Cyclic dependencies ---*/
+
+/* Invoke/argument -> Invoke/argument */
+static unsigned dissect_h450_ros_InvokeArgument(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ReturnResult/result/result -> ReturnResult/result/result */
+static unsigned dissect_h450_ros_ResultArgument(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ReturnError/parameter -> ReturnError/parameter */
+static unsigned dissect_h450_ros_T_parameter(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+
 
 
 static unsigned
@@ -159,8 +167,11 @@ dissect_h450_ros_T_invokeIdConstrained(tvbuff_t *tvb _U_, uint32_t offset _U_, a
 
 static unsigned
 dissect_h450_ros_InvokeArgument(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // Invoke/argument -> Invoke/argument
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_per_open_type_pdu_new(tvb, offset, actx, tree, hf_index, argument_cb);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -224,8 +235,11 @@ dissect_h450_ros_Invoke(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx
 
 static unsigned
 dissect_h450_ros_ResultArgument(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ReturnResult/result/result -> ReturnResult/result/result
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_per_open_type_pdu_new(tvb, offset, actx, tree, hf_index, result_cb);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -305,8 +319,11 @@ dissect_h450_ros_ReturnResult(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t
 
 static unsigned
 dissect_h450_ros_T_parameter(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ReturnError/parameter -> ReturnError/parameter
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_per_open_type_pdu_new(tvb, offset, actx, tree, hf_index, error_cb);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -631,7 +648,7 @@ void proto_register_h450_ros(void) {
   expert_module_t* expert_h450_ros;
 
   /* Register protocol and dissector */
-  proto_h450_ros = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_h450_ros = proto_register_protocol("H.450 Remote Operations Apdus", "H450.ROS", "h450.ros");
   proto_set_cant_toggle(proto_h450_ros);
 
   /* Register fields and subtrees */

@@ -124,12 +124,11 @@
  * Includes updates for RFC8549
  */
 
-#define WS_LOG_DOMAIN "packet-netflow"
 #include "config.h"
+#define WS_LOG_DOMAIN "packet-netflow"
 #include <wireshark.h>
 #include <epan/packet.h>
 #include <epan/prefs.h>
-#include <epan/ipproto.h>
 #include <epan/sminmpec.h>
 #include <epan/to_str.h>
 #include <epan/expert.h>
@@ -138,6 +137,7 @@
 #include <epan/proto_data.h>
 #include <epan/tfs.h>
 #include <epan/unit_strings.h>
+#include <epan/iana-info.h>
 
 #include <wsutil/array.h>
 #include <wsutil/str_util.h>
@@ -332,7 +332,7 @@ typedef struct _v9_v10_tmplt {
 
 /* Map from (conversation+obs-domain-id+flowset-id) -> v9_v10_tmplt_entry_t*    */
 /* Confusingly, for key, fill in only relevant parts of v9_v10_tmplt_entry_t... */
-wmem_map_t *v9_v10_tmplt_table;
+static wmem_map_t *v9_v10_tmplt_table;
 
 
 static const value_string v9_v10_template_types[] = {
@@ -11465,7 +11465,7 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
             break;
         case ((VENDOR_IXIA << 16) | 374):
             ti = proto_tree_add_item(pdutree, hf_pie_ixia_session_ip_scrambling_key_hash,
-                                     tvb, offset, length, ENC_ASCII);
+                                     tvb, offset, length, ENC_NA);
             break;
         case ((VENDOR_IXIA << 16) | 375):
             ti = proto_tree_add_item(pdutree, hf_pie_ixia_ja4a,
@@ -20419,7 +20419,7 @@ proto_register_netflow(void)
         /* ixia, 3054 / 374 */
         {&hf_pie_ixia_session_ip_scrambling_key_hash,
          {"IP Scrambling Key Hash", "cflow.pie.ixia.session-ip-scrambling-key-hash",
-          FT_STRING, BASE_NONE, NULL, 0x0,
+          FT_BYTES, BASE_NONE, NULL, 0x0,
           "Session IP Scrambling Key Hash", HFILL}
         },
 

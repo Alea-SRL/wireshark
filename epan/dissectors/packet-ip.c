@@ -19,7 +19,6 @@
 #include <epan/capture_dissectors.h>
 #include <epan/addr_resolv.h>
 #include <epan/maxmind_db.h>
-#include <epan/ipproto.h>
 #include <epan/expert.h>
 #include <epan/ip_opts.h>
 #include <epan/prefs.h>
@@ -33,6 +32,7 @@
 #include <epan/proto_data.h>
 #include <epan/exported_pdu.h>
 #include <epan/tfs.h>
+#include <epan/iana-info.h>
 #include <wsutil/array.h>
 #include <wiretap/erf_record.h>
 #include <wsutil/str_util.h>
@@ -1197,8 +1197,7 @@ dissect_ipopt_route(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int pro
 
   field_tree = ip_var_option_header(tree, pinfo, tvb, proto, ett_ip_option_route, &tf, optlen);
 
-  ptr = tvb_get_uint8(tvb, offset + 2);
-  tf = proto_tree_add_item(field_tree, hf_ip_opt_ptr, tvb, offset + 2, 1, ENC_NA);
+  tf = proto_tree_add_item_ret_uint8(field_tree, hf_ip_opt_ptr, tvb, offset + 2, 1, ENC_NA, &ptr);
   if ((ptr < (optlen_min + 1)) || (ptr & 3)) {
     if (ptr < (optlen_min + 1)) {
       expert_add_info(pinfo, tf, &ei_ip_opt_ptr_before_address);
@@ -1289,8 +1288,7 @@ dissect_ipopt_record_route(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 
   field_tree = ip_var_option_header(tree, pinfo, tvb, proto_ip_option_record_route, ett_ip_option_route, &tf, optlen);
 
-  ptr = tvb_get_uint8(tvb, offset + 2);
-  tf = proto_tree_add_item(field_tree, hf_ip_opt_ptr, tvb, offset + 2, 1, ENC_NA);
+  tf = proto_tree_add_item_ret_uint8(field_tree, hf_ip_opt_ptr, tvb, offset + 2, 1, ENC_NA, &ptr);
 
   if ((ptr < (IPOLEN_RR_MIN + 1)) || (ptr & 3)) {
     if (ptr < (IPOLEN_RR_MIN + 1)) {
@@ -1954,6 +1952,10 @@ get_ip_conversation_data(conversation_t *conv, packet_info *pinfo)
   return ipd;
 }
 
+const char* ipprotostr(const int proto) {
+  return val_to_str_ext_const(proto, &ipproto_val_ext, "Unknown");
+}
+
 static int
 dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
@@ -2274,6 +2276,12 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
   copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
   copy_address_shallow(&iph->ip_dst, &pinfo->net_dst);
 
+  /* XXX - We do not want pinfo->conv_elements, if set, to be used to find the
+   * default conversation after this, or else subdissectors will set the
+   * wrong dissector. This is a bit of a hack, it should be solved more
+   * generally. */
+  pinfo->conv_elements = NULL;
+
   /* If an IP is destined for an IP address in the Local Network Control Block
    * (e.g. 224.0.0.0/24), the packet should never be routed and the TTL would
    * be expected to be 1.  (see RFC 3171)  Flag a TTL greater than 1.
@@ -2295,7 +2303,7 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
   } else if (iph->ip_ttl < 5 && !in4_addr_is_multicast(dst32) &&
         /* At least BGP should appear here as well */
         iph->ip_proto != IP_PROTO_PIM &&
-        iph->ip_proto != IP_PROTO_OSPF) {
+        iph->ip_proto != IP_PROTO_OSPFIGP) {
     expert_add_info_format(pinfo, ttl_item, &ei_ip_ttl_too_small, "\"Time To Live\" only %u", iph->ip_ttl);
   }
 
@@ -3222,7 +3230,7 @@ proto_reg_handoff_ip(void)
   dissector_add_uint("gre.proto", ETHERTYPE_IP, ip_handle);
   dissector_add_uint("gre.proto", GRE_WCCP, ip_handle);
   dissector_add_uint("llc.dsap", SAP_IP, ip_handle);
-  dissector_add_uint("ip.proto", IP_PROTO_IPIP, ip_handle);
+  dissector_add_uint("ip.proto", IP_PROTO_IPV4, ip_handle);
   dissector_add_uint("null.type", BSD_AF_INET, ip_handle);
   dissector_add_uint("chdlc.protocol", ETHERTYPE_IP, ip_handle);
   dissector_add_uint("osinl.excl", NLPID_IP, ip_handle);

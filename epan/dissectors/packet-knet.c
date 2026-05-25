@@ -225,11 +225,11 @@ dissect_content_length_vle(tvbuff_t *buffer, int *offset, proto_tree *tree)
     switch(byte_count) /*We must calculate length by hand because we use the length later */
     {
         case 4:
-            length = tvb_get_uint8(buffer, (*offset) + 3) << 23;
-            length += (tvb_get_uint8(buffer, (*offset) + 2) << 15);
+            length = tvb_get_uint8(buffer, (*offset) + 3) << 22;
+            length += (tvb_get_uint8(buffer, (*offset) + 2) << 14);
             /* FALLTHRU */
         case 2:
-            length += (tvb_get_uint8(buffer, (*offset) + 1) << 7);
+            length += ((tvb_get_uint8(buffer, (*offset) + 1) & 0x7F) << 7);
             /* FALLTHRU */
         case 1:
             length += (tvb_get_uint8(buffer, (*offset)) & 0x7F);

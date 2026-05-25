@@ -183,6 +183,7 @@ ADDITIONAL_LIST="
 	libnl-3-dev
 	libnl-cli-3-dev
 	libopencore-amrnb-dev
+	libopencore-amrwb-dev
 	libopus-dev
 	libparse-yapp-perl
 	libsbc-dev
@@ -197,13 +198,13 @@ ADDITIONAL_LIST="
 	xsltproc
 	"
 
-# Uncomment to add PNG compression utilities used by compress-pngs:
-# ADDITIONAL_LIST="
-#	$ADDITIONAL_LIST
-#	advancecomp
-#	optipng
-#	pngcrush
-#	"
+# PNG compression utilities used by compress-pngs:
+ADDITIONAL_LIST="
+	$ADDITIONAL_LIST
+	advancecomp
+	optipng
+	pngcrush
+	"
 
 DEBDEPS_LIST="
 	asciidoctor
@@ -231,8 +232,10 @@ TESTDEPS_LIST="
 add_package ADDITIONAL_LIST libssh-dev 0.11.1-1 ||
 ADDITIONAL_LIST="$ADDITIONAL_LIST libssh-gcrypt-dev"
 
+# Lua 5.5: Debian >= forky, Ubuntu >= 26.04 (resolute)
 # Lua 5.4: Debian >= bullseye, Ubuntu >= 22.04 (jammy)
 # Lua 5.3: Debian >= buster, Ubuntu >= 20.04 (focal)
+add_package ADDITIONAL_LIST liblua5.5-dev ||
 add_package ADDITIONAL_LIST liblua5.4-dev ||
 ADDITIONAL_LIST="$ADDITIONAL_LIST liblua5.3-dev"
 

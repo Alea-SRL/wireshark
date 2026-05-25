@@ -20,7 +20,7 @@
  * - Prints a status line, followed by fields from a specified list.
  */
 
-#include <config.h>
+#include "config.h"
 #define WS_LOG_DOMAIN  LOG_DOMAIN_MAIN
 
 #include <stdlib.h>
@@ -46,7 +46,7 @@
 #include <wsutil/array.h>
 #include <wsutil/cmdarg_err.h>
 #include <wsutil/filesystem.h>
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>
 #include <wsutil/file_util.h>
 #include <wsutil/socket.h>
 #include <wsutil/privileges.h>
@@ -152,14 +152,12 @@ typedef struct string_fmt_s {
     string_fmt_e format;    /* Valid if plain is NULL */
 } string_fmt_t;
 
-int n_rfilters;
-int n_rfcodes;
-dfilter_t *rfcodes[64];
-int n_rfieldfilters;
-dfilter_t *rfieldfcodes[64];
-int fd;
-int encap;
-GPtrArray *string_fmts;
+static int n_rfilters;
+static int n_rfcodes;
+static dfilter_t *rfcodes[64];
+static int fd;
+static int encap;
+static GPtrArray *string_fmts;
 
 static void
 print_usage(FILE *output)
@@ -493,7 +491,7 @@ main(int argc, char *argv[])
     }
 
     /* Initialize the version information. */
-    ws_init_version_info("Rawshark", NULL, get_ws_vcs_version_info,
+    ws_init_version_info("Rawshark", NULL, application_get_vcs_version_info,
                          epan_gather_compile_info,
                          NULL);
 
@@ -525,7 +523,6 @@ main(int argc, char *argv[])
     app_data.num_cols = application_num_columns();
     app_data.register_func = register_all_protocols;
     app_data.handoff_func = register_all_protocol_handoffs;
-    app_data.supports_packets = application_flavor_is_wireshark();
     if (!epan_init(NULL, NULL, true, &app_data)) {
         ret = WS_EXIT_INIT_FAILED;
         goto clean_exit;
@@ -587,15 +584,38 @@ main(int argc, char *argv[])
                 break;
 #if !defined(_WIN32) && defined(RLIMIT_AS)
             case 'm':
-                if (!get_uint32(ws_optarg, "memory limit", (uint32_t*)(&limit.rlim_cur)) ||
-                    !get_uint32(ws_optarg, "memory limit", (uint32_t*)(&limit.rlim_max)) ||
-                    (setrlimit(RLIMIT_AS, &limit) != 0)) {
+            {
+                /* POSIX says that rlim_t shall be defined through typedef to
+                 * be an unsigned integer type. On many 32-bit platforms rlim_t
+                 * as defined by sys/resource.h is 64-bit anyway in order to
+                 * provide large file support. (Exactly how that is translated
+                 * to system calls varies.)
+                 */
+                if (sizeof(rlim_t) < 8) {
+                    uint32_t memory_limit;
+                    if (!get_nonzero_uint32(ws_optarg, "memory limit", &memory_limit)) {
+                        ret = WS_EXIT_INVALID_OPTION;
+                        goto clean_exit;
+                    }
+                    limit.rlim_cur = memory_limit;
+                    limit.rlim_max = memory_limit;
+                } else {
+                    uint64_t memory_limit;
+                    if (!get_nonzero_uint64(ws_optarg, "memory limit", &memory_limit)) {
+                        ret = WS_EXIT_INVALID_OPTION;
+                        goto clean_exit;
+                    }
+                    limit.rlim_cur = memory_limit;
+                    limit.rlim_max = memory_limit;
+                }
+                if ((setrlimit(RLIMIT_AS, &limit) != 0)) {
                     cmdarg_err("setrlimit(RLIMIT_AS) failed: %s",
                                g_strerror(errno));
                     ret = WS_EXIT_INVALID_OPTION;
                     goto clean_exit;
                 }
                 break;
+            }
 #endif
             case 'o':        /* Override preference from command line */
             {
@@ -1272,7 +1292,7 @@ protocolinfo_packet(void *prs, packet_info *pinfo _U_, epan_dissect_t *edt, cons
     return TAP_PACKET_DONT_REDRAW;
 }
 
-int g_cmd_line_index;
+static int g_cmd_line_index;
 
 /*
  * field must be persistent - we don't g_strdup() it below
@@ -1351,6 +1371,7 @@ parse_field_string_format(char *format) {
     while (pos < len) {
         if (format[pos] == '%') {
             if (pos >= (len-1)) { /* There should always be a following specifier character */
+                g_string_free(plain_s, TRUE);
                 return false;
             }
             pos++;
@@ -1372,6 +1393,7 @@ parse_field_string_format(char *format) {
                     g_string_append_c(plain_s, '%');
                     break;
                 default: /* Invalid format */
+                    g_string_free(plain_s, TRUE);
                     return false;
             }
         } else {

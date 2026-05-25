@@ -7,7 +7,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#include <config.h>
+#include "config.h"
 #define WS_LOG_DOMAIN  LOG_DOMAIN_MAIN
 
 #include <locale.h>
@@ -30,14 +30,13 @@
 #include <wsutil/privileges.h>
 #include <wsutil/socket.h>
 #include <wsutil/wslog.h>
-#include <wsutil/application_flavor.h>
 #ifdef HAVE_PLUGINS
 #include <wsutil/plugins.h>
 #endif
 #include <wsutil/please_report_bug.h>
 #include <wsutil/unicode-utils.h>
 #include <wsutil/version_info.h>
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>
 
 #include <epan/addr_resolv.h>
 #include <epan/ex-opt.h>
@@ -70,15 +69,16 @@
 #include "ui/persfilepath_opt.h"
 #include "ui/recent.h"
 #include "ui/simple_dialog.h"
+#include "ui/init.h"
 #include "ui/util.h"
 #include "ui/dissect_opts.h"
 #include "ui/commandline.h"
 #include "ui/capture_ui_utils.h"
 #include "ui/capture_globals.h"
 #include "ui/preference_utils.h"
-#include "ui/software_update.h"
 #include "ui/taps.h"
 #include "ui/profile.h"
+#include "ui/plugins/include/uiqt_plugin.h"
 
 #include "ui/qt/conversation_dialog.h"
 #include "ui/qt/utils/color_utils.h"
@@ -92,6 +92,8 @@
 #include "ui/qt/simple_statistics_dialog.h"
 #include <ui/qt/widgets/splash_overlay.h>
 #include "ui/qt/wireshark_application.h"
+#include "ui/qt/utils/workspace_state.h"
+#include "ui/qt/utils/software_update.h"
 
 #include "capture/capture-pcap-util.h"
 
@@ -238,10 +240,10 @@ gather_wireshark_qt_compiled_info(feature_list l)
 #endif
 #endif /* !Q_OS_WIN && !Q_OS_MAC */
 
-    const char *update_info = software_update_info();
-    if (update_info) {
+    QString update_info = SoftwareUpdate::info();
+    if (!update_info.isEmpty()) {
         with_feature(l, "automatic updates");
-        with_feature(l, "%s", update_info);
+        with_feature(l, "%s", update_info.toStdString().c_str());
     } else {
         without_feature(l, "automatic updates");
     }
@@ -400,51 +402,6 @@ win32_reset_library_path(void)
 }
 #endif
 
-#ifdef Q_OS_MAC
-// Try to work around
-//
-//     https://gitlab.com/wireshark/wireshark/-/issues/17075
-//
-// aka
-//
-//     https://bugreports.qt.io/browse/QTBUG-87014
-//
-// The fix at
-//
-//     https://codereview.qt-project.org/c/qt/qtbase/+/322228/3/src/plugins/platforms/cocoa/qnsview_drawing.mm
-//
-// enables layer backing if we're running on Big Sur OR we're running on
-// Catalina AND we were built with the Catalina SDK. Enable layer backing
-// here by setting QT_MAC_WANTS_LAYER=1, but only if we're running on Big
-// Sur and our version of Qt doesn't have a fix for QTBUG-87014.
-#include <QOperatingSystemVersion>
-static inline void
-macos_enable_layer_backing(void)
-{
-    // At the time of this writing, the QTBUG-87014 for layerEnabledByMacOS is...
-    //
-    // ...in https://github.com/qt/qtbase/blob/5.15/src/plugins/platforms/cocoa/qnsview_drawing.mm
-    // ...not in https://github.com/qt/qtbase/blob/5.15.2/src/plugins/platforms/cocoa/qnsview_drawing.mm
-    // ...not in https://github.com/qt/qtbase/blob/6.0/src/plugins/platforms/cocoa/qnsview_drawing.mm
-    // ...not in https://github.com/qt/qtbase/blob/6.0.0/src/plugins/platforms/cocoa/qnsview_drawing.mm
-    //
-    // We'll assume that it will be fixed in 5.15.3, 6.0.1, and >= 6.1.
-#if  \
-        ((QT_VERSION >= QT_VERSION_CHECK(5, 15, 0) &&  QT_VERSION < QT_VERSION_CHECK(5, 15, 3)) \
-        || (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0) &&  QT_VERSION < QT_VERSION_CHECK(6, 0, 1)) \
-    )
-    QOperatingSystemVersion os_ver = QOperatingSystemVersion::current();
-    int major_ver = os_ver.majorVersion();
-    int minor_ver = os_ver.minorVersion();
-    if ( (major_ver == 10 && minor_ver >= 16) || major_ver >= 11 ) {
-        if (qgetenv("QT_MAC_WANTS_LAYER").isEmpty()) {
-            qputenv("QT_MAC_WANTS_LAYER", "1");
-        }
-    }
-#endif
-}
-#endif
-
 #ifdef HAVE_LIBPCAP
 static GList *
 capture_opts_get_interface_list(int *err, char **err_str)
@@ -563,10 +520,6 @@ int main(int argc, char *qt_argv[])
     cf_set_max_records(53000000);
 #endif
 
-#ifdef Q_OS_MAC
-    macos_enable_layer_backing();
-#endif
-
     cmdarg_err_init(wireshark_cmdarg_err, wireshark_cmdarg_err_cont);
 
     /* Initialize log handler early so we can have proper logging during startup. */
@@ -653,7 +606,7 @@ int main(int argc, char *qt_argv[])
 #endif /* _WIN32 */
 
     /* Get the compile-time version information string */
-    ws_init_version_info("Wireshark", application_flavor_name_proper(), get_ws_vcs_version_info, gather_wireshark_qt_compiled_info,
+    ws_init_version_info("Wireshark", application_flavor_name_proper(), application_get_vcs_version_info, gather_wireshark_qt_compiled_info,
                          gather_wireshark_runtime_info);
 
     init_report_alert_box("Wireshark");
@@ -667,6 +620,7 @@ int main(int argc, char *qt_argv[])
     }
 
     profile_store_persconffiles(true);
+    ui_init(application_configuration_environment_prefix());
     recent_init();
 
     /* Read the profile independent recent file.  We have to do this here so we can */
@@ -677,6 +631,9 @@ int main(int argc, char *qt_argv[])
                       rf_path, g_strerror(rf_open_errno));
         g_free(rf_path);
     }
+
+    /* Load the common workspace state (e.g., window positions) */
+    WorkspaceState::instance()->loadCommonState();
 
     commandline_usage_app_data_t commandline_app_data = {
         "events",
@@ -691,8 +648,20 @@ int main(int argc, char *qt_argv[])
     };
     ret_val = commandline_early_options(argc, argv, &commandline_app_data);
     if (ret_val != EXIT_SUCCESS) {
+        //
+        // Either we got an error parsing the command-line options
+        // or we got an option specifying that we should print
+        // information and then quit, and have, in fact, printed
+        // that information successfully.
+        //
         if (ret_val == WS_EXIT_NOW) {
-            return 0;
+            //
+            // One of the options indicated we should just print
+            // something and exit, e.g --help, and we have already
+            // successfully printed it, so we don't have anything
+            // more to do, and should just exit successfully.
+            //
+            return EXIT_SUCCESS;
         }
 
         return ret_val;
@@ -700,31 +669,6 @@ int main(int argc, char *qt_argv[])
 
 #if defined(_WIN32) && !defined(__MINGW32__)
     win32_reset_library_path();
-#endif
-
-    // Handle DPI scaling on Windows. This causes problems in at least
-    // one case on X11 and we don't yet support Android.
-    // We do the equivalent on macOS by setting NSHighResolutionCapable
-    // in Info.plist.
-    // Note that this enables Windows 8.1-style Per-monitor DPI
-    // awareness but not Windows 10-style Per-monitor v2 awareness.
-    // https://doc.qt.io/qt-5/scalability.html
-    // https://doc.qt.io/qt-5/highdpi.html
-    // https://bugreports.qt.io/browse/QTBUG-53022 - The device pixel ratio is pretty much bogus on Windows.
-    // https://bugreports.qt.io/browse/QTBUG-55510 - Windows have wrong size
-    //
-    // Deprecated in Qt6, which is Per-Monitor DPI Aware V2 by default.
-    //    warning: 'Qt::AA_EnableHighDpiScaling' is deprecated: High-DPI scaling is always enabled.
-    //    This attribute no longer has any effect.
-#if defined(Q_OS_WIN) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-#endif
-
-    // This function must be called before creating the application object.
-    // Qt::HighDpiScaleFactorRoundingPolicy::PassThrough is the default in Qt6,
-    // so this doesn't have any effect (Round is the default in 5.14 & 5.15)
-#if defined(Q_OS_WIN)
-    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 #endif
 
     /* Create The Wireshark app */
@@ -762,8 +706,8 @@ int main(int argc, char *qt_argv[])
     wsApp->applyCustomColorsFromRecent();
 
     // Initialize our language
-    read_language_prefs();
-    wsApp->loadLanguage(language);
+    read_language_prefs(application_configuration_environment_prefix());
+    wsApp->loadLanguage(get_language_used());
 
     /* ws_log(LOG_DOMAIN_MAIN, LOG_LEVEL_DEBUG, "Translator %s", language); */
 
@@ -824,7 +768,6 @@ int main(int argc, char *qt_argv[])
     app_data.register_func = register_all_protocols;
     app_data.handoff_func = register_all_protocol_handoffs;
     app_data.tap_reg_listeners = tap_reg_listener;
-    app_data.supports_packets = application_flavor_is_wireshark();
     if (!epan_init(splash_update, NULL, true, &app_data)) {
         SimpleDialog::displayQueuedMessages(main_w);
         ret_val = WS_EXIT_INIT_FAILED;
@@ -839,6 +782,9 @@ int main(int argc, char *qt_argv[])
     /* Register all audio codecs. */
     codecs_init(application_configuration_environment_prefix());
 
+    /* Register any UI plugins */
+    uiqt_plugin_init(application_configuration_environment_prefix());
+
     // Read the dynamic part of the recent file. This determines whether or
     // not the recent list appears in the main window so the earlier we can
     // call this the better.
@@ -848,7 +794,6 @@ int main(int argc, char *qt_argv[])
                       rf_path, g_strerror(rf_open_errno));
         g_free(rf_path);
     }
-    wsApp->refreshRecentCaptures();
 
     splash_update(RA_LISTENERS, NULL, NULL);
 #ifdef DEBUG_STARTUP_TIME
@@ -892,7 +837,7 @@ int main(int argc, char *qt_argv[])
     ws_log(LOG_DOMAIN_MAIN, LOG_LEVEL_INFO, "Calling extcap_register_preferences, elapsed time %" PRIu64 " us \n", g_get_monotonic_time() - start_time);
 #endif
     splash_update(RA_EXTCAP, NULL, NULL);
-    extcap_register_preferences();
+    extcap_register_preferences(splash_update, NULL);
 
     /* Apply the extcap command line options now that the extcap preferences
      * are loaded.
@@ -1028,7 +973,6 @@ int main(int argc, char *qt_argv[])
 #endif
     splash_update(RA_PREFERENCES_APPLY, NULL, NULL);
     prefs_apply_all();
-    ColorUtils::setScheme(prefs.gui_color_scheme);
     wsApp->emitAppSignal(WiresharkApplication::ColorsChanged);
     wsApp->emitAppSignal(WiresharkApplication::PreferencesChanged);
 
@@ -1061,8 +1005,6 @@ int main(int argc, char *qt_argv[])
     wsApp->emitAppSignal(WiresharkApplication::ColumnsChanged); // We read "recent" widths above.
     wsApp->emitAppSignal(WiresharkApplication::RecentPreferencesRead); // Must be emitted after PreferencesChanged.
 
-    wsApp->setMonospaceFont(prefs.gui_font_name);
-
     /* For update of WindowTitle (When use gui.window_title preference) */
     main_w->setMainWindowTitle();
 
@@ -1079,7 +1021,7 @@ int main(int argc, char *qt_argv[])
      * rather than showing the user the welcome page, so we don't call
      * processEvents() here.
      */
-    wsApp->allSystemsGo(application_flavor_name_proper(), VERSION);
+    wsApp->allSystemsGo();
     ws_info("Wireshark is up and ready to go, elapsed time %.3fs", (float) (g_get_monotonic_time() - start_time) / 1000000);
     SimpleDialog::displayQueuedMessages(main_w);
 
@@ -1172,9 +1114,9 @@ int main(int argc, char *qt_argv[])
     profile_register_persconffile("plots");
     profile_register_persconffile("import_hexdump.json");
     profile_register_persconffile("remote_hosts.json");
+    profile_register_persconffile("lua_debugger.json");
 
     profile_store_persconffiles(false);
-    init_profile_list();
 
     // If the wsApp->exec() event loop exits cleanly, we call
     // WiresharkApplication::cleanup().
@@ -1188,6 +1130,7 @@ int main(int argc, char *qt_argv[])
     delete main_w;
 
     recent_cleanup();
+    ui_cleanup();
     epan_cleanup();
 
     extcap_cleanup();
@@ -1209,6 +1152,7 @@ clean_exit:
 #endif
     col_cleanup(&CaptureFile::globalCapFile()->cinfo);
     codecs_cleanup();
+    uiqt_plugin_cleanup();
     wtap_cleanup();
     free_progdirs();
     commandline_options_free();

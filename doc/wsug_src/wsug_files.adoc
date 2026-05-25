@@ -176,6 +176,7 @@ _/usr/local/etc_.
 |_services_|Network services.
 |_ss7pcs_|SS7 point code resolution.
 |_subnets_|IPv4 subnet name resolution.
+|_subnetsipv6_|IPv6 subnet name resolution.
 |_vlans_|VLAN ID name resolution.
 |_wka_|Well-known MAC addresses.
 |===
@@ -531,23 +532,23 @@ opening a new capture file opens or changing the configuration profile,
 and never written by Wireshark.
 --
 
-subnets::
+subnets and subnetsipv6::
 +
 --
-Wireshark uses the __subnets__ file to translate an IPv4 address into a
-subnet name.  If no exact match from a __hosts__ file or from DNS is
-found, Wireshark will attempt a partial match for the subnet of the
+Wireshark uses the __subnets__ and __subnetsipv6__ files to translate an IP
+address into a subnet name.  If no exact match from a __hosts__ file or from
+DNS is found, Wireshark will attempt a partial match for the subnet of the
 address.
 
-At program start, if there is a _subnets_ file in the personal
-configuration folder, it is read first.  Then, if there is a _subnets_
-file in the global configuration folder, that is read; if there is a
-preference set in both files, the setting in the global preferences file
-overrides the setting in the personal preference file.
+At program start, if there is a _subnets_ or _subnetsipv6_ file in the
+personal configuration folder, it is read first.  Then, if there is a
+_subnets_ or _subnetsipv6_ file in the global configuration folder, that is
+read; if there is a preference set in both files, the setting in the global
+preferences file overrides the setting in the personal preference file.
 
-Each line in one of these files consists of an IPv4 address, a subnet
+Each line in one of these files consists of an IP address, a subnet
 mask length separated only by a “/” and a name separated by whitespace.
-While the address must be a full IPv4 address, any values beyond the
+While the address must be a full IP address, any values beyond the
 mask length are subsequently ignored.
 
 An example is:
@@ -556,12 +557,18 @@ An example is:
 192.168.0.0/24 ws_test_network
 ----
 
+or
+
+----
+2001:DB8::/32   documentation
+----
+
 A partially matched name will be printed as “subnet-name.remaining-address”.
 For example, “192.168.0.1” under the subnet above would be printed as
 “ws_test_network.1”; if the mask length above had been 16 rather than 24, the
 printed address would be “ws_test_network.0.1”.
 
-The settings from this file are read in at program start, and reloaded when
+The settings from these files are read in at program start, and reloaded when
 opening a new capture file or changing the configuration profile, and never
 written by Wireshark.
 

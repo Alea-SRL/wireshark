@@ -5,7 +5,7 @@
 
 /* packet-lpp.h
  * Routines for 3GPP LTE Positioning Protocol (LPP) packet dissection
- * Copyright 2011-2024 Pascal Quantin <pascal@wireshark.org>
+ * Copyright 2011-2026 Pascal Quantin <pascal@wireshark.org>
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -79,6 +79,8 @@ typedef enum {
 } lpp_pos_sib_type_t;
 
 int dissect_lpp_AssistanceDataSIBelement_r15_PDU(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, lpp_pos_sib_type_t pos_sib_type);
+
+#include <epan/asn1.h>
 
 extern const value_string lpp_Velocity_vals[];
 unsigned dissect_lpp_ARFCN_ValueEUTRA(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);

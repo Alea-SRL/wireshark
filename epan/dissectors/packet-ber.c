@@ -44,7 +44,9 @@
 //#define DEBUG_BER 1
 
 #include "config.h"
+#define WS_LOG_DOMAIN "ber"
 
+#include <errno.h>
 #include <epan/packet.h>
 #include <epan/exceptions.h>
 #include <epan/reassemble.h>
@@ -54,9 +56,6 @@
 #include <epan/decode_as.h>
 #include <epan/tfs.h>
 #include <wiretap/wtap.h>
-#ifdef DEBUG_BER
-#include <epan/ws_printf.h>
-#endif
 
 #include "packet-ber.h"
 
@@ -182,6 +181,8 @@ static expert_field ei_ber_invalid_format_utctime;
 static expert_field ei_hf_field_not_integer_type;
 static expert_field ei_ber_constr_bitstr;
 static expert_field ei_ber_real_not_primitive;
+static expert_field ei_ber_real_overflow;
+static expert_field ei_ber_real_invalid_format;
 
 static dissector_handle_t ber_handle;
 static dissector_handle_t ber_file_handle;
@@ -1171,9 +1172,8 @@ get_ber_identifier(tvbuff_t *tvb, unsigned offset, int8_t *ber_class, bool *pc, 
 
     id = tvb_get_uint8(tvb, offset);
     offset += 1;
-#ifdef DEBUG_BER
-ws_debug_printf("BER ID=%02x", id);
-#endif
+    ws_debug("BER ID=%02x", id);
+
     /* 8.1.2.2 */
     tmp_class = (id >> 6) & 0x03;
     tmp_pc = (id >> 5) & 0x01;
@@ -1181,11 +1181,11 @@ ws_debug_printf("BER ID=%02x", id);
     /* 8.1.2.4 */
     if (tmp_tag == 0x1F) {
         tmp_tag = 0;
+
+        unsigned int remaining = tvb_reported_length_remaining(tvb, offset);
+        ws_log_buffer(tvb_get_ptr(tvb, offset, remaining), remaining, "BER bytes");
         while (tvb_reported_length_remaining(tvb, offset) > 0) {
             t = tvb_get_uint8(tvb, offset);
-#ifdef DEBUG_BER
-ws_debug_printf(" %02x", t);
-#endif
             offset += 1;
             /* XXX - What to do on overflow (which is almost certainly
              * invalid data rather than a tag number > UINT32_MAX)? */
@@ -1196,9 +1196,6 @@ ws_debug_printf(" %02x", t);
         }
     }
 
-#ifdef DEBUG_BER
-ws_debug_printf("\n");
-#endif
     if (ber_class)
         *ber_class = tmp_class;
     if (pc)
@@ -1341,9 +1338,7 @@ try_get_ber_length(tvbuff_t *tvb, unsigned offset, uint32_t *length, bool *ind, 
     if (ind)
         *ind = tmp_ind;
 
-#ifdef DEBUG_BER
-ws_debug_printf("get BER length %d, offset %d (remaining %d)\n", tmp_length, offset, tvb_reported_length_remaining(tvb, offset));
-#endif
+    ws_debug("get BER length %d, offset %d (remaining %d)\n", tmp_length, offset, tvb_reported_length_remaining(tvb, offset));
 
     return offset;
 }
@@ -2128,8 +2123,16 @@ dissect_ber_real(bool implicit_tag, asn1_ctx_t *actx, proto_tree *tree, tvbuff_t
           tree, actx->pinfo, &ei_ber_real_not_primitive, tvb, offset - 2, 1);
     }
 
-    val = asn1_get_real(tvb_get_ptr(tvb, offset, val_length), val_length);
-    actx->created_item = proto_tree_add_double(tree, hf_id, tvb, end_offset - val_length, val_length, val);
+    int err;
+    val = asn1_get_real(tvb_get_ptr(tvb, offset, val_length), val_length, &err);
+    if (err == EINVAL) {
+        proto_tree_add_expert(tree, actx->pinfo, &ei_ber_real_invalid_format, tvb, end_offset - val_length, val_length);
+    } else {
+        actx->created_item = proto_tree_add_double(tree, hf_id, tvb, end_offset - val_length, val_length, val);
+        if (err == ERANGE) {
+            expert_add_info(actx->pinfo, actx->created_item, &ei_ber_real_overflow);
+        }
+    }
 
     if (value)
         *value = val;
@@ -3435,7 +3438,7 @@ proto_tree_add_debug_text(tree, "SQ OF dissect_ber_sq_of(%s) entered\n", name);
      * dissecting a single item.
      */
     /* XXX Do we really need to count them at all ?  ronnie */
-    if (tvb_captured_length_remaining(tvb, offset) == tvb_reported_length_remaining(tvb, offset)) {
+    if (tvb_captured_length_remaining(tvb, offset) == (unsigned)tvb_reported_length_remaining(tvb, offset)) {
         have_cnt = true;
         while (offset < end_offset) {
             uint32_t len;
@@ -4537,6 +4540,8 @@ proto_register_ber(void)
         { &ei_hf_field_not_integer_type, { "ber.error.hf_field_not_integer_type", PI_PROTOCOL, PI_ERROR, "Was passed a HF field that was not integer type", EXPFILL }},
         { &ei_ber_constr_bitstr,{ "ber.error.constr_bitstr.len", PI_MALFORMED, PI_WARN, "BER Error: malformed Bitstring encoding", EXPFILL } },
         { &ei_ber_real_not_primitive,{ "ber.error.not_primitive.real", PI_MALFORMED, PI_WARN, "BER Error: REAL class not encoded as primitive", EXPFILL } },
+        { &ei_ber_real_overflow,{ "ber.error.overflow.real", PI_UNDECODED, PI_WARN, "BER Error: REAL overflow", EXPFILL } },
+        { &ei_ber_real_invalid_format,{ "ber.error.invalid_format.real", PI_PROTOCOL, PI_WARN, "BER Error: REAL invalid or reserved encoding", EXPFILL } },
     };
 
     /* Decode As handling */

@@ -18,7 +18,6 @@
 #include <epan/expert.h>
 #include <epan/to_str.h>
 #include <epan/etypes.h>
-#include <epan/ws_printf.h>
 #include <wiretap/wtap.h>
 #include "packet-osi.h"
 
@@ -89,12 +88,10 @@ add_multi_line_string_to_tree(proto_tree *tree, tvbuff_t *tvb, packet_info *pinf
                               int start,
                               int len, int hf)
 {
-    int next;
-    int line_len;
-    int data_len;
+    unsigned next, line_len, data_len;
 
     while(len > 0) {
-        line_len = tvb_find_line_end(tvb, start, len, &next, false);
+        tvb_find_line_end_length(tvb, start, len, &line_len, &next);
         data_len = next - start;
         proto_tree_add_string(tree, hf, tvb, start, data_len,
                               tvb_format_stringzpad(pinfo->pool, tvb, start, line_len));

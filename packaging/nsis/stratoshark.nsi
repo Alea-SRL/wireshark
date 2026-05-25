@@ -135,6 +135,31 @@ Page custom DisplayAdditionalTasksPage LeaveAdditionalTasksPage
 !insertmacro GetParameters
 !insertmacro GetOptions
 
+; ========= Registry keys for components =========
+!define PROG_REG_KEY "SOFTWARE\${PROGRAM_NAME}"
+
+!macro ComponentPrevInstalled COMP_NAME COMP_SECTION
+  ; Check if component was chosen or not on previous install
+  ReadRegDWORD $0 HKLM "${PROG_REG_KEY}\${COMP_NAME}" "Installed"
+  IfErrors lbl_${COMP_NAME}_prev_inst_done
+  ${If} $0 == 1
+    !insertmacro SelectSection ${COMP_SECTION}
+  ${Else}
+    !insertmacro UnSelectSection ${COMP_SECTION}
+  ${EndIf}
+
+lbl_${COMP_NAME}_prev_inst_done:
+  ; No previous install, use default
+!macroend
+
+!macro ComponentInstalled COMP_NAME COMP_SECTION
+  ${If} ${SectionIsSelected} ${COMP_SECTION}
+    WriteRegDWORD HKLM "${PROG_REG_KEY}\${COMP_NAME}" "Installed" 1
+  ${Else}
+    WriteRegDWORD HKLM "${PROG_REG_KEY}\${COMP_NAME}" "Installed" 0
+  ${Endif}
+!macroend
+
 ; ========= Install extcap binary and help file =========
 !macro InstallExtcap EXTCAP_NAME
 
@@ -261,7 +286,7 @@ Var WIX_UNINSTALLSTRING
 !include WinVer.nsh
 !include WinMessages.nsh
 
-Function .onInit
+Function PlatformCheck
   !if ${WIRESHARK_TARGET_PLATFORM} == "x64"
     ; http://forums.winamp.com/printthread.php?s=16ffcdd04a8c8d52bee90c0cae273ac5&threadid=262873
     ${IfNot} ${RunningX64}
@@ -285,138 +310,14 @@ Function .onInit
   ; Uncomment to test.
   ; MessageBox MB_OK "You're running Windows $R0."
 
-${If} ${AtMostWin8.1}
-${OrIf} ${AtMostWin2012R2}
-${OrIfNot} ${AtLeastBuild} 17763
-  MessageBox MB_OK \
-    "Windows 10, version 1809 or Server 2019 and later are required." /SD IDOK
-  Quit
-${EndIf}
+  ${If} ${AtMostWin8.1}
+  ${OrIf} ${AtMostWin2012R2}
+  ${OrIfNot} ${AtLeastBuild} 17763
+    MessageBox MB_OK \
+      "Windows 10, version 1809 or Server 2019 and later are required." /SD IDOK
+    Quit
+  ${EndIf}
 
-!insertmacro IsStratosharkRunning
-
-  ; Default control values.
-  StrCpy $START_MENU_STATE ${BST_CHECKED}
-  StrCpy $DESKTOP_ICON_STATE ${BST_UNCHECKED}
-  StrCpy $FILE_ASSOCIATE_STATE ${BST_CHECKED}
-
-  ; Copied from https://nsis.sourceforge.io/Auto-uninstall_old_before_installing_new
-  ReadRegStr $OLD_UNINSTALLER HKLM \
-    "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}" \
-    "UninstallString"
-  StrCmp $OLD_UNINSTALLER "" check_wix
-
-  ReadRegStr $OLD_INSTDIR HKLM \
-    "Software\Microsoft\Windows\CurrentVersion\App Paths\${PROGRAM_NAME}.exe" \
-    "Path"
-  StrCmp $OLD_INSTDIR "" check_wix
-
-  ReadRegStr $OLD_DISPLAYNAME HKLM \
-    "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}" \
-    "DisplayName"
-  StrCmp $OLD_DISPLAYNAME "" done
-
-  ; We're reinstalling. Flip our control states according to what the
-  ; user chose before.
-  ; (we use the "all users" start menu, so select it first)
-  SetShellVarContext all
-  ; MessageBox MB_OK|MB_ICONINFORMATION "oninit 1 sm $START_MENU_STATE di $DESKTOP_ICON_STATE"
-  ${IfNot} ${FileExists} $SMPROGRAMS\${PROGRAM_NAME}.lnk
-    StrCpy $START_MENU_STATE ${BST_UNCHECKED}
-  ${Endif}
-  ${If} ${FileExists} $DESKTOP\${PROGRAM_NAME}.lnk
-    StrCpy $DESKTOP_ICON_STATE ${BST_CHECKED}
-  ${Endif}
-  ; Leave FILE_ASSOCIATE_STATE checked.
-  ; MessageBox MB_OK|MB_ICONINFORMATION "oninit 2 sm $START_MENU_STATE $SMPROGRAMS\${PROGRAM_NAME}\${PROGRAM_NAME}.lnk \
-  ;   $\ndi $DESKTOP_ICON_STATE $DESKTOP\${PROGRAM_NAME}.lnk
-
-  MessageBox MB_YESNOCANCEL|MB_ICONQUESTION \
-    "$OLD_DISPLAYNAME is already installed.\
-     $\n$\nWould you like to uninstall it first?" \
-      /SD IDYES \
-      IDYES prep_nsis_uninstaller \
-      IDNO done
-  Abort
-
-; Copy the uninstaller to $TEMP and run it.
-; The uninstaller normally does this by itself, but doesn't wait around
-; for the executable to finish, which means ExecWait won't work correctly.
-prep_nsis_uninstaller:
-  ClearErrors
-  StrCpy $TMP_UNINSTALLER "$TEMP\${PROGRAM_NAME}_uninstaller.exe"
-  ; ...because we surround UninstallString in quotes.
-  StrCpy $0 $OLD_UNINSTALLER -1 1
-  StrCpy $1 "$TEMP\${PROGRAM_NAME}_uninstaller.exe"
-  StrCpy $2 1
-  System::Call 'kernel32::CopyFile(t r0, t r1, b r2) 1'
-  ExecWait "$TMP_UNINSTALLER /S _?=$OLD_INSTDIR"
-
-  Delete "$TMP_UNINSTALLER"
-
-; Look for a WiX-installed package.
-
-check_wix:
-  StrCpy $REGISTRY_BITS 64
-  SetRegView 64
-  check_wix_restart:
-    StrCpy $0 0
-  wix_reg_enum_loop:
-    EnumRegKey $TMP_PRODUCT_GUID HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" $0
-    StrCmp $TMP_PRODUCT_GUID "" wix_enum_reg_done
-    IntOp $0 $0 + 1
-    ReadRegStr $WIX_DISPLAYNAME HKLM \
-      "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$TMP_PRODUCT_GUID" \
-      "DisplayName"
-    ; MessageBox MB_OK|MB_ICONINFORMATION "Reading HKLM SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$1 DisplayName = $2"
-    ; Look for "Stratoshark".
-    StrCmp $WIX_DISPLAYNAME "${PROGRAM_NAME}" wix_found wix_reg_enum_loop
-
-    wix_found:
-      ReadRegStr $WIX_DISPLAYVERSION HKLM \
-        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$TMP_PRODUCT_GUID" \
-        "DisplayVersion"
-      ReadRegStr $WIX_UNINSTALLSTRING HKLM \
-        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$TMP_PRODUCT_GUID" \
-        "UninstallString"
-      StrCmp $WIX_UNINSTALLSTRING "" done
-      MessageBox MB_YESNOCANCEL|MB_ICONQUESTION \
-        "$WIX_DISPLAYNAME $WIX_DISPLAYVERSION (msi) is already installed.\
-         $\n$\nWould you like to uninstall it first?" \
-          /SD IDYES \
-          IDYES prep_wix_uninstaller \
-          IDNO done
-      Abort
-
-      ; Run the WiX-provided UninstallString.
-      prep_wix_uninstaller:
-        ClearErrors
-        ExecWait "$WIX_UNINSTALLSTRING"
-
-      Goto done
-
-  wix_enum_reg_done:
-    ; MessageBox MB_OK|MB_ICONINFORMATION "Checked $0 $REGISTRY_BITS bit keys"
-    IntCmp $REGISTRY_BITS 32 done
-    StrCpy $REGISTRY_BITS 32
-    SetRegView 32
-    Goto check_wix_restart
-
-done:
-
-  ; Command line parameters
-  ${GetParameters} $R0
-
-  ${GetOptions} $R0 "/desktopicon=" $R1
-  ${If} $R1 == "yes"
-    StrCpy $DESKTOP_ICON_STATE ${BST_CHECKED}
-  ${ElseIf} $R1 == "no"
-    StrCpy $DESKTOP_ICON_STATE ${BST_UNCHECKED}
-  ${Endif}
-
-  ;Extract InstallOptions INI files
-  ;!insertmacro INSTALLOPTIONS_EXTRACT "AdditionalTasksPage.ini"
-  !insertmacro INSTALLOPTIONS_EXTRACT "DonatePage.ini"
 FunctionEnd
 
 !ifdef QT_DIR
@@ -447,6 +348,7 @@ WriteUninstaller "$INSTDIR\${UNINSTALLER_NAME}"
 File "${STAGING_DIR}\libwiretap.dll"
 File "${STAGING_DIR}\libwireshark.dll"
 File "${STAGING_DIR}\libwsutil.dll"
+File "${STAGING_DIR}\libuiqt_plugin.dll"
 
 !include stratoshark-manifest.nsh
 
@@ -930,52 +832,31 @@ Section "-Plugins & Extensions"
 
 ;-------------------------------------------
 SetOutPath '$INSTDIR\plugins\${MAJOR_VERSION}.${MINOR_VERSION}\epan'
-File "${STAGING_DIR}\plugins\${MAJOR_VERSION}.${MINOR_VERSION}\epan\falco-events.dll"
+File "${STAGING_DIR}\plugins\stratoshark\${MAJOR_VERSION}.${MINOR_VERSION}\epan\falco-events.dll"
 SetOutPath '$INSTDIR\plugins\falco'
-File "${STAGING_DIR}\plugins\falco\cloudtrail.dll"
-File "${STAGING_DIR}\plugins\falco\gcpaudit.dll"
-File "${STAGING_DIR}\plugins\falco\k8saudit.dll"
+File "${STAGING_DIR}\plugins\stratoshark\falco\cloudtrail.dll"
+File "${STAGING_DIR}\plugins\stratoshark\falco\gcpaudit.dll"
+File "${STAGING_DIR}\plugins\stratoshark\falco\k8saudit.dll"
 !include "custom_plugins.txt"
 
 ;-------------------------------------------
 SetOutPath '$INSTDIR\plugins\${MAJOR_VERSION}.${MINOR_VERSION}\epan'
-File "${STAGING_DIR}\plugins\${MAJOR_VERSION}.${MINOR_VERSION}\epan\stats_tree.dll"
+File "${STAGING_DIR}\plugins\wireshark\${MAJOR_VERSION}.${MINOR_VERSION}\epan\stats_tree.dll"
 
 ;-------------------------------------------
 SetOutPath '$INSTDIR\plugins\${MAJOR_VERSION}.${MINOR_VERSION}\epan'
-File "${STAGING_DIR}\plugins\${MAJOR_VERSION}.${MINOR_VERSION}\epan\mate.dll"
+File "${STAGING_DIR}\plugins\wireshark\${MAJOR_VERSION}.${MINOR_VERSION}\epan\mate.dll"
 
-;-------------------------------------------
-; This should be a function or macro
-SetOutPath '$INSTDIR\profiles\CloudTrail'
-File "${TOP_SRC_DIR}\resources\share\stratoshark\profiles\CloudTrail\colorfilters"
-File "${TOP_SRC_DIR}\resources\share\stratoshark\profiles\CloudTrail\dfilter_buttons"
-File "${TOP_SRC_DIR}\resources\share\stratoshark\profiles\CloudTrail\preferences"
-File "${TOP_SRC_DIR}\resources\share\stratoshark\profiles\CloudTrail\profile_settings"
-; File "${TOP_SRC_DIR}\resources\share\stratoshark\profiles\CloudTrail\preferences"
-; SetOutPath '$INSTDIR\profiles\Classic'
-; File "${TOP_SRC_DIR}\resources\share\stratoshark\profiles\Classic\colorfilters"
-; SetOutPath '$INSTDIR\profiles\No Reassembly'
-; File "${TOP_SRC_DIR}\resources\share\stratoshark\profiles\No Reassembly\preferences"
-
+!include stratoshark-profile-manifest.nsh
 
 !ifdef SMI_DIR
 ;-------------------------------------------
-SetOutPath '$INSTDIR\snmp\mibs'
-File "${SMI_DIR}\share\mibs\iana\*"
-File "${SMI_DIR}\share\mibs\ietf\*"
-File "${SMI_DIR}\share\mibs\irtf\*"
-File "${SMI_DIR}\share\mibs\tubs\*"
-File "${SMI_DIR}\share\pibs\*"
-File "${SMI_DIR}\share\yang\*.yang"
+SetOutPath '$INSTDIR\snmp'
+File /r "${SMI_DIR}\share\mibs"
+File /r "${SMI_DIR}\share\pibs"
+File /r "${SMI_DIR}\share\yang"
 !include "custom_mibs.txt"
 !endif
-
-SetOutPath '$INSTDIR\plugins\${MAJOR_VERSION}.${MINOR_VERSION}\epan'
-File "${STAGING_DIR}\plugins\${MAJOR_VERSION}.${MINOR_VERSION}\epan\transum.dll"
-
-SetOutPath '$INSTDIR\plugins\${MAJOR_VERSION}.${MINOR_VERSION}\epan'
-File "${STAGING_DIR}\plugins\${MAJOR_VERSION}.${MINOR_VERSION}\epan\stats_tree.dll"
 
 SectionEnd ; "Plugins / Extensions"
 
@@ -1009,7 +890,7 @@ File "${STAGING_DIR}\reordercap.exe"
 File "${STAGING_DIR}\reordercap.html"
 
 File "${STAGING_DIR}\sharkd.exe"
-;File "${STAGING_DIR}\sharkd.html"
+File "${STAGING_DIR}\sharkd.html"
 
 File "${STAGING_DIR}\text2pcap.exe"
 File "${STAGING_DIR}\text2pcap.html"
@@ -1035,6 +916,19 @@ SectionEnd
 
 SectionGroupEnd ; "External Capture (extcap)"
 
+Section "-Write Registry Keys"
+  !ifdef QT_DIR
+    !insertmacro ComponentInstalled ${PROGRAM_NAME} ${SecStratosharkQt}
+  !endif
+  !insertmacro ComponentInstalled "Strato" ${SecStrato}
+
+  ; Store whether each extcap was selected or not
+  !insertmacro ComponentInstalled "Extcaps\falcodump" ${SecFalcodump}
+  !ifdef LIBSSH_FOUND
+    !insertmacro ComponentInstalled "Extcaps\sshdig" ${SecSshdig}
+  !endif
+SectionEnd
+
 Section "-Clear Partial Selected"
 !insertmacro ClearSectionFlag ${SecExtcapGroup} ${SF_PSELECTED}
 SectionEnd
@@ -1057,6 +951,147 @@ IntFmt $0 "0x%08X" $0
 WriteRegDWORD HKEY_LOCAL_MACHINE "${UNINSTALL_PATH}" "EstimatedSize" "$0"
 
 SectionEnd
+
+Function .onInit
+
+  Call PlatformCheck
+
+  !insertmacro IsStratosharkRunning
+
+  ; Default control values.
+  StrCpy $START_MENU_STATE ${BST_CHECKED}
+  StrCpy $DESKTOP_ICON_STATE ${BST_UNCHECKED}
+  StrCpy $FILE_ASSOCIATE_STATE ${BST_CHECKED}
+
+  ; Copied from https://nsis.sourceforge.io/Auto-uninstall_old_before_installing_new
+  ReadRegStr $OLD_UNINSTALLER HKLM \
+    "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}" \
+    "UninstallString"
+  StrCmp $OLD_UNINSTALLER "" check_wix
+
+  ReadRegStr $OLD_INSTDIR HKLM \
+    "Software\Microsoft\Windows\CurrentVersion\App Paths\${PROGRAM_NAME}.exe" \
+    "Path"
+  StrCmp $OLD_INSTDIR "" check_wix
+
+  ReadRegStr $OLD_DISPLAYNAME HKLM \
+    "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}" \
+    "DisplayName"
+  StrCmp $OLD_DISPLAYNAME "" done
+
+  ; We're reinstalling. Flip our control states according to what the
+  ; user chose before.
+  ; (we use the "all users" start menu, so select it first)
+  SetShellVarContext all
+  ; MessageBox MB_OK|MB_ICONINFORMATION "oninit 1 sm $START_MENU_STATE di $DESKTOP_ICON_STATE"
+  ${IfNot} ${FileExists} $SMPROGRAMS\${PROGRAM_NAME}.lnk
+    StrCpy $START_MENU_STATE ${BST_UNCHECKED}
+  ${Endif}
+  ${If} ${FileExists} $DESKTOP\${PROGRAM_NAME}.lnk
+    StrCpy $DESKTOP_ICON_STATE ${BST_CHECKED}
+  ${Endif}
+  ; Leave FILE_ASSOCIATE_STATE checked.
+  ; MessageBox MB_OK|MB_ICONINFORMATION "oninit 2 sm $START_MENU_STATE $SMPROGRAMS\${PROGRAM_NAME}\${PROGRAM_NAME}.lnk \
+  ;   $\ndi $DESKTOP_ICON_STATE $DESKTOP\${PROGRAM_NAME}.lnk
+
+  !ifdef QT_DIR
+    !insertMacro ComponentPrevInstalled "${PROGRAM_NAME}" ${SecStratosharkQt}
+  !endif
+  !insertMacro ComponentPrevInstalled "Strato" ${SecStrato}
+
+  ; Check if each extcap was previously installed
+  !insertmacro ComponentPrevInstalled "Extcaps\falcodump" ${SecFalcodump}
+  !ifdef LIBSSH_FOUND
+    !insertmacro ComponentPrevInstalled "Extcaps\sshdig" ${SecSshdig}
+  !endif
+
+  MessageBox MB_YESNOCANCEL|MB_ICONQUESTION \
+    "$OLD_DISPLAYNAME is already installed.\
+     $\n$\nWould you like to uninstall it first?" \
+      /SD IDYES \
+      IDYES prep_nsis_uninstaller \
+      IDNO done
+  Abort
+
+; Copy the uninstaller to $TEMP and run it.
+; The uninstaller normally does this by itself, but doesn't wait around
+; for the executable to finish, which means ExecWait won't work correctly.
+prep_nsis_uninstaller:
+  ClearErrors
+  StrCpy $TMP_UNINSTALLER "$TEMP\${PROGRAM_NAME}_uninstaller.exe"
+  ; ...because we surround UninstallString in quotes.
+  StrCpy $0 $OLD_UNINSTALLER -1 1
+  StrCpy $1 "$TEMP\${PROGRAM_NAME}_uninstaller.exe"
+  StrCpy $2 1
+  System::Call 'kernel32::CopyFile(t r0, t r1, b r2) 1'
+  ExecWait "$TMP_UNINSTALLER /S _?=$OLD_INSTDIR"
+
+  Delete "$TMP_UNINSTALLER"
+
+; Look for a WiX-installed package.
+
+check_wix:
+  StrCpy $REGISTRY_BITS 64
+  SetRegView 64
+  check_wix_restart:
+    StrCpy $0 0
+  wix_reg_enum_loop:
+    EnumRegKey $TMP_PRODUCT_GUID HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" $0
+    StrCmp $TMP_PRODUCT_GUID "" wix_enum_reg_done
+    IntOp $0 $0 + 1
+    ReadRegStr $WIX_DISPLAYNAME HKLM \
+      "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$TMP_PRODUCT_GUID" \
+      "DisplayName"
+    ; MessageBox MB_OK|MB_ICONINFORMATION "Reading HKLM SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$1 DisplayName = $2"
+    ; Look for "Stratoshark".
+    StrCmp $WIX_DISPLAYNAME "${PROGRAM_NAME}" wix_found wix_reg_enum_loop
+
+    wix_found:
+      ReadRegStr $WIX_DISPLAYVERSION HKLM \
+        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$TMP_PRODUCT_GUID" \
+        "DisplayVersion"
+      ReadRegStr $WIX_UNINSTALLSTRING HKLM \
+        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$TMP_PRODUCT_GUID" \
+        "UninstallString"
+      StrCmp $WIX_UNINSTALLSTRING "" done
+      MessageBox MB_YESNOCANCEL|MB_ICONQUESTION \
+        "$WIX_DISPLAYNAME $WIX_DISPLAYVERSION (msi) is already installed.\
+         $\n$\nWould you like to uninstall it first?" \
+          /SD IDYES \
+          IDYES prep_wix_uninstaller \
+          IDNO done
+      Abort
+
+      ; Run the WiX-provided UninstallString.
+      prep_wix_uninstaller:
+        ClearErrors
+        ExecWait "$WIX_UNINSTALLSTRING"
+
+      Goto done
+
+  wix_enum_reg_done:
+    ; MessageBox MB_OK|MB_ICONINFORMATION "Checked $0 $REGISTRY_BITS bit keys"
+    IntCmp $REGISTRY_BITS 32 done
+    StrCpy $REGISTRY_BITS 32
+    SetRegView 32
+    Goto check_wix_restart
+
+done:
+
+  ; Command line parameters
+  ${GetParameters} $R0
+
+  ${GetOptions} $R0 "/desktopicon=" $R1
+  ${If} $R1 == "yes"
+    StrCpy $DESKTOP_ICON_STATE ${BST_CHECKED}
+  ${ElseIf} $R1 == "no"
+    StrCpy $DESKTOP_ICON_STATE ${BST_UNCHECKED}
+  ${Endif}
+
+  ;Extract InstallOptions INI files
+  ;!insertmacro INSTALLOPTIONS_EXTRACT "AdditionalTasksPage.ini"
+  !insertmacro INSTALLOPTIONS_EXTRACT "DonatePage.ini"
+FunctionEnd
 
 ; ============================================================================
 ; Section macros
@@ -1180,6 +1215,8 @@ Delete "$INSTDIR\printsupport\*.*"
 Delete "$INSTDIR\share\glib-2.0\schemas\*.*"
 Delete "$INSTDIR\snmp\*.*"
 Delete "$INSTDIR\snmp\mibs\*.*"
+Delete "$INSTDIR\snmp\pibs\*.*"
+Delete "$INSTDIR\snmp\yang\*.*"
 Delete "$INSTDIR\styles\translations\*.*"
 Delete "$INSTDIR\styles\*.*"
 Delete "$INSTDIR\protobuf\*.*"
@@ -1229,8 +1266,7 @@ RMDir "$INSTDIR\help"
 RMDir "$INSTDIR\generic"
 RMDir /r "$INSTDIR\Wireshark User's Guide"
 RMDir "$INSTDIR\diameter"
-RMDir "$INSTDIR\snmp\mibs"
-RMDir "$INSTDIR\snmp"
+RMDir /r "$INSTDIR\snmp"
 RMDir "$INSTDIR\radius"
 RMDir "$INSTDIR\dtds"
 RMDir "$INSTDIR\protobuf"

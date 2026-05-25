@@ -37,10 +37,6 @@
 
 #include "packet-p1.h"
 
-#define PNAME  "X.411 Message Transfer Service"
-#define PSNAME "P1"
-#define PFNAME "p1"
-
 void proto_reg_handoff_p1(void);
 void proto_register_p1(void);
 
@@ -985,6 +981,24 @@ static void do_address_str_tree(const char* addr, tvbuff_t* tvb_string, asn1_ctx
         }
     }
 }
+
+/*--- Cyclic dependencies ---*/
+
+/* ExtensionAttribute/extension-attribute-value -> ExtensionAttribute/extension-attribute-value */
+static unsigned dissect_p1_T_extension_attribute_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* PerDomainBilateralInformation/bilateral-information -> PerDomainBilateralInformation/bilateral-information */
+static unsigned dissect_p1_T_bilateral_information(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ExtensionField/value -> ExtensionField/value */
+static unsigned dissect_p1_ExtensionValue(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* AdditionalInformation -> AdditionalInformation */
+static unsigned dissect_p1_AdditionalInformation(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* TokenData/value -> TokenData/value */
+static unsigned dissect_p1_T_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
 
 
 
@@ -2164,6 +2178,8 @@ dissect_p1_ExtensionAttributeType(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsi
 
 static unsigned
 dissect_p1_T_extension_attribute_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ExtensionAttribute/extension-attribute-value -> ExtensionAttribute/extension-attribute-value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 
 	proto_item_append_text(tree, " (%s)", val_to_str(actx->pinfo->pool, actx->external.indirect_reference, p1_ExtensionAttributeType_vals, "extension-attribute-type %d"));
 	p_add_proto_data(actx->pinfo->pool, actx->pinfo, proto_p1, 0, actx->subtree.tree_ctx);
@@ -2182,6 +2198,7 @@ dissect_p1_T_extension_attribute_value(bool implicit_tag _U_, tvbuff_t *tvb _U_,
 
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -2732,6 +2749,8 @@ dissect_p1_T_bilateral_domain(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned
 
 static unsigned
 dissect_p1_T_bilateral_information(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // PerDomainBilateralInformation/bilateral-information -> PerDomainBilateralInformation/bilateral-information
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	proto_item *item = NULL;
 	int	    loffset = 0;
 	uint32_t	    len = 0;
@@ -2747,6 +2766,7 @@ dissect_p1_T_bilateral_information(bool implicit_tag _U_, tvbuff_t *tvb _U_, uns
 	offset = dissect_unknown_ber(actx->pinfo, tvb, offset, tree);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -3036,6 +3056,8 @@ dissect_p1_Criticality(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset
 
 static unsigned
 dissect_p1_ExtensionValue(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ExtensionField/value -> ExtensionField/value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 	const char *name;
 
 	if(actx->external.indirect_ref_present) {
@@ -3059,6 +3081,7 @@ dissect_p1_ExtensionValue(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned off
 
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -3409,6 +3432,8 @@ dissect_p1_SubjectIntermediateTraceInformation(bool implicit_tag _U_, tvbuff_t *
 
 static unsigned
 dissect_p1_AdditionalInformation(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // AdditionalInformation -> AdditionalInformation
+  increment_dissection_depth_by_n(actx->pinfo, 1);
    proto_item *item = NULL;
    int         loffset = 0;
    uint32_t    len = 0;
@@ -3424,6 +3449,7 @@ dissect_p1_AdditionalInformation(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsig
    offset = dissect_unknown_ber(actx->pinfo, tvb, offset, tree);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -7085,6 +7111,8 @@ dissect_p1_TokenDataType(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offs
 
 static unsigned
 dissect_p1_T_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // TokenData/value -> TokenData/value
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 
 	proto_item_append_text(tree, " (%s)", val_to_str(actx->pinfo->pool, actx->external.indirect_reference, p1_TokenDataType_vals, "tokendata-type %d"));
 	if (dissector_try_uint(p1_tokendata_dissector_table, actx->external.indirect_reference, tvb, actx->pinfo, tree)) {
@@ -7100,6 +7128,7 @@ dissect_p1_T_value(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_
 	}
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -8445,8 +8474,8 @@ dissect_p1_mts_apdu (tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree,
 static int
 dissect_p1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data)
 {
-    int offset = 0;
-    int old_offset;
+    unsigned offset = 0;
+    unsigned old_offset;
     proto_item *item;
     proto_tree *tree;
     struct SESSION_DATA_STRUCTURE* session;
@@ -8494,7 +8523,7 @@ dissect_p1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* dat
       hf_p1_index = hf_p1_MTS_APDU_PDU;
       break;
     default:
-      proto_tree_add_expert(tree, pinfo, &ei_p1_unsupported_pdu, tvb, offset, -1);
+      proto_tree_add_expert_remaining(tree, pinfo, &ei_p1_unsupported_pdu, tvb, offset);
       return tvb_captured_length(tvb);
     }
 
@@ -8504,7 +8533,7 @@ dissect_p1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* dat
         old_offset=offset;
         offset=(*p1_dissector)(false, tvb, offset, &asn1_ctx , tree, hf_p1_index);
         if (offset == old_offset) {
-            proto_tree_add_expert(tree, pinfo, &ei_p1_zero_pdu, tvb, offset, -1);
+            proto_tree_add_expert_remaining(tree, pinfo, &ei_p1_zero_pdu, tvb, offset);
             break;
         }
     }
@@ -11209,7 +11238,7 @@ void proto_register_p1(void) {
   module_t *p1_module;
 
   /* Register protocol */
-  proto_p1 = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_p1 = proto_register_protocol("X.411 Message Transfer Service", "P1", "p1");
   p1_handle = register_dissector("p1", dissect_p1, proto_p1);
 
   proto_p3 = proto_register_protocol("X.411 Message Access Service", "P3", "p3");

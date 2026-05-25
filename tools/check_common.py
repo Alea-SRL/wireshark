@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import io
+from enum import Enum
 
 
 # For text colouring/highlighting.
@@ -85,6 +86,8 @@ def isGeneratedFile(filename):
     return False
 
 
+# TODO: merge with remove_comments() in check_apis.py.  It has the nice property of preserving line numbers,
+# meaning that checks can report line numbers in more situations..
 def removeComments(code_string):
     # C-style comment
     code_string = re.sub(re.compile(r"(?<!/)/\*.*?\*/", re.DOTALL), "",
@@ -151,6 +154,60 @@ def getFilesFromOpen(onlyDissectors=True):
     return files
 
 
+hf_re = re.compile(r'\{\s*\&(hf_[a-z_A-Z0-9]*)\s*,\s*{\s*\"'           # hf
+                   r'(.*?)\"\s*,\s*\"'                                 # name
+                   r'(.*?)\"\s*,\s*'                                   # filter
+                   r'(.*?)\s*,\s*'                                     # field_type
+                   r'([0-9A-Z_\|\s\*]*?)\s*,\s*'                       # display
+                   r'(.*?)\s*,\s*'                                     # convert
+                   r'(.*?)\s*,\s*'                                     # bitmask
+                   r'(NULL|"[a-zA-Z0-9µ\W\s_\u00f6\u00e4]*?")\s*,\s*HFILL'    # blurb
+                   )
+
+
+class HFEntriesParser:
+    def __init__(self, file_contents):
+        self.items = []
+        global hf_re
+        for m in hf_re.finditer(file_contents, re.IGNORECASE | re.DOTALL):
+            hf, name, abbrev, ft, display, convert, bitmask, blurb = m.groups()
+
+            # Name might have internal quotes with UTF8 macros inside
+            while name.count('"') >= 2:
+                # Find first 3 offsets
+                positions = []
+                start = 0
+                for _ in range(0, 2):
+                    found = name[start:].find('"')
+                    positions.append(found + start)
+                    start += found + 1
+
+                # Eliminate quotes and space/newlines between 1st and 2nd
+                name = name[0:positions[0]-1] + name[positions[1]+1:]
+
+            # Blurb might be extended across several lines, each with double quotes
+            if blurb.find('\\"') == -1:
+                while blurb.count('"') > 2:
+                    # Find first 3 offsets
+                    positions = []
+                    start = 0
+                    for _ in range(0, 3):
+                        found = blurb[start:].find('"')
+                        positions.append(found + start)
+                        start += found + 1
+
+                    # Eliminate quotes and space/newlines between 2nd and 3rd
+                    blurb = blurb[0:positions[1]-1] + blurb[positions[2]+1:]
+
+            self.items.append((hf, name, abbrev, ft, display, convert, bitmask, blurb))
+
+
+class OutputType(Enum):
+    NOTE = 1
+    WARN = 2
+    ERR = 3
+
+
 # A type to return from future executions.
 class Result:
     def __init__(self):
@@ -162,14 +219,25 @@ class Result:
         self.common_usage = {}
         self.custom_entries = set()
         self.local_missing_words = []
+        self.should_exit = False
+        self.api_counts = {}
+
+    def output(self, level, *args):
+        if level == OutputType.NOTE:
+            self.note(*args)
+        elif level == OutputType.WARN:
+            self.warn(*args)
+        elif level == OutputType.ERR:
+            self.error(*args)
 
     def warn(self, *args):
-        print('Warning: ' + " ".join(map(str, args)), file=self.out)
+        print(bcolors.WARNING + 'Warning: ' + " ".join(map(str, args)) + bcolors.ENDC, file=self.out)
         self.warnings += 1
 
     def error(self, *args):
-        print('Error: ' + " ".join(map(str, args)), file=self.out)
-        self.warnings += 1
+        # TODO: make red
+        print(bcolors.FAIL + 'Error: ' + " ".join(map(str, args)) + bcolors.ENDC, file=self.out)
+        self.errors += 1
 
     def note(self, *args):
         print('Note: ' + " ".join(map(str, args)), file=self.out)
@@ -179,6 +247,9 @@ class Result:
         print(" ".join(map(str, args)), file=self.out)
         # Just use notes..
         self.notes += 1
+
+    # TODO: add an enum and function that lets severity level to be set at runtime
+    # See usage of pfx in check_apis.py
 
     def __str__(self):
         return f'warn={self.warnings}, errors={self.errors}'

@@ -42,23 +42,20 @@
 #include <wsutil/report_message.h>
 #include <wsutil/utf8_entities.h>
 
-#include <wiretap/wtap.h>   /* for WTAP_ERR_SHORT_WRITE */
-
 #include "path_config.h"
 
 #define PROFILES_DIR    "profiles"
 #define PLUGINS_DIR_NAME    "plugins"
 #define EXTCAP_DIR_NAME     "extcap"
-#define PROFILES_INFO_NAME  "profile_files.txt"
 
 #define _S G_DIR_SEPARATOR_S
 
-char *persconffile_dir;
-char *datafile_dir;
-char *persdatafile_dir;
-char *persconfprofile;
-char *doc_dir;
-char *current_working_dir;
+static char *persconffile_dir;
+static char *datafile_dir;
+static char *persdatafile_dir;
+static char *persconfprofile;
+static char *doc_dir;
+static char *current_working_dir;
 
 /* Directory from which the executable came. */
 static char *progfile_dir;
@@ -275,6 +272,10 @@ static char *appbundle_dir;
  * with special privileges.
  */
 static bool running_in_build_directory_flag;
+
+#ifdef HAVE_MSYSTEM
+static bool running_in_posix_directory_flag;
+#endif
 
 #ifndef _WIN32
 /*
@@ -580,7 +581,11 @@ configuration_init_w32(const char* app_flavor, const char* arg0 _U_)
             /* We succeeded. */
             trim_progfile_dir(app_flavor);
             /* Now try to figure out if we're running in a build directory. */
+#ifdef HAVE_MSYSTEM
+            char *wsutil_lib = g_build_filename(progfile_dir, "libwsutil.dll.a", (char *)NULL);
+#else
             char *wsutil_lib = g_build_filename(progfile_dir, "wsutil.lib", (char *)NULL);
+#endif /* HAVE_MSYSTEM */
             if (file_exists(wsutil_lib)) {
                 running_in_build_directory_flag = true;
             }
@@ -622,18 +627,20 @@ configuration_init_w32(const char* app_flavor, const char* arg0 _U_)
 
 #ifdef HAVE_MSYSTEM
     /*
-     * We already have the program_dir. Find the installation prefix.
-     * This is one level up from the bin_dir. If the program_dir does
-     * not end with "bin" then assume we are running in the build directory
-     * and the "installation prefix" (staging directory) is the same as
-     * the program_dir.
+     * If we're not running in the build directory, we could either be running
+     * from the result of "ninja install" in the MSYS2 POSIX environment with
+     * a UN*X-like directory structure, or running from a NSIS install with a
+     * Windows-like directory structure. We already have the program_dir.
+     * If the program_dir ends with "bin" then assume we are running with a
+     * UN*X-like directory layout, and vice versa.
      */
     if (g_str_has_suffix(progfile_dir, _S"bin")) {
+        running_in_posix_directory_flag = true;
         install_prefix = trim_last_dir_from_path(progfile_dir);
     }
     else {
         install_prefix = g_strdup(progfile_dir);
-        running_in_build_directory_flag = true;
+        running_in_posix_directory_flag = false;
     }
 #endif /* HAVE_MSYSTEM */
 
@@ -998,38 +1005,7 @@ get_datafile_dir(const char* app_env_var_prefix)
          */
         datafile_dir = g_strdup(g_getenv(data_dir_envar));
     }
-
-#if defined(HAVE_MSYSTEM)
-    if (running_in_build_directory_flag) {
-        datafile_dir = g_strdup(install_prefix);
-    } else {
-        datafile_dir = g_build_filename(install_prefix, DATA_DIR, app_lower, (char *)NULL);
-    }
-#elif defined(_WIN32)
-    /*
-     * Do we have the pathname of the program?  If so, assume we're
-     * running an installed version of the program.  If we fail,
-     * we don't change "datafile_dir", and thus end up using the
-     * default.
-     *
-     * XXX - does NSIS put the installation directory into
-     * "\HKEY_LOCAL_MACHINE\SOFTWARE\Wireshark\InstallDir"?
-     * If so, perhaps we should read that from the registry,
-     * instead.
-     */
-    if (progfile_dir != NULL) {
-        /*
-         * Yes, we do; use that.
-         */
-        datafile_dir = g_strdup(progfile_dir);
-    } else {
-        /*
-         * No, we don't.
-         * Fall back on the default installation directory.
-         */
-        datafile_dir = g_strdup("C:\\Program Files\\Wireshark\\");
-    }
-#else
+    /* You are in a maze of twisty little #ifdefs, all different. */
 #ifdef ENABLE_APPLICATION_BUNDLE
     /*
      * If we're running from an app bundle and weren't started
@@ -1045,6 +1021,38 @@ get_datafile_dir(const char* app_env_var_prefix)
                                         appbundle_dir, app_lower);
     }
 #endif
+#if defined(_WIN32)
+    else
+#if defined(HAVE_MSYSTEM)
+    if (!running_in_posix_directory_flag)
+#endif // HAVE_SYSTEM
+    {
+        /*
+         * Do we have the pathname of the program?  If so, assume we're
+         * running an installed version of the program.  If we fail,
+         * we don't change "datafile_dir", and thus end up using the
+         * default.
+         *
+         * XXX - does NSIS put the installation directory into
+         * "\HKEY_LOCAL_MACHINE\SOFTWARE\Wireshark\InstallDir"?
+         * If so, perhaps we should read that from the registry,
+         * instead.
+         */
+        if (progfile_dir != NULL) {
+            /*
+             * Yes, we do; use that.
+             */
+            datafile_dir = g_strdup(progfile_dir);
+        } else {
+            /*
+             * No, we don't.
+             * Fall back on the default installation directory.
+             */
+            datafile_dir = g_strdup("C:\\Program Files\\Wireshark\\");
+        }
+    }
+#endif // _WIN32
+#if defined(HAVE_MSYSTEM) || !defined(_WIN32)
     else if (running_in_build_directory_flag && progfile_dir != NULL) {
         /*
          * We're (probably) being run from the build directory and
@@ -1066,7 +1074,7 @@ get_datafile_dir(const char* app_env_var_prefix)
             datafile_dir = g_build_filename(install_prefix, DATA_DIR, app_lower, (char *)NULL);
         }
     }
-#endif
+#endif // HAVE_MSYSTEM || !_WIN32
     g_free(app_lower);
     g_free(data_dir_envar);
     return datafile_dir;
@@ -1082,21 +1090,6 @@ get_doc_dir(const char* app_env_var_prefix _U_)
     if (false) {
         ;
     }
-
-#if defined(HAVE_MSYSTEM)
-    if (running_in_build_directory_flag) {
-        doc_dir = g_strdup(install_prefix);
-    } else {
-        doc_dir = g_build_filename(install_prefix, DOC_DIR, (char *)NULL);
-    }
-#elif defined(_WIN32)
-    if (progfile_dir != NULL) {
-        doc_dir = g_strdup(progfile_dir);
-    } else {
-        /* Fall back on the default installation directory. */
-        doc_dir = g_strdup("C:\\Program Files\\Wireshark\\");
-    }
-#else
 #ifdef ENABLE_APPLICATION_BUNDLE
     /*
      * If we're running from an app bundle and weren't started
@@ -1111,6 +1104,21 @@ get_doc_dir(const char* app_env_var_prefix _U_)
         doc_dir = g_strdup(get_datafile_dir(app_env_var_prefix));
     }
 #endif
+#if defined(_WIN32)
+    else
+#if defined(HAVE_MSYSTEM)
+    if (!running_in_posix_directory_flag)
+#endif // HAVE_MSYSTEM
+    {
+        if (progfile_dir != NULL) {
+            doc_dir = g_strdup(progfile_dir);
+        } else {
+            /* Fall back on the default installation directory. */
+            doc_dir = g_strdup("C:\\Program Files\\Wireshark\\");
+        }
+    }
+#endif // _WIN32
+#if defined(HAVE_MSYSTEM) || !defined(_WIN32)
     else if (running_in_build_directory_flag && progfile_dir != NULL) {
         /*
          * We're (probably) being run from the build directory and
@@ -1124,7 +1132,7 @@ get_doc_dir(const char* app_env_var_prefix _U_)
             doc_dir = g_build_filename(install_prefix, DOC_DIR, (char *)NULL);
         }
     }
-#endif
+#endif // HAVE_MSYSTEM || !_WIN32
     return doc_dir;
 }
 
@@ -1171,21 +1179,6 @@ init_plugin_dir(const char* app_env_var_prefix)
     }
 
 #if defined(HAVE_PLUGINS) || defined(HAVE_LUA)
-#if defined(HAVE_MSYSTEM)
-    else if (running_in_build_directory_flag) {
-        plugin_dir = g_build_filename(install_prefix, "plugins", (char *)NULL);
-    } else {
-        plugin_dir = g_build_filename(install_prefix, PLUGIN_DIR, (char *)NULL);
-    }
-#elif defined(_WIN32)
-    else {
-        /*
-         * On Windows, plugins are stored under the program file directory
-         * in both the build and the installation directories.
-         */
-        plugin_dir = g_build_filename(get_progfile_dir(), "plugins", (char *)NULL);
-    }
-#else
 #ifdef ENABLE_APPLICATION_BUNDLE
     /*
      * If we're running from an app bundle and weren't started
@@ -1208,15 +1201,26 @@ init_plugin_dir(const char* app_env_var_prefix)
          * the "plugins" subdirectory of the directory where the program
          * we're running is (that's the build directory).
          */
+        plugin_dir = g_build_filename(get_progfile_dir(), "plugins", app_lower, (char *)NULL);
+    }
+#if defined(_WIN32)
+    else
+#if defined(HAVE_MSYSTEM)
+    if (!running_in_posix_directory_flag)
+#endif // HAVE_MSYSTEM
+    {
         plugin_dir = g_build_filename(get_progfile_dir(), "plugins", (char *)NULL);
-    } else {
+    }
+#endif // _WIN32
+#if defined(HAVE_MSYSTEM) || !defined(_WIN32)
+    else {
         if (g_path_is_absolute(PLUGIN_DIR)) {
             plugin_dir = g_strdup(PLUGIN_DIR);
         } else {
             plugin_dir = g_build_filename(install_prefix, PLUGIN_DIR, (char *)NULL);
         }
     }
-#endif // HAVE_MSYSTEM / _WIN32
+#endif /* defined(HAVE_MSYSTEM) || !defined(_WIN32) */
 #endif /* defined(HAVE_PLUGINS) || defined(HAVE_LUA) */
     g_free(app_lower);
     g_free(plugin_dir_envar);
@@ -1309,27 +1313,6 @@ init_extcap_dir(const char* app_env_var_prefix, const char* dir_extcap _U_)
          */
         extcap_dir = g_strdup(g_getenv(extcap_dir_envar));
     }
-
-#if defined(HAVE_MSYSTEM)
-    else if (running_in_build_directory_flag) {
-        extcap_dir = g_build_filename(install_prefix, "extcap", (char *)NULL);
-    } else {
-        extcap_dir = g_build_filename(install_prefix, EXTCAP_DIR, (char *)NULL);
-    }
-#elif defined(_WIN32)
-        /*
-         * On Windows, extcap utilities are stored in "extcap/<program name>"
-         * in the build directory and in "extcap" in the installation
-         * directory.
-         */
-    else if (running_in_build_directory_flag) {
-        extcap_dir = g_build_filename(get_progfile_dir(), EXTCAP_DIR_NAME,
-            app_lower, (char *)NULL);
-    } else {
-        extcap_dir = g_build_filename(get_progfile_dir(), EXTCAP_DIR_NAME,
-            (char *)NULL);
-    }
-#else
 #ifdef ENABLE_APPLICATION_BUNDLE
     else if (appbundle_dir != NULL) {
         /*
@@ -1354,13 +1337,29 @@ init_extcap_dir(const char* app_env_var_prefix, const char* dir_extcap _U_)
         extcap_dir = g_build_filename(get_progfile_dir(), EXTCAP_DIR_NAME,
             app_lower, (char *)NULL);
     }
+#if defined(_WIN32)
+    else
+#if defined(HAVE_MSYSTEM)
+    if (!running_in_posix_directory_flag)
+#endif // HAVE_MSYSTEM
+    /*
+     * On Windows, extcap utilities are stored in "extcap/<program name>"
+     * in the build directory and in "extcap" in the installation
+     * directory.
+     */
+    {
+        extcap_dir = g_build_filename(get_progfile_dir(), EXTCAP_DIR_NAME,
+            (char *)NULL);
+    }
+#endif // defined(_WIN32)
+#if defined(HAVE_MSYSTEM) || !defined(_WIN32)
     else {
         if (g_path_is_absolute(EXTCAP_DIR))
             extcap_dir = g_strdup(dir_extcap);
         else
             extcap_dir = g_build_filename(install_prefix, dir_extcap, (char*)NULL);
     }
-#endif // HAVE_MSYSTEM / _WIN32
+#endif /* defined(HAVE_MSYSTEM) || !defined(_WIN32) */
     g_free(app_lower);
     g_free(extcap_dir_envar);
 }
@@ -2408,77 +2407,99 @@ bool config_file_exists_with_entries(const char *fname, char comment_char)
  * name and the read file name may be relative (if supplied on
  * the command line), so we can't just compare paths. From Joerg Mayer.
  */
+
+typedef struct {
+#ifdef _WIN32
+    FILE_ID_128 id;
+    ULONGLONG serial_number;
+#else
+    dev_t dev;
+    ino_t ino;
+#endif
+} file_hash_key;
+
 bool
-files_identical(const char *fname1, const char *fname2)
+files_identical_key(const void* fname, file_hash_key *key)
 {
     /* Two different implementations, because st_ino isn't filled in with
      * a meaningful value on Windows. Use the Windows API and FILE_ID_INFO
      * instead.
      */
 #ifdef _WIN32
+     /*
+      * Compare VolumeSerialNumber and FileId.
+      */
 
-    FILE_ID_INFO filestat1, filestat2;
+      /*
+       * "You must set [FILE_FLAG_BACKUP_SEMANTICS] to obtain a handle to a
+       * directory." - Otherwise, CreateFile returns an invalid value.
+       *
+       * "The system ensures that the calling process overrides file security
+       * checks when the process has SE_BACKUP_NAME and SE_RESTORE_NAME
+       * privileges." - That shouldn't have any effect, because we open the
+       * file with neither GENERIC_READ nor GENERIC_WRITE access, only get file
+       * information and then close the handle.
+       *
+       * https://learn.microsoft.com/en-us/windows/win32/fileio/obtaining-a-handle-to-a-directory
+       * https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilea
+       */
+    FILE_ID_INFO filestat;
 
-    /*
-     * Compare VolumeSerialNumber and FileId.
-     */
-
-    /*
-     * "You must set [FILE_FLAG_BACKUP_SEMANTICS] to obtain a handle to a
-     * directory." - Otherwise, CreateFile returns an invalid value.
-     *
-     * "The system ensures that the calling process overrides file security
-     * checks when the process has SE_BACKUP_NAME and SE_RESTORE_NAME
-     * privileges." - That shouldn't have any effect, because we open the
-     * file with neither GENERIC_READ nor GENERIC_WRITE access, only get file
-     * information and then close the handle.
-     *
-     * https://learn.microsoft.com/en-us/windows/win32/fileio/obtaining-a-handle-to-a-directory
-     * https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilea
-     */
-    HANDLE h1 = CreateFile(utf_8to16(fname1), 0,
+    HANDLE h = CreateFile(utf_8to16((const char*)fname), 0,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
 
-    if (h1 == INVALID_HANDLE_VALUE) {
+    if (h == INVALID_HANDLE_VALUE) {
         return false;
     }
 
-    if (!GetFileInformationByHandleEx(h1, FileIdInfo, &filestat1, sizeof(FILE_ID_INFO))) {
-        CloseHandle(h1);
+    if (!GetFileInformationByHandleEx(h, FileIdInfo, &filestat, sizeof(FILE_ID_INFO))) {
+        CloseHandle(h);
         return false;
     }
-    CloseHandle(h1);
+    CloseHandle(h);
 
-    HANDLE h2 = CreateFile(utf_8to16(fname2), 0,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
-
-    if (h2 == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-
-    if (!GetFileInformationByHandleEx(h2, FileIdInfo, &filestat2, sizeof(FILE_ID_INFO))) {
-        CloseHandle(h2);
-        return false;
-    }
-    CloseHandle(h2);
-
-    return ((memcmp(&filestat1.FileId, &filestat2.FileId, sizeof(FILE_ID_128)) == 0) &&
-        filestat1.VolumeSerialNumber == filestat2.VolumeSerialNumber);
+    memcpy(&key->id, &filestat.FileId, sizeof(FILE_ID_128));
+    key->serial_number = filestat.VolumeSerialNumber;
 #else
-    ws_statb64 filestat1, filestat2;
+     /*
+      * Compare st_dev and st_ino.
+      */
+    ws_statb64 filestat;
 
-    /*
-     * Compare st_dev and st_ino.
-     */
-    if (ws_stat64(fname1, &filestat1) == -1)
-        return false;   /* can't get info about the first file */
-    if (ws_stat64(fname2, &filestat2) == -1)
-        return false;   /* can't get info about the second file */
-    return (filestat1.st_dev == filestat2.st_dev &&
-        filestat1.st_ino == filestat2.st_ino);
+    if (ws_stat64((const char*)fname, &filestat) == -1)
+        return false;   /* can't get info about the file */
+
+    key->dev = filestat.st_dev;
+    key->ino = filestat.st_ino;
 #endif
+
+    return true;
+}
+
+unsigned
+files_identical_hash(const void* fname)
+{
+    file_hash_key key;
+    if (!files_identical_key(fname, &key))
+        return 0;
+
+    const uint8_t* p = (const uint8_t*)&key;
+    return wmem_strong_hash(p, sizeof(key));
+}
+
+bool
+files_identical(const char* fname1, const char* fname2)
+{
+    file_hash_key key1, key2;
+
+    /* If we can't get info about a file, say they are different. */
+    if (!files_identical_key(fname1, &key1))
+        return false;
+    if (!files_identical_key(fname2, &key2))
+        return false;
+
+    return memcmp(&key1, &key2, sizeof key1) == 0;
 }
 
 bool
@@ -2501,13 +2522,11 @@ file_needs_reopen(int fd, const char* filename)
     HANDLE current_handle = CreateFile(utf_8to16(filename), FILE_READ_ATTRIBUTES,
                             FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
                             NULL, OPEN_EXISTING, 0, NULL);
-    BY_HANDLE_FILE_INFORMATION open_info, current_info;
 
     if (current_handle == INVALID_HANDLE_VALUE) {
         return true;
     }
 
-#if (_WIN32_WINNT >= _WIN32_WINNT_WIN8)
     FILE_ID_INFO open_id, current_id;
     if (GetFileInformationByHandleEx(open_handle, FileIdInfo, &open_id, sizeof(open_id)) &&
         GetFileInformationByHandleEx(current_handle, FileIdInfo, &current_id, sizeof(current_id))) {
@@ -2515,18 +2534,6 @@ file_needs_reopen(int fd, const char* filename)
         CloseHandle(current_handle);
         return open_id.VolumeSerialNumber != current_id.VolumeSerialNumber ||
                memcmp(&open_id.FileId, &current_id.FileId, sizeof(open_id.FileId)) != 0;
-    }
-#endif /* _WIN32_WINNT >= _WIN32_WINNT_WIN8 */
-    if (GetFileInformationByHandle(open_handle, &open_info) &&
-        GetFileInformationByHandle(current_handle, &current_info)) {
-        /* Fallback to 64-bit identifier */
-        CloseHandle(current_handle);
-        uint64_t open_size = (((uint64_t)open_info.nFileSizeHigh) << 32) | open_info.nFileSizeLow;
-        uint64_t current_size = (((uint64_t)current_info.nFileSizeHigh) << 32) | current_info.nFileSizeLow;
-        return open_info.dwVolumeSerialNumber != current_info.dwVolumeSerialNumber ||
-               open_info.nFileIndexHigh != current_info.nFileIndexHigh ||
-               open_info.nFileIndexLow != current_info.nFileIndexLow ||
-               open_size > current_size;
     }
     CloseHandle(current_handle);
     return true;
@@ -2589,7 +2596,7 @@ write_file_binary_mode(const char *filename, const void *content, size_t content
             if (bytes_written < 0) {
                 err = errno;
             } else {
-                err = WTAP_ERR_SHORT_WRITE;
+                err = FILE_ERR_SHORT_WRITE;
             }
             report_write_failure(filename, err);
             ws_close(fd);
@@ -2646,7 +2653,7 @@ copy_file_binary_mode(const char *from_filename, const char *to_filename)
             if (nwritten < 0)
                 err = errno;
             else
-                err = WTAP_ERR_SHORT_WRITE;
+                err = FILE_ERR_SHORT_WRITE;
             report_write_failure(to_filename, err);
             ws_close(from_fd);
             ws_close(to_fd);

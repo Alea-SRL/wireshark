@@ -32,10 +32,6 @@
 #include "packet-gtp.h"
 #include "packet-gtpv2.h"
 
-#define PNAME  "GPRS CDR"
-#define PSNAME "GPRSCDR"
-#define PFNAME "gprscdr"
-
 void proto_register_gprscdr(void);
 
 /* Define the GPRS CDR proto */
@@ -704,6 +700,12 @@ dissect_gprscdr_uli(tvbuff_t *tvb _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U
   return length;
 }
 
+/*--- Cyclic dependencies ---*/
+
+/* ManagementExtension/information -> ManagementExtension/information */
+static unsigned dissect_gprscdr_T_information(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+
 
 
 static unsigned
@@ -950,16 +952,19 @@ dissect_gprscdr_BOOLEAN(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offse
 
 static unsigned
 dissect_gprscdr_T_information(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ManagementExtension/information -> ManagementExtension/information
+  increment_dissection_depth_by_n(actx->pinfo, 1);
 
   proto_tree *ext_tree;
   ext_tree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_gprscdr_managementextension_information, NULL, "Information");
   if (obj_id){
     offset=call_ber_oid_callback(obj_id, tvb, offset, actx->pinfo, ext_tree, NULL);
   }else{
-    proto_tree_add_expert(ext_tree, actx->pinfo, &ei_gprscdr_not_dissected, tvb, offset, -1);
+    proto_tree_add_expert_remaining(ext_tree, actx->pinfo, &ei_gprscdr_not_dissected, tvb, offset);
   }
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -7173,7 +7178,7 @@ proto_register_gprscdr(void)
 
   expert_module_t* expert_gprscdr;
 
-  proto_gprscdr = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_gprscdr = proto_register_protocol("GPRS CDR", "GPRSCDR", "gprscdr");
 
   proto_register_field_array(proto_gprscdr, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));

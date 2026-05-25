@@ -39,11 +39,6 @@
 #include "packet-rtp.h"
 #include "packet-rtcp.h"
 #include "packet-t38.h"
-
-#define PNAME  "MULTIMEDIA-SYSTEM-CONTROL"
-#define PSNAME "H.245"
-#define PFNAME "h245"
-
 void proto_register_h245(void);
 void proto_reg_handoff_h245(void);
 
@@ -67,7 +62,7 @@ static int h245_tap;
 static int h245dg_tap;
 static int hf_h245_debug_dissector_try_string;
 
-h245_packet_info *h245_pi=NULL;
+static h245_packet_info *h245_pi=NULL;
 
 static bool h245_reassembly = true;
 static bool h245_shorttypes;
@@ -197,7 +192,7 @@ static const value_string h245_AudioCapability_short_vals[] = {
 
 /* To put the codec type only in COL_INFO when
    an OLC is read */
-const char* codec_type;
+static const char* codec_type;
 static uint32_t rfc_number;
 
 typedef struct _unicast_addr_t {
@@ -258,8 +253,8 @@ static const value_string h245_h239subMessageIdentifier_vals[] = {
 
 /* h223 multiplex codes */
 static h223_set_mc_handle_t h223_set_mc_handle;
-h223_mux_element *h223_me=NULL;
-uint8_t h223_mc=0;
+static h223_mux_element *h223_me;
+static int8_t h223_mc;
 void h245_set_h223_set_mc_handle( h223_set_mc_handle_t handle )
 {
 	h223_set_mc_handle = handle;
@@ -415,9 +410,9 @@ dissect_h245_h245(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, vo
 	upcoming_channel = NULL;
 	codec_type = NULL;
 
-	col_set_str(pinfo->cinfo, COL_PROTOCOL, PSNAME);
+	col_set_str(pinfo->cinfo, COL_PROTOCOL, "H.245");
 
-	it=proto_tree_add_protocol_format(parent_tree, proto_h245, tvb, 0, -1, PSNAME);
+	it=proto_tree_add_protocol_format(parent_tree, proto_h245, tvb, 0, -1, "H.245");
 	tr=proto_item_add_subtree(it, ett_h245);
 
 	/* assume that whilst there is more tvb data, there are more h245 commands */
@@ -485,7 +480,7 @@ void proto_register_h245(void) {
   module_t *h245_module;
 
   /* Register protocol */
-  proto_h245 = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_h245 = proto_register_protocol("MULTIMEDIA-SYSTEM-CONTROL", "H.245", "h245");
   h223_pending_olc_reqs[P2P_DIR_SENT] = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), g_direct_hash, g_direct_equal );
   h223_pending_olc_reqs[P2P_DIR_RECV] = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), g_direct_hash, g_direct_equal );
   h245_pending_olc_reqs = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), wmem_str_hash, g_str_equal);

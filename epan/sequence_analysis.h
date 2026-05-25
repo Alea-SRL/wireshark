@@ -15,10 +15,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __EPAN_SEQUENCE_ANALYSIS_H__
-#define __EPAN_SEQUENCE_ANALYSIS_H__
-
+#pragma once
 #include "ws_symbol_export.h"
 
 #include <glib.h>
@@ -80,6 +77,16 @@ typedef struct _seq_analysis_info {
 /** Structure for information about a registered sequence analysis function */
 typedef struct register_analysis register_analysis_t;
 
+/**
+ * @brief Registers a new sequence analysis.
+ *
+ * @param name Name of the sequence analysis.
+ * @param ui_name User interface name of the sequence analysis.
+ * @param proto_id Protocol ID associated with the sequence analysis.
+ * @param tap_listener Tap listener for the sequence analysis.
+ * @param tap_flags Flags for the tap listener.
+ * @param tap_func Callback function for packet processing.
+ */
 WS_DLL_PUBLIC void register_seq_analysis(const char* name, const char* ui_name, const int proto_id, const char* tap_listener, unsigned tap_flags, tap_packet_cb tap_func);
 
 /** Helper function to get sequence analysis name
@@ -201,8 +208,6 @@ WS_DLL_PUBLIC void sequence_analysis_dump_to_file(FILE *of, seq_analysis_info_t 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* __EPAN_SEQUENCE_ANALYSIS_H__ */
 
 /*
  * Editor modelines

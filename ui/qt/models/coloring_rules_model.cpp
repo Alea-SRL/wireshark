@@ -14,7 +14,7 @@
 #include <errno.h>
 
 #include "ui/ws_ui_util.h" //for color_filter_add_cb
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>
 
 #include <ui/qt/utils/color_utils.h>
 #include <ui/qt/utils/qt_ui_utils.h>
@@ -430,13 +430,15 @@ QMimeData* ColoringRulesModel::mimeData(const QModelIndexList &indexes) const
         if (index.column() == 0)
         {
             ColoringRuleItem * item = root_->child(index.row());
-            QJsonObject entry;
-            entry["disabled"] = item->disabled_;
-            entry["name"] = item->name_;
-            entry["filter"] = item->filter_;
-            entry["foreground"] = QVariant::fromValue(item->foreground_).toString();
-            entry["background"] = QVariant::fromValue(item->background_).toString();
-            data.append(entry);
+            if (item != nullptr) {
+                QJsonObject entry;
+                entry["disabled"] = item->disabled_;
+                entry["name"] = item->name_;
+                entry["filter"] = item->filter_;
+                entry["foreground"] = QVariant::fromValue(item->foreground_).toString();
+                entry["background"] = QVariant::fromValue(item->background_).toString();
+                data.append(entry);
+            }
         }
     }
 

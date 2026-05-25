@@ -7,9 +7,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-#ifndef __DVB_CHARTBL_H__
-#define __DVB_CHARTBL_H__
-
+#pragma once
 #include "ws_symbol_export.h"
 
 #include <epan/proto.h>
@@ -50,13 +48,42 @@ typedef enum {
     DVB_ENCODING_ISO_10646_UTF8_BMP
 } dvb_encoding_e;
 
+/**
+ * @brief Analyzes the character set of a DVB string.
+ *
+ * Determines the encoding of a DVB string based on its first byte and length.
+ *
+ * @param tvb The TVB buffer containing the DVB data.
+ * @param offset The starting offset within the TVB buffer.
+ * @param length The length of the DVB string to analyze.
+ * @param encoding Pointer to store the detected encoding.
+ * @return Number of bytes processed or 1 if invalid.
+ */
 WS_DLL_PUBLIC
 unsigned dvb_analyze_string_charset(tvbuff_t *tvb, int offset, int length,
       dvb_encoding_e *encoding);
 
+/**
+ * @brief Convert DVB encoding to item encoding.
+ *
+ * @param encoding The DVB encoding to convert.
+ * @return The corresponding item encoding.
+ */
 WS_DLL_PUBLIC
 unsigned dvb_enc_to_item_enc(dvb_encoding_e encoding);
 
+/**
+ * @brief Adds a character table to the protocol tree.
+ *
+ * This function adds a character table to the protocol tree based on the provided parameters.
+ *
+ * @param tree The protocol tree to which the character table will be added.
+ * @param hf The field ID for the character table.
+ * @param tvb The TV buffer containing the data.
+ * @param offset The offset within the TV buffer where the data starts.
+ * @param length The length of the data in the TV buffer.
+ * @param encoding The encoding type of the character table.
+ */
 WS_DLL_PUBLIC
 void dvb_add_chartbl(proto_tree *tree, int hf,
         tvbuff_t *tvb, int offset, int length,
@@ -65,8 +92,6 @@ void dvb_add_chartbl(proto_tree *tree, int hf,
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* __DVB_CHARTBL_H__ */
 
 /*
  * Editor modelines  -  https://www.wireshark.org/tools/modelines.html

@@ -23,9 +23,9 @@
 #include <epan/prefs.h>
 #include <epan/sminmpec.h>
 #include <epan/addr_resolv.h>
-#include <epan/ipproto.h>
 #include <epan/expert.h>
 #include <epan/dissectors/packet-eap.h>
+#include <epan/dissectors/packet-ip.h>
 
 #include <wsutil/filesystem.h>
 #include <wsutil/report_message.h>
@@ -124,9 +124,9 @@ typedef struct _wimaxasncp_tlv_new_t {
     value_string* enum_vs;
 } wimaxasncp_tlv_new_t;
 
-wmem_list_t* wimaxasncp_tlvs = NULL;
+static wmem_list_t* wimaxasncp_tlvs = NULL;
 
-wimaxasncp_build_dict_t wimaxasncp_build_dict;
+static wimaxasncp_build_dict_t wimaxasncp_build_dict;
 
 static dissector_handle_t wimaxasncp_handle;
 static dissector_handle_t eap_handle;
@@ -1587,7 +1587,7 @@ static void wimaxasncp_dissect_tlv_value(
         {
             col_append_str(pinfo->cinfo, COL_INFO, ", ");
             col_append_str(pinfo->cinfo, COL_INFO,
-                            val_to_str_ext(pinfo->pool, eap_type, &eap_type_vals_ext, "Unknown type (0x%02X)"));
+                            val_to_str_ext(pinfo->pool, eap_type, get_external_value_string_ext("eap_type_vals_ext"), "Unknown type (0x%02X)"));
         }
 
         col_append_str(pinfo->cinfo, COL_INFO, "]");
@@ -1612,7 +1612,7 @@ static void wimaxasncp_dissect_tlv_value(
             if (eap_code == EAP_REQUEST || eap_code == EAP_RESPONSE)
             {
                 proto_item_append_text(item, ", %s",
-                                       val_to_str_ext(pinfo->pool, eap_type, &eap_type_vals_ext,
+                                       val_to_str_ext(pinfo->pool, eap_type, get_external_value_string_ext("eap_type_vals_ext"),
                                        "Unknown type (0x%02X)"));
             }
             proto_item_append_text(item, ")");
@@ -1818,7 +1818,7 @@ static unsigned dissect_wimaxasncp_tlvs(
             proto_item *type_item;
 
             int tree_length = MIN(
-                (int)(4 + length + pad), tvb_captured_length_remaining(tvb, offset));
+                (4 + length + pad), tvb_captured_length_remaining(tvb, offset));
 
             tlv_item = proto_tree_add_item(
                 tree, tlv_info->hf_root,
@@ -2767,7 +2767,7 @@ wimaxasncp_dictionary_process_file(const char* filename, GSList** tlvs)
     xmlNodePtr root_element = NULL;
     bool status = true;
 
-    doc = xmlReadFile(filename, NULL, XML_PARSE_NOENT);
+    doc = xmlReadFile(filename, NULL, 0);
     if (doc == NULL)
         return false;
 

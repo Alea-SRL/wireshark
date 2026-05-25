@@ -148,7 +148,7 @@ dissect_netrix(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree _U_, void *da
 	proto_item *header_item;
 	proto_tree *netrix_tree;
 	proto_tree *netrix_header_tree;
-	int32_t current_offset = 0, header_offset, identifier_start, identifier_offset, data_start, data_offset, ett;
+	uint32_t current_offset = 0, header_offset, identifier_start, identifier_offset, data_start, data_offset, ett;
 	int32_t header;
 	int32_t record_identifier;
 	int32_t group_number;
@@ -181,8 +181,8 @@ dissect_netrix(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree _U_, void *da
 	current_offset++;
 
 	/* Read header */
-	header_offset = tvb_find_uint8(tvb, current_offset, -1, INDIGOCARE_NETRIX_STX);
-	if(!ws_strtoi32((char*)tvb_get_string_enc(pinfo->pool, tvb, current_offset, header_offset - current_offset, ENC_ASCII|ENC_NA), NULL, &header)) {
+	tvb_find_uint8_remaining(tvb, current_offset, INDIGOCARE_NETRIX_STX, &header_offset);
+	if(!tvb_get_string_int(tvb, current_offset, header_offset - current_offset, ENC_STR_DEC, &header, NULL)) {
 		/* Warn about invalid header? */
 		return 0;
 	}
@@ -250,12 +250,12 @@ dissect_netrix(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree _U_, void *da
 	/* Read records */
 	while (tvb_get_uint8(tvb, current_offset) != INDIGOCARE_NETRIX_ETX) {
 		identifier_start = current_offset;
-		identifier_offset = tvb_find_uint8(tvb, current_offset, -1, INDIGOCARE_NETRIX_US);
-		ws_strtoi32((char*)tvb_get_string_enc(pinfo->pool, tvb, current_offset, identifier_offset - current_offset, ENC_ASCII|ENC_NA), NULL, &record_identifier);
+		tvb_find_uint8_remaining(tvb, current_offset, INDIGOCARE_NETRIX_US, &identifier_offset);
+		tvb_get_string_int(tvb, current_offset, identifier_offset - current_offset, ENC_STR_DEC, &record_identifier, NULL);
 		current_offset = identifier_offset + 1;
 
 		data_start = current_offset;
-		data_offset = tvb_find_uint8(tvb, current_offset, -1, INDIGOCARE_NETRIX_RS);
+		tvb_find_uint8_remaining(tvb, current_offset, INDIGOCARE_NETRIX_RS, &data_offset);
 		record_data = (char*)tvb_get_string_enc(pinfo->pool, tvb, current_offset, data_offset - current_offset, ENC_ASCII|ENC_NA);
 
 		current_offset = data_offset + 1;
@@ -461,7 +461,7 @@ proto_register_netrix(void)
 		NULL, HFILL }
 	},
 	{ &hf_netrix_header_search_conversiontables_none_type,
-		{ "Search converstiontables: no results", "netrix.searchconversiontables.noresult",
+		{ "Search conversiontables: no results", "netrix.searchconversiontables.noresult",
 		FT_NONE, BASE_NONE,
 		NULL, 0x0,
 		NULL, HFILL }
@@ -639,11 +639,7 @@ proto_register_netrix(void)
 		&ett_netrix_unknown
 	};
 
-	proto_netrix = proto_register_protocol (
-		"Netrix Communication Protocol",	/* name */
-		"Netrix",				/* short name */
-		"netrix"				/* abbrev */
-	);
+	proto_netrix = proto_register_protocol ("Netrix Communication Protocol", "Netrix", "netrix");
 
 	proto_register_field_array(proto_netrix, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));

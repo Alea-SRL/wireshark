@@ -43,7 +43,6 @@
  * - STREAM offsets larger than 32-bit are unsupported.
  * - STREAM with sizes larger than 32 bit are unsupported. STREAM sizes can be
  *   up to 62 bit in QUIC, but the TVB and reassembly API is limited to 32 bit.
- * - Out-of-order and overlapping STREAM frame data is not handled.
  * - "Follow QUIC Stream" doesn't work with STREAM IDs larger than 32 bit
  */
 
@@ -384,7 +383,10 @@ typedef struct _quic_crypto_state {
  */
 typedef struct _quic_stream_state {
     uint64_t        stream_id;
+    uint64_t        inorder_offset;
     wmem_tree_t    *multisegment_pdus;
+    wmem_list_t    *ooo_segments;
+    wmem_map_t     *retrans_offsets;
     void           *subdissector_private;
 } quic_stream_state;
 
@@ -512,8 +514,8 @@ quic_multipath_negotiated(quic_info_data_t *conn);
 
 /* Returns the QUIC draft version or 0 if not applicable. */
 static inline uint8_t quic_draft_version(uint32_t version) {
-    /* IETF Draft versions */
-    if ((version >> 8) == 0xff0000) {
+    /* IETF Draft versions (draft-34 is the final draft version) */
+    if ((version ^ 0xff000000) <= 34) {
        return (uint8_t) version;
     }
     /* Facebook mvfst, based on draft -22. */
@@ -1583,6 +1585,8 @@ quic_connection_destroy(void *data, void *user_data _U_)
 /* QUIC Streams tracking and reassembly. {{{ */
 static reassembly_table quic_reassembly_table;
 
+static bool quic_stream_out_of_order = true;
+
 typedef struct _quic_stream_key {
     uint64_t stream_id;
     uint32_t id;
@@ -1646,6 +1650,39 @@ quic_reassembly_table_functions = {
     quic_stream_free_persistent_key
 };
 
+typedef struct _quic_retrans_key {
+    uint64_t pkt_number; /* QUIC packet number */
+    int offset;
+    uint32_t num;        /* Frame number in the capture file, pinfo->num */
+} quic_retrans_key;
+
+static unsigned
+quic_retrans_hash(const void *k)
+{
+    const quic_retrans_key* key = (const quic_retrans_key*) k;
+
+#if 0
+    return wmem_strong_hash((const uint8_t *)key, sizeof(quic_retrans_key));
+#endif
+    unsigned hash_val;
+
+    /* Most of the time the packet number in the capture file suffices. */
+    hash_val = key->num;
+
+    return hash_val;
+}
+
+static int
+quic_retrans_equal(const void *k1, const void *k2)
+{
+    const quic_retrans_key* key1 = (const quic_retrans_key*) k1;
+    const quic_retrans_key* key2 = (const quic_retrans_key*) k2;
+
+    return (key1->num == key2->num) &&
+           (key1->pkt_number == key2->pkt_number) &&
+           (key1->offset == key2->offset);
+}
+
 /** Perform sequence analysis for STREAM frames. */
 static quic_stream_state *
 quic_get_stream_state(packet_info *pinfo, quic_info_data_t *quic_info, bool from_server, uint64_t stream_id)
@@ -1672,6 +1709,9 @@ quic_get_stream_state(packet_info *pinfo, quic_info_data_t *quic_info, bool from
         stream = wmem_new0(wmem_file_scope(), quic_stream_state);
         stream->stream_id = stream_id;
         stream->multisegment_pdus = wmem_tree_new(wmem_file_scope());
+        stream->ooo_segments = wmem_list_new(wmem_file_scope());
+        stream->retrans_offsets = wmem_map_new(wmem_file_scope(),
+                quic_retrans_hash, quic_retrans_equal);
         wmem_map_insert(streams, &stream->stream_id, stream);
     }
     return stream;
@@ -1698,6 +1738,250 @@ process_quic_stream(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *t
     }
 }
 
+/* Returns the maximum contiguous sequence number of the reassembly associated
+ * with the msp *if* a new fragment were added ending in the given maxnextseq.
+ * The new fragment is from the current frame and may not have been added yet.
+ */
+static uint64_t
+find_maxnextseq(packet_info *pinfo, struct tcp_multisegment_pdu *msp, quic_stream_info *stream_info, uint64_t maxnextseq)
+{
+    fragment_head *fd_head;
+
+    DISSECTOR_ASSERT(msp);
+
+    fd_head = fragment_get(&quic_reassembly_table, pinfo, msp->first_frame, stream_info);
+    /* msp implies existence of fragments, this should never be NULL. */
+    DISSECTOR_ASSERT(fd_head);
+
+    /* Find length of contiguous fragments.
+     * Start with the first gap, but the new fragment is allowed to
+     * fill that gap. */
+    uint64_t max_len = maxnextseq - msp->seq;
+    fragment_item* frag = (fd_head->first_gap) ? fd_head->first_gap : fd_head->next;
+    for (; frag && frag->offset <= max_len; frag = frag->next) {
+        max_len = MAX(max_len, frag->offset + frag->len);
+    }
+
+    return max_len + msp->seq;
+}
+
+#if 0
+// For later implementation
+
+static struct tcp_multisegment_pdu*
+split_msp(packet_info *pinfo, struct tcp_multisegment_pdu *msp, quic_stream_info *stream_info, quic_stream_state *stream)
+{
+    fragment_head *fd_head;
+    uint32_t first_frame = 0;
+    uint32_t last_frame = 0;
+    const uint32_t split_offset = pinfo->desegment_offset;
+
+    fd_head = fragment_get(&quic_reassembly_table, pinfo, msp->first_frame, stream_info);
+    /* This is for splitting defragmented MSPs, so fd_head should exist
+     * and be defragmented. This also ensures that fd_i->tvb_data exists.
+     */
+    DISSECTOR_ASSERT(fd_head && fd_head->flags & FD_DEFRAGMENTED);
+
+    fragment_item *fd_i, *first_frag = NULL;
+
+    /* The fragment list is sorted in offset order, but not nec. frame order
+     * or end offset order due to out of order reassembly and possible overlap.
+     * fd_i->offset < split_offset - some bytes are before the split
+     * fd_i->offset + fd_i->len > split_offset - some bytes are after split
+     * Look through all the fragments that have some data before the split point.
+     */
+    for (fd_i = fd_head->next; fd_i && (fd_i->offset < split_offset); fd_i = fd_i->next) {
+        if (last_frame < fd_i->frame) {
+            last_frame = fd_i->frame;
+        }
+        if (fd_i->offset + fd_i->len > split_offset) {
+            if (first_frag == NULL) {
+                first_frag = fd_i;
+                first_frame = fd_i->frame;
+            } else if (fd_i->frame < first_frame) {
+                first_frame = fd_i->frame;
+            }
+        }
+    };
+
+    /* Now look through all the remaining fragments that only have bytes after
+     * the split.
+     */
+    for (; fd_i; fd_i = fd_i->next) {
+        uint32_t frag_end = fd_i->offset + fd_i->len;
+        if (split_offset <= frag_end) {
+            if (first_frag == NULL) {
+                first_frag = fd_i;
+                first_frame = fd_i->frame;
+            } else if (fd_i->frame < first_frame) {
+                first_frame = fd_i->frame;
+            }
+        }
+    }
+
+    /* We only call this when the frame the fragments were reassembled in
+     * (which is the current frame) includes some data before the split
+     * point, so that it won't change and we can be consistent dissecting
+     * between passes. There's a few cases where there's no data after the
+     * split, e.g. HTTP with no Content-Length and REASSEMBLE_UNTIL_FIN.
+     */
+    DISSECTOR_ASSERT(fd_head->reassembled_in == last_frame);
+
+    uint32_t new_seq = msp->seq + pinfo->desegment_offset;
+    struct tcp_multisegment_pdu *newmsp;
+    newmsp = pdu_store_sequencenumber_of_next_pdu(pinfo, new_seq,
+        new_seq+1, stream->multisegment_pdus);
+    if (first_frame == 0) {
+        newmsp->flags |= MSP_FLAGS_MISSING_FIRST_SEGMENT;
+    }
+    newmsp->first_frame = first_frame;
+    newmsp->nxtpdu = msp->nxtpdu;
+
+    /* XXX: Could do the adding the new fragments in fragment_truncate */
+    for (fd_i = first_frag; fd_i; fd_i = fd_i->next) {
+        uint32_t frag_offset = fd_i->offset;
+        uint32_t frag_len = fd_i->len;
+        /* Check for some unusual out of order overlapping segment situations. */
+        if (split_offset < frag_offset + frag_len) {
+            if (fd_i->offset < split_offset) {
+                frag_offset = split_offset;
+                frag_len -= (split_offset - fd_i->offset);
+            }
+            fragment_add_out_of_order(&quic_reassembly_table, fd_head->tvb_data,
+                         frag_offset, pinfo, first_frame, stream_info,
+                         frag_offset - split_offset, frag_len, true, fd_i->frame);
+        }
+    }
+
+    fragment_truncate(&quic_reassembly_table, pinfo, msp->first_frame, stream_info, split_offset);
+    msp->nxtpdu = msp->seq + split_offset;
+
+    /* The newmsp nxtpdu will be adjusted after leaving this function. */
+    return newmsp;
+}
+#endif
+
+typedef struct _ooo_segment_item {
+    uint32_t frame;
+    uint32_t seq;
+    uint32_t len;
+    uint8_t *data;
+} ooo_segment_item;
+
+static int
+compare_ooo_segment_item(const void *a, const void *b)
+{
+    const ooo_segment_item *fd_a = a;
+    const ooo_segment_item *fd_b = b;
+
+    if (fd_a->seq < fd_b->seq)
+        return -1;
+
+    if (fd_a->seq > fd_b->seq)
+        return 1;
+
+    if (fd_a->frame < fd_b->frame)
+        return -1;
+
+    if (fd_a->frame > fd_b->frame)
+        return 1;
+
+    return 0;
+}
+
+/* Search through our list of out of order segments and add the ones that are
+ * now contiguous onto a MSP until we use them all or reach another gap.
+ *
+ * If the MSP parameter is a incomplete, returns it with any OOO segments added.
+ * If the MSP parameter is NULL or complete, returns a newly created MSP with
+ * OOO segments added, or NULL if there were no segments to add.
+ */
+static struct tcp_multisegment_pdu *
+msp_add_out_of_order(packet_info *pinfo, struct tcp_multisegment_pdu *msp, quic_stream_info *stream_info, quic_stream_state *stream, uint32_t seq)
+{
+
+    /* Whether a previous MSP exists with missing segments. */
+    bool has_unfinished_msp = msp && !(msp->flags & MSP_FLAGS_GOT_ALL_SEGMENTS);
+    bool updated_maxnextseq = false;
+
+    if (msp) {
+        uint64_t maxnextseq = find_maxnextseq(pinfo, msp, stream_info, stream->inorder_offset);
+        stream->inorder_offset = MAX(stream->inorder_offset, maxnextseq);
+        updated_maxnextseq = true;
+    }
+    wmem_list_frame_t *curr_entry;
+    curr_entry = wmem_list_head(stream->ooo_segments);
+    ooo_segment_item *fd;
+    tvbuff_t         *tvb_data;
+    while (curr_entry) {
+        fd = (ooo_segment_item *)wmem_list_frame_data(curr_entry);
+        if (stream->inorder_offset < fd->seq) {
+            /* There might be segments already added to the msp that now extend
+             * the maximum contiguous sequence number. Check for them. */
+            if (msp && !updated_maxnextseq) {
+                stream->inorder_offset = find_maxnextseq(pinfo, msp, stream_info, stream->inorder_offset);
+                updated_maxnextseq = true;
+            }
+            if (stream->inorder_offset < fd->seq) {
+                break;
+            }
+        }
+        /* We have filled in the gap, so this out of order
+         * segment is now contiguous and can be processed along
+         * with the segment we just received.
+         */
+        stream->inorder_offset = fd->seq + fd->len;
+        tvb_data = tvb_new_real_data(fd->data, fd->len, fd->len);
+        if (has_unfinished_msp) {
+
+            /* Increase the expected MSP size if necessary. Yes, the
+             * subdissector may have told us that a PDU ended here, but we
+             * might have enough newly contiguous data to dissect another
+             * PDU past that, and we should send that to the subdissector
+             * too. */
+            if (msp->nxtpdu < fd->seq + fd->len) {
+                msp->nxtpdu = fd->seq + fd->len;
+            }
+            /* Add this OOO segment to the unfinished MSP */
+            fragment_add_out_of_order(&quic_reassembly_table,
+                tvb_data, 0,
+                pinfo, msp->first_frame, stream_info,
+                fd->seq - msp->seq, fd->len,
+                msp->nxtpdu, fd->frame);
+        } else {
+            /* No MSP in progress, so create one starting
+             * at the sequence number of segment received
+             * in this frame. Note that we will be adding
+             * the first segment below, and this is the frame
+             * of the first segment, so first_frame_with_seq
+             * is already correct (and unnecessary) and
+             * we don't need MSP_FLAGS_MISSING_FIRST_SEGMENT. */
+            /* Also note that this makes "msp->first_frame" be this frame,
+             * not any earlier OOO frame that we're adding on. That's what
+             * we want, even if it is a bit of misnomer. */
+            msp = pdu_store_sequencenumber_of_next_pdu(pinfo,
+                seq, fd->seq + fd->len,
+                stream->multisegment_pdus);
+            fragment_add_out_of_order(&quic_reassembly_table,
+                        tvb_data, 0, pinfo, msp->first_frame,
+                        stream_info, fd->seq - msp->seq, fd->len,
+                        msp->nxtpdu, fd->frame);
+            has_unfinished_msp = true;
+        }
+        updated_maxnextseq = false;
+        tvb_free(tvb_data);
+        wmem_list_remove_frame(stream->ooo_segments, curr_entry);
+        curr_entry = wmem_list_head(stream->ooo_segments);
+
+    }
+    /* There might be segments already added to the msp that now extend
+     * the maximum contiguous sequence number. Check for them. */
+    if (msp && !updated_maxnextseq) {
+        stream->inorder_offset = find_maxnextseq(pinfo, msp, stream_info, stream->inorder_offset);
+    }
+    return msp;
+}
+
 /**
  * Reassemble stream data within a STREAM frame.
  */
@@ -1715,9 +1999,12 @@ desegment_quic_stream(tvbuff_t *tvb, int offset, int length, packet_info *pinfo,
     int another_pdu_follows;
     int deseg_offset;
     struct tcp_multisegment_pdu *msp;
+    /* XXX - Things probably go wrong if the stream offset doesn't fit in
+     * a uint32_t. Should we just DISSECTOR_ASSERT until that's handled? */
     uint32_t seq = (uint32_t)stream_info->stream_offset;
     const uint32_t nxtseq = seq + (uint32_t)length;
     uint32_t reassembly_id = 0;
+    bool first_pdu = true;
 
     // XXX fix the tvb accessors below such that no new tvb is needed.
     tvb = tvb_new_subset_length(tvb, 0, offset + length);
@@ -1750,15 +2037,22 @@ again:
      * segment PDU)?
      */
     if ((msp = (struct tcp_multisegment_pdu *)wmem_tree_lookup32(stream->multisegment_pdus, seq)) &&
-            nxtseq <= msp->nxtpdu) {
-        // XXX: This also happens the second time through the data for an MSP normally
-        // TODO show expert info for retransmission? Additional checks may be
-        // necessary here to tell a retransmission apart from other (normal?)
-        // conditions. See also similar code in packet-tcp.c.
-#if 0
-        proto_tree_add_debug_text(tree, "TODO retransmission expert info frame %d stream_id=%" PRIu64 " offset=%d visited=%d reassembly_id=0x%08x",
-                pinfo->num, stream->stream_id, offset, PINFO_FD_VISITED(pinfo), reassembly_id);
-#endif
+            nxtseq <= msp->nxtpdu && msp->last_frame != pinfo->num) {
+
+        if (msp->first_frame != pinfo->num) {
+            proto_tree_add_expert_remaining(tree, pinfo, &ei_quic_retransmission, tvb, offset);
+        } else {
+            fh = fragment_get(&quic_reassembly_table, pinfo, msp->first_frame, stream_info);
+            if (fh != NULL && fh->reassembled_in != 0 && fh->reassembled_in != pinfo->num) {
+                proto_item *item = proto_tree_add_uint(tree, hf_quic_reassembled_in, tvb, 0,
+                                                       0, fh->reassembled_in);
+                proto_item_set_generated(item);
+                if (first_pdu) {
+                    col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ", "[QUIC PDU reassembled in %u]",
+                        fh->reassembled_in);
+                }
+            }
+        }
         return;
     }
     /* Else, find the most previous PDU starting before this sequence number */
@@ -1784,6 +2078,89 @@ again:
         reassembly_id = msp ? msp->first_frame : pinfo->num;
     }
 
+    bool has_gap = false;
+    quic_retrans_key *tmp_key = wmem_new(pinfo->pool, quic_retrans_key);
+    tmp_key->num = pinfo->num;
+    tmp_key->offset = offset;
+    tmp_key->pkt_number = stream_info->stream_offset;
+
+    /* if (! REASSEMBLE_UNTIL_FIN ) */ {
+        if (!PINFO_FD_VISITED(pinfo)) {
+            if (stream->inorder_offset < seq) {
+                /* A gap. */
+                has_gap = true;
+            } else if (nxtseq <= stream->inorder_offset) {
+                /* No new data. Remember this. */
+                proto_tree_add_expert(tree, pinfo, &ei_quic_retransmission, tvb, offset, length);
+                uint64_t* contiguous_offset = wmem_new(wmem_file_scope(), uint64_t);
+                *contiguous_offset = stream->inorder_offset;
+                quic_retrans_key *fkey = wmem_new(wmem_file_scope(), quic_retrans_key);
+                *fkey = *tmp_key;
+                wmem_map_insert(stream->retrans_offsets, fkey, contiguous_offset);
+                return;
+            } else {
+                /* No gap, but new data that increases the inorder offset.
+                 * Check for overlap. */
+                if (seq < stream->inorder_offset) {
+                    /* XXX: Retrieve the previous data and compare for conflicts? */
+                    proto_tree_add_expert(tree, pinfo, &ei_quic_overlap, tvb, offset, length);
+                    uint64_t overlap = stream->inorder_offset - seq;
+                    length -= (int)overlap;
+                    seq = (uint32_t)(stream->inorder_offset);
+                    offset += (uint32_t)(overlap);
+                    /* Store this offset */
+                    uint64_t* contiguous_offset = wmem_new(wmem_file_scope(), uint64_t);
+                    *contiguous_offset = stream->inorder_offset;
+                    quic_retrans_key *fkey = wmem_new(wmem_file_scope(), quic_retrans_key);
+                    *fkey = *tmp_key;
+                    wmem_map_insert(stream->retrans_offsets, fkey, contiguous_offset);
+                }
+
+                stream->inorder_offset = nxtseq;
+
+                if (quic_stream_out_of_order) {
+                    /* Look for any OOO packets that are now contiguous. */
+                    msp = msp_add_out_of_order(pinfo, msp, stream_info, stream, seq);
+                }
+            }
+        } else {
+            /* Retrieve any per-frame state about retransmitted and overlapping
+             * data.
+             */
+            uint64_t *contiguous_offset = (uint64_t *)wmem_map_lookup(stream->retrans_offsets, tmp_key);
+            if (contiguous_offset != NULL) {
+                if (stream_info->stream_offset + length <= *contiguous_offset) {
+                    proto_tree_add_expert(tree, pinfo, &ei_quic_retransmission, tvb, offset, length);
+                    return;
+                } else if (stream_info->stream_offset < *contiguous_offset) {
+                    /* XXX: Retrieve the previous data and compare for conflicts? */
+                    proto_tree_add_expert(tree, pinfo, &ei_quic_overlap, tvb, offset, length);
+                    uint64_t overlap = *contiguous_offset - stream_info->stream_offset;
+                    length -= (int)overlap;
+                    seq = (uint32_t)(*contiguous_offset);
+                    offset += (uint32_t)(overlap);
+                } else {
+                    DISSECTOR_ASSERT_NOT_REACHED();
+                }
+            }
+
+            if (quic_stream_out_of_order) {
+                /* If we have visited this frame before, look for the frame in the
+                 * list of unused out of order segments. Since we know the gap will
+                 * never be filled, we could pass it to the subdissector, but
+                 * we want to be consistent between passes.  */
+                ooo_segment_item *fd;
+                fd = wmem_new0(pinfo->pool, ooo_segment_item);
+                fd->frame = pinfo->num;
+                fd->seq = seq;
+                fd->len = nxtseq - seq;
+                if (wmem_list_find_custom(stream->ooo_segments, fd, compare_ooo_segment_item)) {
+                    has_gap = true;
+                }
+            }
+        }
+    }
+
     if (msp && msp->seq <= seq && msp->nxtpdu > seq) {
         int len;
 
@@ -1802,6 +2179,26 @@ again:
             len = MIN(nxtseq, msp->nxtpdu) - seq;
         }
         last_fragment_len = len;
+
+        if (quic_stream_out_of_order /* && ! REASSEMBLE_UNTIL_FIN */ ) {
+            /*
+             * If the previous segment requested more data (setting
+             * FD_PARTIAL_REASSEMBLY as the next segment length is unknown), but
+             * subsequently an OoO segment was received (for an earlier hole),
+             * then "fragment_add" would truncate the reassembled PDU to the end
+             * of this OoO segment. To prevent that, explicitly specify the MSP
+             * length before calling "fragment_add".
+             *
+             * When a subdissector requests reassembly at the end of the
+             * connection (DESEGMENT_UNTIL_FIN), then it is not
+             * possible for an earlier segment to complete reassembly
+             * (more_frags for fragment_add is always true). Thus we do not
+             * have to worry about increasing the fragment length here.
+             */
+            fragment_reset_tot_len(&quic_reassembly_table, pinfo,
+                                   msp->first_frame, stream_info,
+                                   MAX(seq + len, msp->nxtpdu) - msp->seq);
+        }
 
         fh = fragment_add(&quic_reassembly_table, tvb, offset,
                           pinfo, reassembly_id, stream_info,
@@ -1830,6 +2227,30 @@ again:
         &&  (len > 0)) {
             another_pdu_follows=msp->nxtpdu - seq;
         }
+    } else if (has_gap && quic_stream_out_of_order) {
+        /* This is an OOO segment with a gap and past the known end of
+         * the current MSP, if any. We don't know for certain which MSP
+         * it belongs to, and the reassembly functions don't let us remove
+         * fragment items added by mistake. Keep it around in a separate
+         * structure, and add it later.
+         *
+         * On the second and later passes, we know that this gap will
+         * never be filled in, so we could hand the segment to the
+         * subdissector anyway. However, we want dissection to be
+         * consistent between passes.
+         */
+        if (!PINFO_FD_VISITED(pinfo)) {
+            ooo_segment_item *fd;
+            fd = wmem_new0(wmem_file_scope(), ooo_segment_item);
+            fd->frame = pinfo->num;
+            fd->seq = seq;
+            fd->len = nxtseq - seq;
+            /* We only enter here if dissect_tcp set can_desegment,
+             * which means that these bytes exist. */
+            fd->data = tvb_memdup(wmem_file_scope(), tvb, offset, fd->len);
+            wmem_list_append_sorted(stream->ooo_segments, fd, compare_ooo_segment_item);
+        }
+        fh = NULL;
     } else {
         /* This segment was not found in our table, so it doesn't
          * contain a continuation of a higher-level PDU.
@@ -1901,6 +2322,9 @@ again:
                  * being a new higher-level PDU that also
                  * needs desegmentation).
                  */
+                if (quic_stream_out_of_order && !PINFO_FD_VISITED(pinfo)) {
+                    msp->flags &= ~MSP_FLAGS_GOT_ALL_SEGMENTS;
+                }
                 fragment_set_partial_reassembly(&quic_reassembly_table,
                                                 pinfo, reassembly_id, stream_info);
 
@@ -1944,8 +2368,10 @@ again:
                 another_pdu_follows = 0;
                 offset += last_fragment_len;
                 seq += last_fragment_len;
-                if (tvb_captured_length_remaining(tvb, offset) > 0)
+                if (tvb_captured_length_remaining(tvb, offset) > 0) {
+                    first_pdu = false;
                     goto again;
+                }
             } else {
                 proto_item *frag_tree_item;
                 proto_tree *parent_tree = proto_tree_get_parent(tree);
@@ -1989,9 +2415,10 @@ again:
                         deseg_seq, nxtseq+pinfo->desegment_len, stream->multisegment_pdus);
                 }
 
-                /* add this segment as the first one for this new pdu */
+                /* Add this segment as the first one for this new pdu.
+                 * Use the the new MSP's reassembly ID (its first frame). */
                 fragment_add(&quic_reassembly_table, tvb, deseg_offset,
-                             pinfo, reassembly_id, stream_info,
+                             pinfo, msp->first_frame, stream_info,
                              0, nxtseq - deseg_seq,
                              nxtseq < msp->nxtpdu);
             }
@@ -2000,8 +2427,8 @@ again:
              * the MSP should already be created. Retrieve it to see if we
              * know what later frame the PDU is reassembled in.
              */
-            if (((struct tcp_multisegment_pdu *)wmem_tree_lookup32(stream->multisegment_pdus, deseg_seq))) {
-                fh = fragment_get(&quic_reassembly_table, pinfo, reassembly_id, stream_info);
+            if ((msp = (struct tcp_multisegment_pdu *)wmem_tree_lookup32(stream->multisegment_pdus, deseg_seq))) {
+                fh = fragment_get(&quic_reassembly_table, pinfo, msp->first_frame, stream_info);
             }
         }
     }
@@ -2016,6 +2443,10 @@ again:
             proto_item *item = proto_tree_add_uint(tree, hf_quic_reassembled_in, tvb, 0,
                                                    0, fh->reassembled_in);
             proto_item_set_generated(item);
+            if (first_pdu) {
+                col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ", "[QUIC PDU reassembled in %u]",
+                    fh->reassembled_in);
+            }
         }
 
         /* TODO: Show what's left in the packet as a raw QUIC "segment", like
@@ -2031,6 +2462,7 @@ again:
         pinfo->can_desegment = 2;
         offset += another_pdu_follows;
         seq += another_pdu_follows;
+        first_pdu = false;
         goto again;
     }
 }
@@ -2064,38 +2496,6 @@ static bool quic_crypto_out_of_order = true;
 
 static reassembly_table quic_crypto_reassembly_table;
 
-typedef struct _quic_crypto_retrans_key {
-    uint64_t pkt_number; /* QUIC packet number */
-    int offset;
-    uint32_t num;        /* Frame number in the capture file, pinfo->num */
-} quic_crypto_retrans_key;
-
-static unsigned
-quic_crypto_retrans_hash(const void *k)
-{
-    const quic_crypto_retrans_key* key = (const quic_crypto_retrans_key*) k;
-
-#if 0
-    return wmem_strong_hash((const uint8_t *)key, sizeof(quic_crypto_retrans_key));
-#endif
-    unsigned hash_val;
-
-    /* Most of the time the packet number in the capture file suffices. */
-    hash_val = key->num;
-
-    return hash_val;
-}
-
-static int
-quic_crypto_retrans_equal(const void *k1, const void *k2)
-{
-    const quic_crypto_retrans_key* key1 = (const quic_crypto_retrans_key*) k1;
-    const quic_crypto_retrans_key* key2 = (const quic_crypto_retrans_key*) k2;
-
-    return (key1->num == key2->num) &&
-           (key1->pkt_number == key2->pkt_number) &&
-           (key1->offset == key2->offset);
-}
 
 static quic_crypto_state *
 quic_get_crypto_state(packet_info *pinfo, quic_info_data_t *quic_info, bool from_server, const uint8_t encryption_level)
@@ -2122,7 +2522,7 @@ quic_get_crypto_state(packet_info *pinfo, quic_info_data_t *quic_info, bool from
         crypto = wmem_new0(wmem_file_scope(), quic_crypto_state);
         crypto->multisegment_pdus = wmem_tree_new(wmem_file_scope());
         crypto->retrans_offsets = wmem_map_new(wmem_file_scope(),
-                quic_crypto_retrans_hash, quic_crypto_retrans_equal);
+                quic_retrans_hash, quic_retrans_equal);
         crypto->encryption_level = encryption_level;
         wmem_map_insert(cryptos, GUINT_TO_POINTER(encryption_level), crypto);
     }
@@ -2207,7 +2607,7 @@ desegment_quic_crypto(tvbuff_t *tvb, int offset, int length, packet_info *pinfo,
      * file frame, but we can't easily get that since the tvb is the
      * result of decryption.
      */
-    quic_crypto_retrans_key *tmp_key = wmem_new(pinfo->pool, quic_crypto_retrans_key);
+    quic_retrans_key *tmp_key = wmem_new(pinfo->pool, quic_retrans_key);
     tmp_key->num = pinfo->num;
     tmp_key->offset = offset;
     tmp_key->pkt_number = crypto_info->packet_number;
@@ -2218,7 +2618,7 @@ desegment_quic_crypto(tvbuff_t *tvb, int offset, int length, packet_info *pinfo,
             proto_tree_add_expert(tree, pinfo, &ei_quic_retransmission, tvb, offset, length);
             uint64_t* contiguous_offset = wmem_new(wmem_file_scope(), uint64_t);
             *contiguous_offset = crypto->max_contiguous_offset;
-            quic_crypto_retrans_key *fkey = wmem_new(wmem_file_scope(), quic_crypto_retrans_key);
+            quic_retrans_key *fkey = wmem_new(wmem_file_scope(), quic_retrans_key);
             *fkey = *tmp_key;
             wmem_map_insert(crypto->retrans_offsets, fkey, contiguous_offset);
             return;
@@ -2232,7 +2632,7 @@ desegment_quic_crypto(tvbuff_t *tvb, int offset, int length, packet_info *pinfo,
             /* Store this offset */
             uint64_t* contiguous_offset = wmem_new(wmem_file_scope(), uint64_t);
             *contiguous_offset = crypto->max_contiguous_offset;
-            quic_crypto_retrans_key *fkey = wmem_new(wmem_file_scope(), quic_crypto_retrans_key);
+            quic_retrans_key *fkey = wmem_new(wmem_file_scope(), quic_retrans_key);
             *fkey = *tmp_key;
             wmem_map_insert(crypto->retrans_offsets, fkey, contiguous_offset);
         }
@@ -4041,9 +4441,7 @@ dissect_quic_long_header_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *q
     uint32_t    dcil, scil;
     proto_item  *ti;
 
-    version = tvb_get_ntohl(tvb, offset);
-
-    ti = proto_tree_add_item(quic_tree, hf_quic_version, tvb, offset, 4, ENC_BIG_ENDIAN);
+    ti = proto_tree_add_item_ret_uint(quic_tree, hf_quic_version, tvb, offset, 4, ENC_BIG_ENDIAN, &version);
     if ((version & 0x0F0F0F0F) == 0x0a0a0a0a) {
         proto_item_append_text(ti, " (Forcing Version Negotiation)");
     }
@@ -4554,10 +4952,10 @@ quic_get_message_tvb(tvbuff_t *tvb, const unsigned offset, const quic_cid_t *dci
         }
     } else {
         if (quic_gso_heur_dcid_len && (dcid->len >= quic_gso_heur_dcid_len)) {
+            unsigned needle_pos;
             unsigned dcid_offset = offset + 1;
             tvbuff_t *needle_tvb = tvb_new_subset_length(tvb, dcid_offset, dcid->len);
-            int needle_pos = tvb_find_tvb(tvb, needle_tvb, dcid_offset + dcid->len);
-            if (needle_pos != -1) {
+            if (tvb_find_tvb_remaining(tvb, needle_tvb, dcid_offset + dcid->len, &needle_pos)) {
                 return tvb_new_subset_length(tvb, offset, needle_pos - offset - 1);
             }
         }
@@ -5173,8 +5571,9 @@ follow_quic_tap_listener(void *tapdata, packet_info *pinfo, epan_dissect_t *edt 
     // XXX: Ideally, we should also deal with stream retransmission
     // and out of order packets in a similar manner to the TCP dissector,
     // using the offset, plus ACKs and other information.
-    follow_record->data = g_byte_array_sized_new(tvb_captured_length(follow_data->tvb));
-    follow_record->data = g_byte_array_append(follow_record->data, tvb_get_ptr(follow_data->tvb, 0, -1), tvb_captured_length(follow_data->tvb));
+    unsigned length = tvb_captured_length(follow_data->tvb);
+    follow_record->data = g_byte_array_sized_new(length);
+    follow_record->data = g_byte_array_append(follow_record->data, tvb_get_ptr(follow_data->tvb, 0, length), length);
     follow_record->packet_num = pinfo->fd->num;
     follow_record->abs_ts = pinfo->fd->abs_ts;
 
@@ -5966,6 +6365,12 @@ proto_register_quic(void)
         "Whether out-of-order CRYPTO frames should be buffered and reordered before "
         "passing them to the TLS handshake dissector.",
         &quic_crypto_out_of_order);
+
+    prefs_register_bool_preference(quic_module, "reassemble_stream_out_of_order",
+        "Reassemble out-of-order STREAM frames",
+        "Whether out-of-order STREAM frames should be buffered and reordered before "
+        "passing them to the payload dissector.",
+        &quic_stream_out_of_order);
 
     prefs_register_uint_preference(quic_module, "gso_heur_min_dcid_len",
         "Search for coalesced short header packets at DCID length",

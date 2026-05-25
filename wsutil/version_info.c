@@ -40,8 +40,6 @@
 //#include <zlib-ng.h>
 //#endif
 
-#include "vcs_version.h"
-
 #include <wsutil/cpu_info.h>
 #include <wsutil/os_version_info.h>
 #include <wsutil/crash_info.h>
@@ -419,15 +417,19 @@ get_compiler_info(GString *str)
 			 * though the MSVC compiler toolset in VS2017 delivers many new
 			 * features and conformance improvements it is a minor version,
 			 * compatible update from 14.00 in VS2015 to 14.10 in VS2017.
+			 *
+			 * https://learn.microsoft.com/en-us/cpp/overview/compiler-versions
 			 */
 			#if COMPILER_MINOR_VERSION < 10
 				#define VS_VERSION	"2015"
 			#elif COMPILER_MINOR_VERSION < 20
 				#define VS_VERSION	"2017"
 			#elif COMPILER_MINOR_VERSION < 30
-			#define VS_VERSION	"2019"
-			#else
+				#define VS_VERSION	"2019"
+			#elif COMPILER_MINOR_VERSION < 50
 				#define VS_VERSION	"2022"
+			#else
+				#define VS_VERSION	"2026"
 			#endif
 		#else
 			/*
@@ -443,7 +445,7 @@ get_compiler_info(GString *str)
 		 * COMPILER_BUILD_NUMBER, and _MSC_BUILD, the last of which is
 		 * "the revision number element of the compiler's version number",
 		 * which I guess is not to be confused with the build number,
-		 * the _BUILD in the name nonwithstanding.
+		 * the _BUILD in the name notwithstanding.
 		 */
 		g_string_append_printf(str, "Microsoft Visual Studio " VS_VERSION " (VC++ %d.%d, build %d)",
 			VCPP_MAJOR_VERSION, COMPILER_MINOR_VERSION, COMPILER_BUILD_NUMBER);
@@ -623,41 +625,6 @@ get_runtime_version_info(gather_feature_func gather_runtime)
 	return str;
 }
 
-/*
- * Return a version number string for Wireshark, including, for builds
- * from a tree checked out from Wireshark's version control system,
- * something identifying what version was checked out.
- */
-const char *
-get_ws_vcs_version_info(void)
-{
-#ifdef WIRESHARK_VCS_VERSION
-	return VERSION " (" WIRESHARK_VCS_VERSION ")";
-#else
-	return VERSION;
-#endif
-}
-
-const char *
-get_ss_vcs_version_info(void)
-{
-#ifdef STRATOSHARK_VCS_VERSION
-	return STRATOSHARK_VERSION " (" STRATOSHARK_VCS_VERSION ")";
-#else
-	return STRATOSHARK_VERSION;
-#endif
-}
-
-const char *
-get_ws_vcs_version_info_short(void)
-{
-#ifdef WIRESHARK_VCS_VERSION
-	return WIRESHARK_VCS_VERSION;
-#else
-	return VERSION;
-#endif
-}
-
 void
 get_ws_version_number(int *major, int *minor, int *micro)
 {
@@ -701,7 +668,7 @@ const char *
 get_copyright_info(void)
 {
 	return
-		"Copyright 1998-2025 Gerald Combs <gerald@wireshark.org> and contributors.";
+		"Copyright 1998-2026 Gerald Combs <gerald@wireshark.org> and contributors.";
 }
 
 const char *

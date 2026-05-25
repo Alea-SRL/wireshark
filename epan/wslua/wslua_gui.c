@@ -16,6 +16,7 @@
 #include <epan/wmem_scopes.h>
 
 #include "wslua.h"
+#include "wslua_debugger.h"
 
 /* WSLUA_MODULE Gui GUI Support */
 struct _lua_menu_data {
@@ -24,8 +25,12 @@ struct _lua_menu_data {
 };
 
 static int menu_cb_error_handler(lua_State* L) {
-    const char* error =  lua_tostring(L,1);
-    report_failure("Lua: Error during execution of Menu callback:\n %s",error);
+    const char* error = lua_tostring(L,1);
+    if (wslua_debugger_capture_runtime_error(L, error)) {
+        ws_warning("Lua: Error during execution of Menu callback:\n %s",error);
+    } else {
+        report_failure("Lua: Error during execution of Menu callback:\n %s",error);
+    }
     return 0;
 }
 
@@ -38,14 +43,15 @@ WSLUA_FUNCTION wslua_gui_enabled(lua_State* L) { /* Checks if we're running insi
 static void lua_menu_callback(void *data) {
     struct _lua_menu_data* md = (struct _lua_menu_data *)data;
     lua_State* L = md->L;
+    int status;
 
     lua_settop(L,0);
     lua_pushcfunction(L,menu_cb_error_handler);
     lua_rawgeti(L, LUA_REGISTRYINDEX, md->cb_ref);
 
-    switch ( lua_pcall(L,0,0,1) ) {
-        case 0:
-            break;
+    status = lua_pcall(L, 0, 0, 1);
+    if (status != LUA_OK && !wslua_debugger_after_pcall_failure(L)) {
+        switch (status) {
         case LUA_ERRRUN:
             ws_warning("Runtime error while calling menu callback");
             break;
@@ -58,6 +64,7 @@ static void lua_menu_callback(void *data) {
         default:
             ws_assert_not_reached();
             break;
+        }
     }
 
     return;
@@ -148,8 +155,12 @@ void wslua_deregister_menus(void) {
  * @return Always returns 0
  */
 static int packet_menu_cb_error_handler(lua_State* L) {
-    const char* error =  lua_tostring(L,1);
-    report_failure("Lua: Error During execution of Packet Menu Callback:\n %s",error);
+    const char* error = lua_tostring(L,1);
+    if (wslua_debugger_capture_runtime_error(L, error)) {
+        ws_warning("Lua: Error During execution of Packet Menu Callback:\n %s",error);
+    } else {
+        report_failure("Lua: Error During execution of Packet Menu Callback:\n %s",error);
+    }
     return 0;
 }
 
@@ -164,6 +175,7 @@ static void lua_custom_packet_menu_callback(void *data, GPtrArray *finfo_array) 
     // _lua_menu_data is State + the integer index of a callback.
     struct _lua_menu_data* md = (struct _lua_menu_data *)data;
     lua_State* L = md->L;
+    int status;
 
     lua_settop(L,0);
     lua_pushcfunction(L,packet_menu_cb_error_handler);
@@ -177,9 +189,9 @@ static void lua_custom_packet_menu_callback(void *data, GPtrArray *finfo_array) 
         items_found++;
     }
 
-    switch ( lua_pcall(L,items_found,0,1) ) {
-        case 0:
-            break;
+    status = lua_pcall(L, items_found, 0, 1);
+    if (status != LUA_OK && !wslua_debugger_after_pcall_failure(L)) {
+        switch (status) {
         case LUA_ERRRUN:
             g_warning("Runtime error while calling custom_packet_menu callback");
             break;
@@ -189,6 +201,7 @@ static void lua_custom_packet_menu_callback(void *data, GPtrArray *finfo_array) 
         default:
             g_assert_not_reached();
             break;
+        }
     }
 
     return;
@@ -235,7 +248,11 @@ struct _dlg_cb_data {
 
 static int dlg_cb_error_handler(lua_State* L) {
     const char* error =  lua_tostring(L,1);
-    report_failure("Lua: Error during execution of Dialog callback:\n %s",error);
+    if (wslua_debugger_capture_runtime_error(L, error)) {
+        ws_warning("Lua: Error during execution of Dialog callback:\n %s",error);
+    } else {
+        report_failure("Lua: Error during execution of Dialog callback:\n %s",error);
+    }
     return 0;
 }
 
@@ -244,6 +261,7 @@ static void lua_dialog_cb(char** user_input, void* data) {
     int i = 0;
     char* input;
     lua_State* L = dcbd->L;
+    int status;
 
     lua_settop(L,0);
     lua_pushcfunction(L,dlg_cb_error_handler);
@@ -256,9 +274,9 @@ static void lua_dialog_cb(char** user_input, void* data) {
 
     g_free(user_input);
 
-    switch ( lua_pcall(L,i,0,1) ) {
-        case 0:
-            break;
+    status = lua_pcall(L, i, 0, 1);
+    if (status != LUA_OK && !wslua_debugger_after_pcall_failure(L)) {
+        switch (status) {
         case LUA_ERRRUN:
             ws_warning("Runtime error while calling dialog callback");
             break;
@@ -271,6 +289,7 @@ static void lua_dialog_cb(char** user_input, void* data) {
         default:
             ws_assert_not_reached();
             break;
+        }
     }
 
 }
@@ -284,13 +303,18 @@ struct _close_cb_data {
 
 static int text_win_close_cb_error_handler(lua_State* L) {
     const char* error =  lua_tostring(L,1);
-    report_failure("Lua: Error during execution of TextWindow close callback:\n %s",error);
+    if (wslua_debugger_capture_runtime_error(L, error)) {
+        ws_warning("Lua: Error during execution of TextWindow close callback:\n %s",error);
+    } else {
+        report_failure("Lua: Error during execution of TextWindow close callback:\n %s",error);
+    }
     return 0;
 }
 
 static void text_win_close_cb(void* data) {
     struct _close_cb_data* cbd = (struct _close_cb_data *)data;
     lua_State* L = cbd->L;
+    int status;
 
     if (cbd->L) { /* close function is set */
 
@@ -298,9 +322,9 @@ static void text_win_close_cb(void* data) {
         lua_pushcfunction(L,text_win_close_cb_error_handler);
         lua_rawgeti(L, LUA_REGISTRYINDEX, cbd->func_ref);
 
-        switch ( lua_pcall(L,0,0,1) ) {
-            case 0:
-                break;
+        status = lua_pcall(L, 0, 0, 1);
+        if (status != LUA_OK && !wslua_debugger_after_pcall_failure(L)) {
+            switch (status) {
             case LUA_ERRRUN:
                 ws_warning("Runtime error during execution of TextWindow close callback");
                 break;
@@ -312,10 +336,12 @@ static void text_win_close_cb(void* data) {
                 break;
             default:
                 break;
+            }
         }
     }
 
     if (cbd->wslua_tw->expired) {
+        g_free(cbd->wslua_tw->title);
         g_free(cbd->wslua_tw);
         g_free(cbd);
     } else {
@@ -612,11 +638,20 @@ WSLUA_METHOD ProgDlg_close(lua_State* L) { /* Hides the progress bar. */
 
 
 static int ProgDlg__tostring(lua_State* L) {
+    /* Returns a short label of the form
+       `ProgDlg: title="<title>" task="<task>" state=<state>` where
+       <state> is `running` or `stopped`. The previous form
+       rendered as just `stopped` / `not stopped`, which was
+       indistinguishable from a regular string in the debugger
+       Variables view. */
     ProgDlg pd = checkProgDlg(L,1);
 
-    lua_pushfstring(L, "%sstopped",pd->stopped?"":"not ");
+    lua_pushfstring(L, "ProgDlg: title=\"%s\" task=\"%s\" state=%s",
+                    pd->title ? pd->title : "",
+                    pd->task  ? pd->task  : "",
+                    pd->stopped ? "stopped" : "running");
 
-    WSLUA_RETURN(1); /* A string specifying whether the Progress Dialog has stopped or not. */
+    WSLUA_RETURN(1); /* A short label identifying the dialog. */
 }
 
 /* Gets registered as metamethod automatically by WSLUA_REGISTER_CLASS/META */
@@ -722,6 +757,7 @@ WSLUA_CONSTRUCTOR TextWindow_new(lua_State* L) { /*
     tw = g_new(struct _wslua_tw, 1);
     tw->expired = false;
     tw->ws_tw = ops->new_text_window(ops->ops_id, title);
+    tw->title = g_strdup(title);
 
     default_cbd = g_new(struct _close_cb_data, 1);
 
@@ -914,19 +950,19 @@ typedef struct _wslua_bt_cb_t {
     int wslua_tw_ref;
 } wslua_bt_cb_t;
 
-static bool wslua_button_callback(funnel_text_window_t* ws_tw, void* data) {
+static bool wslua_button_callback(funnel_text_window_t* ws_tw _U_, void* data) {
     wslua_bt_cb_t* cbd = (wslua_bt_cb_t *)data;
     lua_State* L = cbd->L;
-    (void) ws_tw; /* ws_tw is unused since we need wslua_tw_ref and it is stored in cbd */
+    int status;
 
     lua_settop(L,0);
     lua_pushcfunction(L,dlg_cb_error_handler);
     lua_rawgeti(L, LUA_REGISTRYINDEX, cbd->func_ref);
     lua_rawgeti(L, LUA_REGISTRYINDEX, cbd->wslua_tw_ref);
 
-    switch ( lua_pcall(L,1,0,1) ) {
-        case 0:
-            break;
+    status = lua_pcall(L, 1, 0, 1);
+    if (status != LUA_OK && !wslua_debugger_after_pcall_failure(L)) {
+        switch (status) {
         case LUA_ERRRUN:
             ws_warning("Runtime error while calling button callback");
             break;
@@ -939,6 +975,7 @@ static bool wslua_button_callback(funnel_text_window_t* ws_tw, void* data) {
         default:
             ws_assert_not_reached();
             break;
+        }
     }
 
     return true;
@@ -1001,8 +1038,31 @@ WSLUA_METHODS TextWindow_methods[] = {
     { NULL, NULL }
 };
 
+static int TextWindow__tostring(lua_State* L) {
+    /* Returns a short label of the form
+       `TextWindow: title="<title>" state=<state>` where <state> is
+       `open` or `closed`. The previous __tostring was wired to
+       `TextWindow:get_text()`, which returned the window's text
+       contents and made the value indistinguishable from a regular
+       string in the debugger Variables view. The full text is still
+       reachable via `TextWindow:get_text()` for callers that need
+       it. */
+    TextWindow tw = toTextWindow(L,1);
+
+    if (!tw) {
+        lua_pushstring(L, "TextWindow: (null)");
+        return 1;
+    }
+
+    lua_pushfstring(L, "TextWindow: title=\"%s\" state=%s",
+                    tw->title ? tw->title : "",
+                    tw->expired ? "closed" : "open");
+
+    return 1;
+}
+
 WSLUA_META TextWindow_meta[] = {
-    {"__tostring", TextWindow_get_text},
+    {"__tostring", TextWindow__tostring},
     { NULL, NULL }
 };
 
@@ -1078,32 +1138,56 @@ WSLUA_FUNCTION wslua_open_capture_file(lua_State* L) { /* Open and display a cap
     }
 }
 
-WSLUA_FUNCTION wslua_get_filter(lua_State* L) { /* Get the main filter text. */
+WSLUA_FUNCTION wslua_get_filter(lua_State* L) { /*
+    Get the display filter from the filter toolbar.
+    This may not be the currently active display filter.
+    */
     const char *filter_str = NULL;
     const funnel_ops_t* ops = funnel_get_funnel_ops();
 
     if (!ops->get_filter) {
-        WSLUA_ERROR(get_filter, "GUI not available");
+        WSLUA_ERROR(wslua_get_filter,"GUI not available");
         return 0;
     }
 
     filter_str = ops->get_filter(ops->ops_id);
     lua_pushstring(L,filter_str);
 
-    return 1;
+    WSLUA_RETURN(1); /* The display filter string in the filter toolbar. */
 }
 
-WSLUA_FUNCTION wslua_set_filter(lua_State* L) { /* Set the main filter text. */
+WSLUA_FUNCTION wslua_set_filter(lua_State* L) { /* Set (Prepare) the display filter in the filter toolbar. */
 #define WSLUA_ARG_set_filter_TEXT 1 /* The filter's text. */
     const char* filter_str = luaL_checkstring(L,WSLUA_ARG_set_filter_TEXT);
     const funnel_ops_t* ops = funnel_get_funnel_ops();
 
     if (!ops->set_filter) {
-        WSLUA_ERROR(set_filter, "GUI not available");
+        WSLUA_ERROR(wslua_set_filter,"GUI not available");
         return 0;
     }
 
     ops->set_filter(ops->ops_id, filter_str);
+
+    return 0;
+}
+
+WSLUA_FUNCTION wslua_apply_filter(lua_State* L) { /*
+    Apply the display filter in the filter toolbar.
+    Requires a GUI.
+
+    [WARNING]
+    ====
+    Avoid calling this from within a dissector function or else an infinite loop can occur if it causes the dissector to be called again.
+    This function is best used in a button callback (from a dialog or text window) or menu callback.
+    ====
+    */
+    const funnel_ops_t* ops = funnel_get_funnel_ops();
+    if (!ops->apply_filter) {
+        WSLUA_ERROR(wslua_apply_filter,"GUI not available");
+        return 0;
+    }
+
+    ops->apply_filter(ops->ops_id);
 
     return 0;
 }
@@ -1199,27 +1283,6 @@ WSLUA_FUNCTION wslua_set_color_filter_slot(lua_State* L) { /*
     }
 
     ops->set_color_filter_slot(row, filter_str);
-
-    return 0;
-}
-
-WSLUA_FUNCTION wslua_apply_filter(lua_State* L) { /*
-    Apply the filter in the main filter box.
-    Requires a GUI.
-
-    [WARNING]
-    ====
-    Avoid calling this from within a dissector function or else an infinite loop can occur if it causes the dissector to be called again.
-    This function is best used in a button callback (from a dialog or text window) or menu callback.
-    ====
-    */
-    const funnel_ops_t* ops = funnel_get_funnel_ops();
-    if (!ops->apply_filter) {
-        WSLUA_ERROR(apply_filter, "GUI not available");
-        return 0;
-    }
-
-    ops->apply_filter(ops->ops_id);
 
     return 0;
 }

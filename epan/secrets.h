@@ -8,16 +8,13 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __SECRETS_H__
-#define __SECRETS_H__
-
+#pragma once
 #include <inttypes.h>
 #include <stdbool.h>
 
 #include <glib.h>
 #include "ws_symbol_export.h"
-#include "cfile.h"
+#include <wiretap/wtap.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,7 +35,14 @@ extern "C" {
  * truncated by the user) and store only the bare minimum keys.
  */
 
+/**
+ * @brief Initialize the secrets management system.
+ */
 void secrets_init(void);
+
+/**
+ * @brief Cleans up all secrets-related resources.
+ */
 void secrets_cleanup(void);
 
 #if 0
@@ -85,7 +89,7 @@ WS_DLL_PUBLIC void
 secrets_register_type(uint32_t secrets_type, secrets_block_callback_t cb);
 
 typedef unsigned (*secret_inject_count_func)(void);
-typedef bool (*secret_inject_export_func)(capture_file* cf);
+typedef bool (*secret_inject_export_func)(wtap* wth);
 typedef char* (*secret_export_func)(size_t* length);
 
 /**
@@ -121,17 +125,17 @@ secrets_get_count(const char* name);
  * protocol.
  *
  * @param name Registered protocol abbreviation
- * @param cf Capture file to export to
+ * @param wth wiretap structure to export to
  * @return Enumerated value for success or possible errors
  */
 WS_DLL_PUBLIC secrets_export_values
-secrets_export_dsb(const char* name, capture_file* cf);
+secrets_export_dsb(const char* name, wtap* wth);
 
 /**
  * Export the data for secrets as a character string from a single registered protocol.
  *
  * @param name Registered protocol abbreviation
- * @param secrets Returned secret data. Caller is responsibile for g_ allocated memory returned
+ * @param secrets Returned secret data. Caller is responsible for g_ allocated memory returned
  * @param secrets_len Returned length of secrets data
  * @param num_secrets Number of secrets in the data
  * @return Enumerated value for success or possible errors
@@ -195,5 +199,3 @@ secrets_rsa_decrypt(const cert_key_id_t *key_id, const uint8_t *encr, unsigned e
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* __SECRETS_H__ */

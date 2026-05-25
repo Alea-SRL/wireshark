@@ -1,6 +1,6 @@
 # lte-rrc.cnf
 # lte-rrc conformation file
-# Copyright 2008 Vincent Helfre, 2009-2025 Pascal Quantin
+# Copyright 2008 Vincent Helfre, 2009-2026 Pascal Quantin
 
 #.OPT
 PER
@@ -684,6 +684,7 @@ RLF-Report-v9e0_PDU
 RRCConnectionReconfigurationComplete_PDU
 SCG-Config-r12_PDU
 SCG-ConfigInfo-r12_PDU
+SCGFailureInformationNR-r15_PDU
 SidelinkUEInformation-r12_PDU
 SL-Parameters-v1430_PDU
 SL-Parameters-v1530_PDU
@@ -733,6 +734,7 @@ RRCConnectionReconfiguration @rrc_conn_reconf
 RRCConnectionReconfigurationComplete @rrc_conn_reconf_compl
 SCG-Config-r12
 SCG-ConfigInfo-r12
+SCGFailureInformationNR-r15
 SidelinkUEInformation-r12
 SL-Parameters-v1430
 SL-Parameters-v1530
@@ -786,6 +788,7 @@ BCCH-DL-SCH-Message-MBMS     @bcch.dl.sch.mbms
 
 #.OMIT_ASSIGNMENT
 # Get rid of unused code warnings
+NPUSCH-SubCarrierSet-r19
 RSRP-RangeSL3-r12
 
 #.NO_EMIT ONLY_VALS
@@ -4126,6 +4129,15 @@ SL-V2X-PreconfigCommPool-r14/threshS-RSSI-CBR-r14 DISPLAY=BASE_CUSTOM STRINGS=CF
 
 #.FN_HDR SystemInformationBlockType33-NB-r18
   col_append_str(actx->pinfo->cinfo, COL_INFO, " SIB33");
+
+#.FN_HDR SystemInformationBlockType10-NB-r19
+  col_append_str(actx->pinfo->cinfo, COL_INFO, " SIB10");
+
+#.FN_HDR SystemInformationBlockType11-NB-r19
+  col_append_str(actx->pinfo->cinfo, COL_INFO, " SIB11");
+
+#.FN_HDR SystemInformationBlockType12-NB-r19
+  col_append_str(actx->pinfo->cinfo, COL_INFO, " SIB12");
 
 #.TYPE_ATTR
 MasterInformationBlock-NB/schedulingInfoSIB1-r13 TYPE=FT_UINT32 DISPLAY=BASE_DEC|BASE_EXT_STRING STRINGS=&lte_rrc_schedulingInfoSIB1_NB_r13_vals_ext

@@ -44,11 +44,6 @@
 #include "packet-rtp.h"
 #include "packet-rtcp.h"
 #include "packet-t38.h"
-
-#define PNAME  "MULTIMEDIA-SYSTEM-CONTROL"
-#define PSNAME "H.245"
-#define PFNAME "h245"
-
 void proto_register_h245(void);
 void proto_reg_handoff_h245(void);
 
@@ -72,7 +67,7 @@ static int h245_tap;
 static int h245dg_tap;
 static int hf_h245_debug_dissector_try_string;
 
-h245_packet_info *h245_pi=NULL;
+static h245_packet_info *h245_pi=NULL;
 
 static bool h245_reassembly = true;
 static bool h245_shorttypes;
@@ -319,7 +314,7 @@ static const value_string h245_AudioCapability_short_vals[] = {
 
 /* To put the codec type only in COL_INFO when
    an OLC is read */
-const char* codec_type;
+static const char* codec_type;
 static uint32_t rfc_number;
 
 typedef struct _unicast_addr_t {
@@ -380,8 +375,8 @@ static const value_string h245_h239subMessageIdentifier_vals[] = {
 
 /* h223 multiplex codes */
 static h223_set_mc_handle_t h223_set_mc_handle;
-h223_mux_element *h223_me=NULL;
-uint8_t h223_mc=0;
+static h223_mux_element *h223_me;
+static int8_t h223_mc;
 void h245_set_h223_set_mc_handle( h223_set_mc_handle_t handle )
 {
 	h223_set_mc_handle = handle;
@@ -3866,13 +3861,11 @@ static const per_sequence_t GenericParameter_sequence[] = {
 static unsigned
 dissect_h245_GenericParameter(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // GenericParameter -> ParameterValue -> ParameterValue/genericParameter -> GenericParameter
-  actx->pinfo->dissection_depth += 3;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 3);
   offset = dissect_per_sequence(tvb, offset, actx, tree, hf_index,
                                    ett_h245_GenericParameter, GenericParameter_sequence);
 
-  actx->pinfo->dissection_depth -= 3;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 3);
   return offset;
 }
 
@@ -5666,8 +5659,7 @@ static const per_choice_t VideoCapability_choice[] = {
 static unsigned
 dissect_h245_VideoCapability(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // VideoCapability -> ExtendedVideoCapability -> ExtendedVideoCapability/videoCapability -> VideoCapability
-  actx->pinfo->dissection_depth += 3;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 3);
   int32_t value;
 
   offset = dissect_per_choice(tvb, offset, actx, tree, hf_index,
@@ -5677,8 +5669,7 @@ dissect_h245_VideoCapability(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t 
         codec_type = val_to_str_const(value, h245_VideoCapability_vals, "<unknown>");
 
 
-  actx->pinfo->dissection_depth -= 3;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 3);
   return offset;
 }
 
@@ -5987,8 +5978,7 @@ static const per_choice_t AudioCapability_choice[] = {
 static unsigned
 dissect_h245_AudioCapability(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // AudioCapability -> VBDCapability -> AudioCapability
-  actx->pinfo->dissection_depth += 2;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 2);
   int32_t value;
 
   offset = dissect_per_choice(tvb, offset, actx, tree, hf_index,
@@ -5997,8 +5987,7 @@ dissect_h245_AudioCapability(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t 
 
         codec_type = val_to_str_const(value, h245_AudioCapability_short_vals, "<unknown>");
 
-  actx->pinfo->dissection_depth -= 2;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 2);
   return offset;
 }
 
@@ -7150,8 +7139,7 @@ static const per_choice_t DataType_choice[] = {
 static unsigned
 dissect_h245_DataType(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // DataType -> H235Media -> H235Media/mediaType -> RedundancyEncoding -> DataType
-  actx->pinfo->dissection_depth += 4;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 4);
 int choice_index;
 
   offset = dissect_per_choice(tvb, offset, actx, tree, hf_index,
@@ -7168,8 +7156,7 @@ if (upcoming_channel){
 }
 
 
-  actx->pinfo->dissection_depth -= 4;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 4);
   return offset;
 }
 
@@ -8871,8 +8858,7 @@ static const per_sequence_t MultiplexElement_sequence[] = {
 static unsigned
 dissect_h245_MultiplexElement(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // MultiplexElement -> MultiplexElement/type -> MultiplexElement/type/subElementList -> MultiplexElement
-  actx->pinfo->dissection_depth += 3;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 3);
   /*MultiplexElement*/
   h223_mux_element* me = wmem_new(wmem_file_scope(), h223_mux_element);
   h223_me->next = me;
@@ -8881,8 +8867,7 @@ dissect_h245_MultiplexElement(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t
   offset = dissect_per_sequence(tvb, offset, actx, tree, hf_index,
                                    ett_h245_MultiplexElement, MultiplexElement_sequence);
 
-  actx->pinfo->dissection_depth -= 3;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 3);
   return offset;
 }
 
@@ -9505,8 +9490,7 @@ static const per_choice_t AudioMode_choice[] = {
 static unsigned
 dissect_h245_AudioMode(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // AudioMode -> VBDMode -> AudioMode
-  actx->pinfo->dissection_depth += 2;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 2);
   int32_t value;
 
   offset = dissect_per_choice(tvb, offset, actx, tree, hf_index,
@@ -9515,8 +9499,7 @@ dissect_h245_AudioMode(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx 
 
   codec_type = val_to_str_const(value, h245_AudioMode_vals, "<unknown>");
 
-  actx->pinfo->dissection_depth -= 2;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 2);
   return offset;
 }
 
@@ -9863,14 +9846,12 @@ static const per_choice_t ModeElementType_choice[] = {
 static unsigned
 dissect_h245_ModeElementType(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // ModeElementType -> RedundancyEncodingDTMode -> RedundancyEncodingDTModeElement -> RedundancyEncodingDTModeElement/type -> FECMode -> ModeElementType
-  actx->pinfo->dissection_depth += 5;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 5);
   offset = dissect_per_choice(tvb, offset, actx, tree, hf_index,
                                  ett_h245_ModeElementType, ModeElementType_choice,
                                  NULL);
 
-  actx->pinfo->dissection_depth -= 5;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 5);
   return offset;
 }
 
@@ -14335,9 +14316,9 @@ dissect_h245_h245(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, vo
 	upcoming_channel = NULL;
 	codec_type = NULL;
 
-	col_set_str(pinfo->cinfo, COL_PROTOCOL, PSNAME);
+	col_set_str(pinfo->cinfo, COL_PROTOCOL, "H.245");
 
-	it=proto_tree_add_protocol_format(parent_tree, proto_h245, tvb, 0, -1, PSNAME);
+	it=proto_tree_add_protocol_format(parent_tree, proto_h245, tvb, 0, -1, "H.245");
 	tr=proto_item_add_subtree(it, ett_h245);
 
 	/* assume that whilst there is more tvb data, there are more h245 commands */
@@ -20502,7 +20483,7 @@ void proto_register_h245(void) {
   module_t *h245_module;
 
   /* Register protocol */
-  proto_h245 = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_h245 = proto_register_protocol("MULTIMEDIA-SYSTEM-CONTROL", "H.245", "h245");
   h223_pending_olc_reqs[P2P_DIR_SENT] = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), g_direct_hash, g_direct_equal );
   h223_pending_olc_reqs[P2P_DIR_RECV] = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), g_direct_hash, g_direct_equal );
   h245_pending_olc_reqs = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), wmem_str_hash, g_str_equal);

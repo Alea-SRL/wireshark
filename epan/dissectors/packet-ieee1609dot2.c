@@ -33,16 +33,12 @@
 #include "packet-oer.h"
 #include "packet-ieee1609dot2.h"
 
-#define PNAME  "IEEE1609dot2"
-#define PSNAME "IEEE1609dot2"
-#define PFNAME "ieee1609dot2"
-
 void proto_register_ieee1609dot2(void);
 void proto_reg_handoff_ieee1609dot2(void);
 
 /* Initialize the protocol and registered fields */
-int proto_ieee1609dot2;
-dissector_handle_t proto_ieee1609dot2_handle;
+static int proto_ieee1609dot2;
+static dissector_handle_t proto_ieee1609dot2_handle;
 
 /* WSMP PSID range to be passed to IEEE 1609.2 dissector */
 static range_t *global_wsmp_psid_range;
@@ -430,6 +426,18 @@ ieee1609dot2_set_next_default_psid(packet_info *pinfo, uint32_t psid)
 }
 
 /*--- Cyclic dependencies ---*/
+
+/* AppExtension/content -> AppExtension/content */
+static unsigned dissect_ieee1609dot2_T_content(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* CertIssueExtension/permissions/specific -> CertIssueExtension/permissions/specific */
+static unsigned dissect_ieee1609dot2_T_specific(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* CertRequestExtension/permissions/content -> CertRequestExtension/permissions/content */
+static unsigned dissect_ieee1609dot2_T_content_01(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* ContributedExtensionBlock/extns/_item -> ContributedExtensionBlock/extns/_item */
+static unsigned dissect_ieee1609dot2_T_extns_item(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
 
 /* Ieee1609Dot2Data -> Ieee1609Dot2Content -> SignedData -> ToBeSignedData -> SignedDataPayload -> Ieee1609Dot2Data */
 static unsigned dissect_ieee1609dot2_Ieee1609Dot2Data(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
@@ -2341,8 +2349,11 @@ dissect_ieee1609dot2_T_flags(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t 
 
 static unsigned
 dissect_ieee1609dot2_T_content(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // AppExtension/content -> AppExtension/content
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_oer_open_type(tvb, offset, actx, tree, hf_index, NULL);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -2379,8 +2390,11 @@ dissect_ieee1609dot2_SequenceOfAppExtensions(tvbuff_t *tvb _U_, uint32_t offset 
 
 static unsigned
 dissect_ieee1609dot2_T_specific(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // CertIssueExtension/permissions/specific -> CertIssueExtension/permissions/specific
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_oer_open_type(tvb, offset, actx, tree, hf_index, NULL);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -2439,8 +2453,11 @@ dissect_ieee1609dot2_SequenceOfCertIssueExtensions(tvbuff_t *tvb _U_, uint32_t o
 
 static unsigned
 dissect_ieee1609dot2_T_content_01(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // CertRequestExtension/permissions/content -> CertRequestExtension/permissions/content
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_oer_open_type(tvb, offset, actx, tree, hf_index, NULL);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -2588,8 +2605,11 @@ dissect_ieee1609dot2_HeaderInfoContributorId(tvbuff_t *tvb _U_, uint32_t offset 
 
 static unsigned
 dissect_ieee1609dot2_T_extns_item(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // ContributedExtensionBlock/extns/_item -> ContributedExtensionBlock/extns/_item
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset = dissect_oer_open_type(tvb, offset, actx, tree, hf_index, NULL);
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -3060,14 +3080,12 @@ static const oer_sequence_t Ieee1609Dot2Data_sequence[] = {
 static unsigned
 dissect_ieee1609dot2_Ieee1609Dot2Data(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // Ieee1609Dot2Data -> Ieee1609Dot2Content -> SignedData -> ToBeSignedData -> SignedDataPayload -> Ieee1609Dot2Data
-  actx->pinfo->dissection_depth += 5;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 5);
   actx->private_data = (void*)wmem_new0(actx->pinfo->pool, ieee1609_private_data_t);
   offset = dissect_oer_sequence(tvb, offset, actx, tree, hf_index,
                                    ett_ieee1609dot2_Ieee1609Dot2Data, Ieee1609Dot2Data_sequence);
 
-  actx->pinfo->dissection_depth -= 5;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 5);
   return offset;
 }
 
@@ -4273,7 +4291,7 @@ void proto_register_ieee1609dot2(void) {
   };
 
   /* Register protocol */
-  proto_ieee1609dot2 = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_ieee1609dot2 = proto_register_protocol("IEEE1609dot2", "IEEE1609dot2", "ieee1609dot2");
 
   /* Register fields and subtrees */
   proto_register_field_array(proto_ieee1609dot2, hf, array_length(hf));

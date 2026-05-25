@@ -14,7 +14,6 @@
  */
 
 #include "config.h"
-
 #define WS_LOG_DOMAIN "XML"
 
 #include <string.h>
@@ -386,14 +385,14 @@ dissect_xml(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
         /* UTF-16BE */
         const uint8_t *data_str = tvb_get_string_enc(pinfo->pool, tvb, 0, tvb_captured_length(tvb), ENC_UTF_16|ENC_BIG_ENDIAN);
         size_t l = strlen((const char*)data_str);
-        decoded = tvb_new_child_real_data(tvb, data_str, (unsigned)l, (int)l);
+        decoded = tvb_new_child_real_data(tvb, data_str, (unsigned)l, (unsigned)l);
         add_new_data_source(pinfo, decoded, "Decoded UTF-16BE text");
     }
     else if(try_bom == 0xFFFE) {
         /* UTF-16LE (or possibly UTF-32LE, but Wireshark doesn't support UTF-32) */
         const uint8_t *data_str = tvb_get_string_enc(pinfo->pool, tvb, 0, tvb_captured_length(tvb), ENC_UTF_16|ENC_LITTLE_ENDIAN);
         size_t l = strlen((const char*)data_str);
-        decoded = tvb_new_child_real_data(tvb, data_str, (unsigned)l, (int)l);
+        decoded = tvb_new_child_real_data(tvb, data_str, (unsigned)l, (unsigned)l);
         add_new_data_source(pinfo, decoded, "Decoded UTF-16LE text");
     }
     /* Could also test if try_bom is 0xnn00 or 0x00nn to guess endianness if we wanted */
@@ -405,7 +404,7 @@ dissect_xml(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
         /* Encoding string with encoding, either with or without BOM */
         const uint8_t *data_str = tvb_get_string_enc(pinfo->pool, tvb, 0, tvb_captured_length(tvb), encoding);
         size_t l = strlen((const char*)data_str);
-        decoded = tvb_new_child_real_data(tvb, data_str, (unsigned)l, (int)l);
+        decoded = tvb_new_child_real_data(tvb, data_str, (unsigned)l, (unsigned)l);
         add_new_data_source(pinfo, decoded, wmem_strdup_printf(pinfo->pool, "Decoded %s text", encoding_name));
     }
 
@@ -469,7 +468,7 @@ static bool dissect_xml_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 
         data_str    = tvb_get_string_enc(pinfo->pool, tvb, 0, tvb_captured_length(tvb), enc);
         l           = strlen((const char*)data_str);
-        unicode_tvb = tvb_new_child_real_data(tvb, data_str, (unsigned)l, (int)l);
+        unicode_tvb = tvb_new_child_real_data(tvb, data_str, (unsigned)l, (unsigned)l);
         if (tvbparse_peek(tvbparse_init(pinfo->pool, unicode_tvb, 0, -1, NULL, want_ignore), want_heur)) {
             add_new_data_source(pinfo, unicode_tvb, "UTF8");
             dissect_xml(unicode_tvb, pinfo, tree, data);
@@ -769,16 +768,24 @@ static void P_SHA1(const uint8_t *Secret, size_t Secret_len,
 {
     gcry_md_hd_t hd = NULL;
     uint8_t *digest = NULL;
+    gcry_error_t err;
 
-    /*
-     * https://social.microsoft.com/Forums/en-US/c485d98b-6e0b-49e7-ab34-8ecf8d694d31/signing-soap-message-request-via-adfs?forum=crmdevelopment#6cee9fa8-dc24-4524-a5a2-c3d17e05d50e
-     */
-    gcry_md_open(&hd, GCRY_MD_SHA1, GCRY_MD_FLAG_HMAC);
-    gcry_md_setkey(hd, Secret, Secret_len);
+    err = gcry_md_open(&hd, GCRY_MD_SHA1, GCRY_MD_FLAG_HMAC);
+    if (err != 0) {
+        ws_warning("error opening sha1 message digest handle: %s", gcry_strerror(err));
+        return;
+    }
+
+    err = gcry_md_setkey(hd, Secret, Secret_len);
+    if (err != 0) {
+        gcry_md_close(hd);
+        ws_warning("error setting key: %s", gcry_strerror(err));
+        return;
+    }
+
     gcry_md_write(hd, Seed, Seed_len);
     digest = gcry_md_read(hd, GCRY_MD_SHA1);
     memcpy(Result, digest, HASH_SHA1_LENGTH);
-
     gcry_md_close(hd);
 }
 #endif /* HAVE_KERBEROS */

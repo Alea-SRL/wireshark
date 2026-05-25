@@ -24,6 +24,7 @@
 #include <epan/tfs.h>
 #include <epan/stats_tree.h>
 #include "packet-bacapp.h"
+#include "data-bacnet.h"
 
 static int bacapp_tap;
 
@@ -3470,7 +3471,7 @@ BACnetConfirmedServiceChoice[] = {
     { 31, "confirmedCovNotificationMultiple"},
     { 32, "confirmedAuditNotification"},
     { 33, "auditLogQuery"},
-    { 34, "aurthRequest" },
+    { 34, "authRequest" },
     { 0,  NULL}
 };
 
@@ -5504,8 +5505,6 @@ BACnetAuthorizationConstraintAuthentication[] = {
     { 0, NULL }
 };
 
-extern value_string_ext BACnetVendorIdentifiers_ext;
-
 static int proto_bacapp;
 static int hf_bacapp_type;
 static int hf_bacapp_pduflags;
@@ -5607,7 +5606,8 @@ static dissector_table_t bacapp_dissector_table;
 
 
 /* Stat: BACnet Packets sorted by IP */
-bacapp_info_value_t bacinfo;
+/* XXX - Should probably be passed into functions and not be global */
+static bacapp_info_value_t bacinfo;
 
 static const char* st_str_packets_by_ip = "BACnet Packets by IP";
 static const char* st_str_packets_by_ip_dst = "By Destination";
@@ -8724,7 +8724,7 @@ fPropertyValue(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, unsigned off
                                      &tag_no, &tag_info, &lvt);
         }
     } else {
-        proto_tree_add_expert(tree, pinfo, &ei_bacapp_opening_tag, tvb, offset, -1);
+        proto_tree_add_expert_remaining(tree, pinfo, &ei_bacapp_opening_tag, tvb, offset);
         offset = tvb_reported_length(tvb);
     }
 
@@ -14150,20 +14150,43 @@ fYouAreRequest(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, unsigned off
     uint8_t tag_no, tag_info;
     uint32_t lvt;
 
+    /* https://bacnet.org/wp-content/uploads/sites/4/2022/08/Add-135-2016bz.pdf
+     * Vendor ID            | M
+     * Model Name           | M
+     * Serial Number        | M
+     * Device Identifier    | C
+     * Device MAC Addresss  | C
+     *
+     * "Either the 'Device Identifier', or 'Device MAC Address', or both shall
+     * be present."
+     */
+
+    /* XXX - Does this really need to loop? */
     while (tvb_reported_length_remaining(tvb, offset) > 0) {  /* exit loop if nothing happens inside */
         lastoffset = offset;
         offset = fApplicationTypes(tvb, pinfo, tree, offset, "Vendor ID: ");
         offset = fApplicationTypes(tvb, pinfo, tree, offset, "Model name: ");
         offset = fApplicationTypes(tvb, pinfo, tree, offset, "Serial number: ");
 
+        /* At least one of Device Identifier (12) or Device MAC Address (6)
+         * shall be present, so we should error if neither are. */
         fTagHeader(tvb, pinfo, offset, &tag_no, &tag_info, &lvt);
-        if(tvb_reported_length_remaining(tvb, offset) > 0 && tag_no == 12) {
+        switch (tag_no) {
+        case 12:
             offset = fApplicationTypes(tvb, pinfo, tree, offset, "Device Identifier: ");
-        }
-
-        fTagHeader(tvb, pinfo, offset, &tag_no, &tag_info, &lvt);
-        if(tvb_reported_length_remaining(tvb, offset) > 0 && tag_no == 6) {
+            if (tvb_reported_length_remaining(tvb, offset) == 0) {
+                return offset;
+            }
+            fTagHeader(tvb, pinfo, offset, &tag_no, &tag_info, &lvt);
+            if (tag_no != 6) {
+                expert_add_info(pinfo, tree, &ei_bacapp_bad_tag);
+            }
+            /* FALLTHROUGH */
+        case 6:
             offset = fApplicationTypes(tvb, pinfo, tree, offset, "Device MAC address: ");
+            break;
+        default:
+            expert_add_info(pinfo, tree, &ei_bacapp_bad_tag);
         }
         if (offset <= lastoffset) break;     /* nothing happened, exit loop */
     }

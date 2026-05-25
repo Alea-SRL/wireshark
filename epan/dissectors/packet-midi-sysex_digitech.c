@@ -14,7 +14,7 @@
 #include <epan/tfs.h>
 #include <wsutil/array.h>
 
-#include <packet-midi-sysex-id.h>
+#include <data-midi-sysex-id.h>
 
 void proto_register_midi_sysex_digitech(void);
 
@@ -1008,8 +1008,7 @@ dissect_digitech_procedure(uint8_t procedure, const int offset,
             proto_tree_add_item(tree, hf_digitech_preset_bank, data_tvb, data_offset, 1, ENC_BIG_ENDIAN);
             data_offset++;
 
-            count = (uint16_t)tvb_get_uint8(data_tvb, data_offset);
-            proto_tree_add_item(tree, hf_digitech_preset_count, data_tvb, data_offset, 1, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint16(tree, hf_digitech_preset_count, data_tvb, data_offset, 1, ENC_BIG_ENDIAN, &count);
             data_offset++;
 
             while ((count > 0) && (str_size = tvb_strsize(data_tvb, data_offset)))
@@ -1051,8 +1050,7 @@ dissect_digitech_procedure(uint8_t procedure, const int offset,
             data_offset++;
             break;
         case DIGITECH_PROCEDURE_RECEIVE_PRESET_PARAMETERS:
-            count = tvb_get_ntohs(data_tvb, data_offset);
-            proto_tree_add_item(tree, hf_digitech_parameter_count, data_tvb, data_offset, 2, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint16(tree, hf_digitech_parameter_count, data_tvb, data_offset, 2, ENC_BIG_ENDIAN, &count);
             data_offset += 2;
             while (count > 0)
             {
@@ -1111,8 +1109,7 @@ dissect_midi_sysex_digitech_command(tvbuff_t *tvb, packet_info *pinfo, proto_tre
                         tvb, offset, 1, ENC_BIG_ENDIAN);
     offset++;
 
-    procedure_id = tvb_get_uint8(tvb, offset);
-    proto_tree_add_item(tree, hf_digitech_procedure_id, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_digitech_procedure_id, tvb, offset, 1, ENC_BIG_ENDIAN, &procedure_id);
     offset++;
 
     dissect_digitech_procedure(procedure_id, offset, tvb, pinfo, tree);

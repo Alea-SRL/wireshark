@@ -8,10 +8,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __REGISTER_H__
-#define __REGISTER_H__
-
+#pragma once
 #include "ws_symbol_export.h"
 
 #ifdef __cplusplus
@@ -67,11 +64,37 @@ void register_all_protocols(register_cb cb, void* client_data);
 WS_DLL_PUBLIC
 void register_all_protocol_handoffs(register_cb cb, void* client_data);
 
+
+/** Call each event dissector's registration routine.
+ *
+ * Each routine is called in alphabetical order from a worker thread.
+ * Registration routines might call any number of routines which are not
+ * thread safe, such as wmem_alloc. Callbacks should handle themselves
+ * accordingly.
+ *
+ * @param cb Callback routine which is called for each protocol.
+ * Messages have the format "event_register_XXX".
+ * @param client_data Data pointer for the callback.
+ */
+WS_DLL_PUBLIC
+void register_all_event_dissectors(register_cb cb, void* client_data);
+
+/** Call each event dissector's handoff routine.
+ *
+ * Each routine is called from a worker thread. Registration routines
+ * might call any number of routines which are not thread safe, such as
+ * wmem_alloc. Callbacks should handle themselves accordingly.
+ *
+ * @param cb Callback routine which is called for each protocol.
+ * Messages have the format "event_reg_handoff_XXX".
+ * @param client_data Data pointer for the callback.
+ */
+WS_DLL_PUBLIC
+void register_all_event_dissectors_handoffs(register_cb cb, void* client_data);
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* __REGISTER_H__ */
 
 /*
  * Editor modelines  -  https://www.wireshark.org/tools/modelines.html

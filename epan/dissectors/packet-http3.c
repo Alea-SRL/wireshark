@@ -20,14 +20,13 @@
  * Currently supported HTTP/3 versions: h3-23 up to and including h3-29.
  */
 
-#include <config.h>
-#include <wmem_scopes.h>
-
+#include "config.h"
 #define WS_LOG_DOMAIN "HTTP3"
 
 #include <stdint.h>
 #include <string.h>
 
+#include <epan/wmem_scopes.h>
 #include <epan/conversation_table.h>
 #include <epan/decode_as.h>
 #include <epan/exceptions.h>
@@ -183,6 +182,7 @@ static int hf_http3_datagram_request_stream_id;
 static int hf_http3_datagram_payload;
 
 static expert_field ei_http3_qpack_failed;
+static expert_field ei_http3_prefix_int_failed;
 /* HTTP3 dissection EIs */
 static expert_field ei_http3_unknown_stream_type;
 /* Encoded data EIs */
@@ -602,13 +602,13 @@ try_get_quic_varint(tvbuff_t *tvb, int offset, uint64_t *value, int *lenvar)
     if (tvb_reported_length_remaining(tvb, offset) == 0) {
         return false;
     }
-    int len = 1 << (tvb_get_uint8(tvb, offset) >> 6);
+    unsigned len = 1 << (tvb_get_uint8(tvb, offset) >> 6);
     if (tvb_reported_length_remaining(tvb, offset) < len) {
         return false;
     }
     *lenvar = len;
     if (value) {
-        int n = (int)tvb_get_varint(tvb, offset, -1, value, ENC_VARINT_QUIC);
+        unsigned n = tvb_get_varint(tvb, offset, -1, value, ENC_VARINT_QUIC);
         DISSECTOR_ASSERT_CMPINT(n, ==, len);
     }
     return true;
@@ -1710,73 +1710,59 @@ report_unknown_stream_type(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 #define HTTP3_QPACK_MAX_SHIFT 62
 #define HTTP3_QPACK_MAX_INT ((1ull << HTTP3_QPACK_MAX_SHIFT) - 1)
 
-static int
-read_qpack_prefixed_integer(tvbuff_t *tvb, int offset, int prefix,
-                            uint64_t *out_result, bool *out_fin, bool *out_flag)
+static unsigned
+read_qpack_prefixed_integer(tvbuff_t *tvb, unsigned offset, unsigned prefix,
+                            uint64_t *out_result, bool *out_flag)
 {
     /*
      * This can throw a ReportedBoundError; in fact, we count on that
      * currently in order to detect QPACK fields split across packets.
      */
-    const uint8_t *buf   = tvb_get_ptr(tvb, offset, -1);
-    const uint8_t *end   = buf + tvb_captured_length_remaining(tvb, offset);
-    uint64_t       k     = (uint8_t)((1 << prefix) - 1);
-    uint64_t       n     = 0;
-    uint64_t       add   = 0;
-    uint64_t       shift = 0;
-    const uint8_t *p     = buf;
+    uint64_t    k     = (uint8_t)((1 << prefix) - 1);
+    uint64_t    n     = 0;
+    uint64_t    add   = 0;
+    uint64_t    shift = 0;
+    uint8_t     byte;
+    unsigned    start_offset = offset;
+
+    byte = tvb_get_uint8(tvb, offset);
 
     if (out_flag) {
-        *out_flag = *p & (1 << prefix);
+        *out_flag = byte & (1 << prefix);
     }
 
-    if (((*p) & k) != k) {
-        *out_result = (*p) & k;
-        *out_fin    = true;
+    if ((byte & k) != k) {
+        *out_result = byte & k;
         return 1;
     }
 
     n = k;
 
-    if (++p == end) {
-        *out_result = n;
-        *out_fin    = false;
-        return (int)(p - buf);
-    }
-
-    for (; p != end; ++p, shift += 7) {
-        add = (*p) & 0x7f;
+    for (++offset; tvb_captured_length_remaining(tvb, offset); ++offset, shift += 7) {
+        byte = tvb_get_uint8(tvb, offset);
+        add = byte & 0x7f;
         if (shift > HTTP3_QPACK_MAX_SHIFT) {
-            return -1;
+            return 0;
         }
         if ((HTTP3_QPACK_MAX_INT >> shift) < add) {
-            return -1;
+            return 0;
         }
         add <<= shift;
         if (HTTP3_QPACK_MAX_INT - add < n) {
-            return -1;
+            return 0;
         }
 
         n += add;
 
-        if (((*p) & (1 << 7)) == 0) {
+        if ((byte & (1 << 7)) == 0) {
             break;
         }
     }
 
     *out_result = n;
 
-    /* If we consumed all bytes, return the consumed bytes */
-    if (p == end) {
-        *out_fin = false;
-        return (int)(p - buf);
-    }
-
     /* Otherwise, consume extra byte and mark the fin output param */
-    if (out_fin) {
-        *out_fin = true;
-    }
-    return (int)(p + 1 - buf);
+    return offset - start_offset + 1;
 }
 
 static int
@@ -1797,13 +1783,12 @@ dissect_http3_qpack_encoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
     while (offset < end_offset && can_continue) {
         int         inst_offset;        /* Starting offset of the currently parsed instruction in the tvb */
         int         inst_len;           /* Total length of the instruction */
-        bool        fin;                /* TODO: we need to check for `fin == true' to detect fragmented instructions. */
+        unsigned    varint_len;
 
         proto_item  *opcode_ti;
         proto_tree  *opcode_tree;
 
         inst_offset     = offset;
-        fin             = false;
 
         TRY {
             uint8_t opcode;             /* The instruction opcode */
@@ -1814,9 +1799,9 @@ dissect_http3_qpack_encoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
                 opcode, (offset - start_offset), start_offset, offset, end_offset);
 
             if (opcode & QPACK_OPCODE_INSERT_INDEXED) {
-                int             name_idx_len    = 0;
+                unsigned        name_idx_len    = 0;
                 uint64_t        name_idx        = 0;
-                int             val_offset      = 0;
+                unsigned        val_offset      = 0;
                 uint64_t        val_len         = 0;
                 bool            val_huffman     = false;
                 const uint8_t   *val_str        = NULL;
@@ -1834,11 +1819,19 @@ dissect_http3_qpack_encoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
                  */
 
                  /* Read the 6-encoded name index len */
-                name_idx_len  = read_qpack_prefixed_integer(tvb, offset, 6, &name_idx, &fin, NULL);
+                name_idx_len  = read_qpack_prefixed_integer(tvb, offset, 6, &name_idx, NULL);
+                if (name_idx_len == 0) {
+                    THROW(ScsiBoundsError);
+                }
                 offset       += name_idx_len;
 
                 /* Read the 7-encoded value len and set the value offset for subsequent dissection */
-                offset       += read_qpack_prefixed_integer(tvb, offset, 7, &val_len, &fin, &val_huffman);
+                varint_len    = read_qpack_prefixed_integer(tvb, offset, 7, &val_len, &val_huffman);
+                if (varint_len == 0) {
+                    THROW(ScsiBoundsError);
+                }
+                /* XXX - If val_len > UINT32_MAX, fail with expert info? */
+                offset       += varint_len;
                 val_offset    = offset;
                 offset       += (uint32_t)val_len;
 
@@ -1855,7 +1848,7 @@ dissect_http3_qpack_encoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
                 if (val_huffman) {
                     proto_tree_add_item(opcode_tree, hf_http3_qpack_encoder_opcode_insert_indexed_hval,
                         tvb, val_offset, (uint32_t)val_len, ENC_NA);
-                    decoded_tvb = tvb_child_uncompress_hpack_huff(tvb, (int)val_offset, (int)val_len);
+                    decoded_tvb = tvb_child_uncompress_hpack_huff(tvb, val_offset, (unsigned)val_len);
                     if (decoded_tvb) {
                         add_new_data_source(pinfo, decoded_tvb, "Decoded QPACK Value");
                         proto_tree_add_item_ret_string(opcode_tree, hf_http3_qpack_encoder_opcode_insert_indexed_val,
@@ -1893,12 +1886,22 @@ dissect_http3_qpack_encoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
                  */
 
                 /* Read the 5-encoded name length and set the name offset for subsequent dissection */
-                offset      += read_qpack_prefixed_integer(tvb, offset, 5, &name_len, &fin, &name_huffman);
+                varint_len   = read_qpack_prefixed_integer(tvb, offset, 5, &name_len, &name_huffman);
+                if (varint_len == 0) {
+                    THROW(ScsiBoundsError);
+                }
+                /* XXX - If name_len > UINT32_MAX, fail with expert info? */
+                offset      += varint_len;
                 name_offset  = offset;
                 offset      += (uint32_t)name_len;
 
                 /* Read the 7-encoded value length and set the value offset for subsequent dissection */
-                offset      += read_qpack_prefixed_integer(tvb, offset, 7, &val_len, &fin, &val_huffman);
+                varint_len   = read_qpack_prefixed_integer(tvb, offset, 7, &val_len, &val_huffman);
+                if (varint_len == 0) {
+                    THROW(ScsiBoundsError);
+                }
+                /* XXX - If val_len > UINT32_MAX, fail with expert info? */
+                offset       += varint_len;
                 val_offset   = offset;
                 offset      += (uint32_t)val_len;
 
@@ -1913,7 +1916,7 @@ dissect_http3_qpack_encoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
                 if (name_huffman) {
                     proto_tree_add_item(opcode_tree, hf_http3_qpack_encoder_opcode_insert_hname,
                         tvb, name_offset,(uint32_t)name_len, ENC_NA);
-                    decoded_tvb = tvb_child_uncompress_hpack_huff(tvb, (int)name_offset, (int)name_len);
+                    decoded_tvb = tvb_child_uncompress_hpack_huff(tvb, name_offset, (unsigned)name_len);
                     if (decoded_tvb) {
                         add_new_data_source(pinfo, decoded_tvb, "Decoded QPACK Name");
                         proto_tree_add_item_ret_string(opcode_tree, hf_http3_qpack_encoder_opcode_insert_name,
@@ -1927,7 +1930,7 @@ dissect_http3_qpack_encoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
                 if (val_huffman) {
                     proto_tree_add_item(opcode_tree, hf_http3_qpack_encoder_opcode_insert_hval,
                         tvb, val_offset,(uint32_t)val_len, ENC_NA);
-                    decoded_tvb = tvb_child_uncompress_hpack_huff(tvb, (int)val_offset, (int)val_len);
+                    decoded_tvb = tvb_child_uncompress_hpack_huff(tvb, val_offset, (unsigned)val_len);
                     if (decoded_tvb) {
                         add_new_data_source(pinfo, decoded_tvb, "Decoded QPACK Value");
                         proto_tree_add_item_ret_string(opcode_tree, hf_http3_qpack_encoder_opcode_insert_val,
@@ -1951,7 +1954,11 @@ dissect_http3_qpack_encoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
                  */
 
                 /* Read the 5-encoded table capacity */
-                offset   += read_qpack_prefixed_integer(tvb, offset, 5, &dynamic_capacity, &fin, NULL);
+                varint_len = read_qpack_prefixed_integer(tvb, offset, 5, &dynamic_capacity, NULL);
+                if (varint_len == 0) {
+                    THROW(ScsiBoundsError);
+                }
+                offset       += varint_len;
 
                 /* Update the instruction length */
                 inst_len  = offset - inst_offset;
@@ -1976,7 +1983,11 @@ dissect_http3_qpack_encoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
                  */
 
                 /* Read the 5-encoded index of a duplicate instruction  */
-                offset   += read_qpack_prefixed_integer(tvb, offset, 5, &duplicate_of, &fin, NULL);
+                varint_len = read_qpack_prefixed_integer(tvb, offset, 5, &duplicate_of, NULL);
+                if (varint_len == 0) {
+                    THROW(ScsiBoundsError);
+                }
+                offset       += varint_len;
 
                 /* Update the instruction length */
                 inst_len  = offset - inst_offset;
@@ -1991,10 +2002,21 @@ dissect_http3_qpack_encoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
             /* Increment the instruction count */
             icnt ++;
         }
+        CATCH(ScsiBoundsError) {
+            /* This is obviously not SCSI, but we use a bounds type error
+             * which the main API won't throw. This too large integer is
+             * possibly a QUIC reassembly error or the payload not actually
+             * being HTTP/3. */
+            proto_tree_add_expert(tree, pinfo, &ei_http3_prefix_int_failed, tvb, offset, 1);
+            /* Above won't throw an exception because we would have thrown
+             * an error retrieving the first octet of the prefixed integer. */
+            offset = end_offset;
+            can_continue = false;
+        }
         CATCH(ReportedBoundsError) {
             /* We could not parse the last instruction, hence update `decoded' accordingly. */
-            ws_noisy("Could not parse last instruction, rolling back parsing offset from %d to %d",
-                offset, inst_offset);
+            ws_debug("%u: Could not parse last instruction, rolling back parsing offset from %d to %d",
+                pinfo->num, offset, inst_offset);
             offset = inst_offset;
             can_continue = false;
         }
@@ -2124,15 +2146,14 @@ dissect_http3_qpack_decoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
     while (offset < end_offset && can_continue) {
         int         inst_offset;        /* Starting offset of the currently parsed instruction in the tvb */
         int         inst_len;           /* Total length of the instruction */
-        bool        fin;                /* TODO: we need to check for `fin == true' to detect fragmented instructions. */
         proto_item  *opcode_ti;
         proto_tree  *opcode_tree;
 
         inst_offset     = offset;
-        fin             = false;
 
         TRY {
             uint8_t opcode;             /* The instruction opcode */
+            unsigned varint_len;
 
             opcode = tvb_get_uint8(tvb, inst_offset) & QPACK_OPCODE_MASK;
 
@@ -2151,7 +2172,12 @@ dissect_http3_qpack_decoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
                  */
 
                 /* Read the 7-encoded name stream ID */
-                offset     += read_qpack_prefixed_integer(tvb, offset, 7, &stream_id, &fin, NULL);
+                varint_len = read_qpack_prefixed_integer(tvb, offset, 7, &stream_id, NULL);
+                if (varint_len == 0) {
+                    offset = end_offset;
+                    break;
+                }
+                offset       += varint_len;
 
                 /* Update the instruction length */
                 inst_len    = offset - inst_offset;
@@ -2175,7 +2201,12 @@ dissect_http3_qpack_decoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
                  */
 
                 /* Read the 6-encoded name stream ID */
-                offset   += read_qpack_prefixed_integer(tvb, offset, 6, &stream_id, &fin, NULL);
+                varint_len = read_qpack_prefixed_integer(tvb, offset, 6, &stream_id, NULL);
+                if (varint_len == 0) {
+                    offset = end_offset;
+                    break;
+                }
+                offset       += varint_len;
 
                 /* Update the instruction length */
                 inst_len  = offset - inst_offset;
@@ -2199,7 +2230,12 @@ dissect_http3_qpack_decoder_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
                  */
 
                 /* Read the 6-encoded instruction count increment */
-                offset    += read_qpack_prefixed_integer(tvb, offset, 6, &icnt_inc, &fin, NULL);
+                varint_len = read_qpack_prefixed_integer(tvb, offset, 6, &icnt_inc, NULL);
+                if (varint_len == 0) {
+                    offset = end_offset;
+                    break;
+                }
+                offset       += varint_len;
 
                 /* Update the instruction length */
                 inst_len   = offset - inst_offset;
@@ -3115,6 +3151,10 @@ proto_register_http3(void)
         { &ei_http3_qpack_failed,
           { "http3.qpack_enc_failed", PI_UNDECODED, PI_NOTE,
             "Error decoding QPACK buffer", EXPFILL }
+        },
+        { &ei_http3_prefix_int_failed,
+          { "http3.prefix_int.failed", PI_UNDECODED, PI_WARN,
+            "Error decoding prefixed integer (too big)", EXPFILL }
         },
         { &ei_http3_header_encoded_state ,
           { "http3.expert.header.encoded_state", PI_DEBUG, PI_NOTE,

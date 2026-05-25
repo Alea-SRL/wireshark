@@ -14,8 +14,8 @@
 ** Author: Gerhard Gappmeier <gerhard.gappmeier@ascolab.com>
 ******************************************************************************/
 
-#define WS_LOG_DOMAIN "opcua"
 #include "config.h"
+#define WS_LOG_DOMAIN "opcua"
 #include <wireshark.h>
 
 #include <epan/dissectors/packet-tcp.h>
@@ -29,6 +29,7 @@
 #include <wiretap/secrets-types.h>
 #include <wsutil/file_util.h>
 
+#include "opcua.h"
 #include "opcua_application_layer.h"
 #include "opcua_complextypeparser.h"
 #include "opcua_enumparser.h"
@@ -37,13 +38,12 @@
 #include "opcua_security_layer.h"
 #include "opcua_serviceparser.h"
 #include "opcua_serviceids.h"
+#include "opcua_servicetable.h"
 #include "opcua_simpletypes.h"
 #include "opcua_transport_layer.h"
 
 void proto_register_opcua(void);
 
-extern const value_string g_requesttypes[];
-extern const int g_NumServices;
 static const char *g_opcua_debug_file_name;
 int g_opcua_default_sig_len;
 
@@ -66,10 +66,6 @@ static module_t *opcua_module;
 #define FRAME_HEADER_LEN 8
 /* AES block size: for both AES128 and AES256 the block size is 128 bits */
 #define AES_BLOCK_SIZE 16
-
-/** subtree types used in opcua_transport_layer.c */
-int ett_opcua_extensionobject;
-int ett_opcua_nodeid;
 
 /** subtree types used locally */
 static int ett_opcua_transport;
@@ -450,9 +446,23 @@ static int decrypt_opcua(
     }
 
     gcry_cipher_hd_t handle;
-    gcry_cipher_open(&handle, cipher_mode, GCRY_CIPHER_MODE_CBC, GCRY_CIPHER_CBC_CTS);
-    gcry_cipher_setkey(handle, keydata, keylen);
-    gcry_cipher_setiv(handle, ivdata, ivlen);
+    res = gcry_cipher_open(&handle, cipher_mode, GCRY_CIPHER_MODE_CBC, GCRY_CIPHER_CBC_CTS);
+    if (res) {
+        ws_debug("opening cipher failed: %s %s.", gcry_strsource(res), gcry_strerror(res));
+        return -1;
+    }
+    res = gcry_cipher_setkey(handle, keydata, keylen);
+    if (res) {
+        ws_debug("setkey failed: %s %s.", gcry_strsource(res), gcry_strerror(res));
+        gcry_cipher_close(handle);
+        return -1;
+    }
+    res = gcry_cipher_setiv(handle, ivdata, ivlen);
+    if (res) {
+        ws_debug("setiv failed: %s %s.", gcry_strsource(res), gcry_strerror(res));
+        gcry_cipher_close(handle);
+        return -1;
+    }
 
     /* Decrypt the data in-place */
     res = gcry_cipher_decrypt(handle, plaintext, plaintext_len, cipher, cipher_len);
@@ -461,7 +471,7 @@ static int decrypt_opcua(
         ws_debug("decryption succeeded.");
     } else {
         /* col_append_fstr(pinfo->cinfo, COL_INFO, " (encrypted)"); */
-        ws_debug("decryption failed.");
+        ws_debug("decryption failed %s %s.", gcry_strsource(res), gcry_strerror(res));
         ret = -1;
     }
     gcry_cipher_close(handle);
@@ -648,7 +658,7 @@ static int dissect_opcua_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
                      * the padding (paddin_len+1), and the signature from the plaintext */
                     payload_len = plaintext_len - pad_len - sig_len - 9; /* pad_len 2 = 02 02 02 */
                     /* Now re-setup the tvb buffer to have the new data */
-                    decrypted_tvb = tvb_new_child_real_data(tvb, plaintext, (unsigned)plaintext_len, (int)plaintext_len);
+                    decrypted_tvb = tvb_new_child_real_data(tvb, plaintext, (unsigned)plaintext_len, (unsigned)plaintext_len);
                     add_new_data_source(pinfo, decrypted_tvb, "Decrypted Data");
                     /* process decrypted_tvb from here */
                     tvb = decrypted_tvb;
@@ -899,8 +909,6 @@ void proto_register_opcua(void)
     /** Setup protocol subtree array */
     static int *ett[] =
         {
-            &ett_opcua_extensionobject,
-            &ett_opcua_nodeid,
             &ett_opcua_transport,
             &ett_opcua_fragment,
             &ett_opcua_fragments

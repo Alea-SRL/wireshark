@@ -2203,6 +2203,8 @@ wtap_dump_init_dumper(int file_type_subtype, ws_compression_type compression_typ
 					descr_mand->wtap_encap = params->encap;
 				}
 				if (!wtap_dump_fix_idb(wdh, descr, err)) {
+					wtap_block_array_free(wdh->interface_data);
+					g_free(wdh);
 					return NULL;
 				}
 				g_array_append_val(wdh->interface_data, descr);
@@ -2268,6 +2270,9 @@ wtap_dump_open(const char *filename, int file_type_subtype,
 		   opening it. */
 		wtap_dump_file_close(wdh);
 		ws_unlink(filename);
+		g_free(wdh->priv);
+		wtap_block_array_free(wdh->interface_data);
+		wtap_block_array_unref(wdh->dsbs_initial);
 		g_free(wdh);
 		return NULL;
 	}
@@ -2330,6 +2335,9 @@ wtap_dump_open_tempfile(const char *tmpdir, char **filenamep, const char *pfx,
 		   opening it. */
 		wtap_dump_file_close(wdh);
 		ws_unlink(*filenamep);
+		g_free(wdh->priv);
+		wtap_block_array_free(wdh->interface_data);
+		wtap_block_array_unref(wdh->dsbs_initial);
 		g_free(wdh);
 		return NULL;
 	}
@@ -2365,6 +2373,9 @@ wtap_dump_fdopen(int fd, int file_type_subtype, ws_compression_type compression_
 
 	if (!wtap_dump_open_finish(wdh, err, err_info)) {
 		wtap_dump_file_close(wdh);
+		g_free(wdh->priv);
+		wtap_block_array_free(wdh->interface_data);
+		wtap_block_array_unref(wdh->dsbs_initial);
 		g_free(wdh);
 		return NULL;
 	}
@@ -2423,6 +2434,10 @@ wtap_dump_open_finish(wtap_dumper *wdh, int *err, char **err_info)
 	/* Can we do a seek on the file descriptor?
 	   If not, note that fact. */
 	if (wdh->compression_type != WS_FILE_UNCOMPRESSED) {
+		/* We've already checked this case in wtap_dump_init_dumper
+		 * via wtap_dump_can_compress, so we shouldn't need to return
+		 * WTAP_ERR_COMPRESSION_NOT_SUPPORTED instead of
+		 * WTAP_ERR_CANT_WRITE_TO_PIPE below. */
 		cant_seek = true;
 	} else {
 		fd = ws_fileno((FILE *)wdh->fh);
@@ -2591,9 +2606,8 @@ wtap_dump_close(wtap_dumper *wdh, bool *needs_reload,
 		if (ret) {
 			/* The per-format finish function succeeded,
 			   but the stream close didn't.  Save the
-			   reason why, if our caller asked for it. */
-			if (err != NULL)
-				*err = errno;
+			   reason why. */
+			*err = errno;
 		}
 		ret = false;
 	}
@@ -2818,6 +2832,12 @@ wtap_dump_file_tell(wtap_dumper *wdh, int *err)
 {
 	int64_t rval;
 #if defined (HAVE_ZLIB) || defined (HAVE_ZLIBNG) || defined (HAVE_LZ4FRAME_H)
+	/* XXX - The gzip_writer and lz4_writer structs do contain the
+	 * position in the uncompressed data as an int64_t so we could
+	 * return that, but that should be the same as bytes_dumped as
+	 * we can't seek while compressing. (Alternatively we could return
+	 * the position in the compressed file, but that seems less useful.)
+	 */
 	if (wdh->compression_type != WS_FILE_UNCOMPRESSED) {
 		*err = WTAP_ERR_CANT_SEEK_COMPRESSED;
 		return -1;

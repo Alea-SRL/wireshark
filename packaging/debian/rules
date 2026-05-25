@@ -88,20 +88,24 @@ HEADER_CHECK_FLAGS = $(shell pkg-config --cflags glib-2.0) \
 	-Idebian/libwireshark-dev/usr/include/libwireshark-dev/epan/dissectors \
 	-Idebian/libwiretap-dev/usr/include/wireshark \
 	-Idebian/libwsutil-dev/usr/include/wireshark \
+	-Idebian/libuiqt-plugin-dev/usr/include/wireshark \
 
 override_dh_install:
 	dh_install
 	# check that all headers can be compiled
-	find debian/*-dev/usr/include -type f | sed 's|.*/include/wireshark/|#include <|;s|$$|>|' | $(CC) -x c -S - $(HEADER_CHECK_FLAGS) -o /dev/null
-	find debian/*-dev/usr/include -type f | sed 's|.*/include/wireshark/|#include <|;s|$$|>|' | $(CC) -x c++ -S - $(HEADER_CHECK_FLAGS) -o /dev/null
+	# plugin_exports.h is for building plugins, and requires setting WS_BUILD_DLL
+	find debian/*-dev/usr/include -type f -not -name "plugin_exports.h" | sed 's|.*/include/wireshark/|#include <|;s|$$|>|' | $(CC) -x c -S - $(HEADER_CHECK_FLAGS) -o /dev/null
+	find debian/*-dev/usr/include -type f -not -name "plugin_exports.h" | sed 's|.*/include/wireshark/|#include <|;s|$$|>|' | $(CC) -x c++ -S - $(HEADER_CHECK_FLAGS) -o /dev/null
+	find debian/*-dev/usr/include -name "plugin_exports.h" | sed 's|.*/include/wireshark/|#include <|;s|$$|>|' | $(CC) -x c -S - $(HEADER_CHECK_FLAGS) -DWS_BUILD_DLL -o /dev/null
+	find debian/*-dev/usr/include -name "plugin_exports.h" | sed 's|.*/include/wireshark/|#include <|;s|$$|>|' | $(CC) -x c++ -S - $(HEADER_CHECK_FLAGS) -DWS_BUILD_DLL -o /dev/null
 	# check than #include-ing the most widely used headers compiles
 	$(CC) -c debian/headers-check.c $(HEADER_CHECK_FLAGS) -o /dev/null
 
 override_dh_fixperms:
 	dh_fixperms
 	chmod 644 debian/wireshark-dev/usr/share/pyshared/make-plugin-reg.py \
-		debian/wireshark-dev/usr/share/pyshared/wireshark_be.py \
-		debian/wireshark-dev/usr/share/pyshared/wireshark_gen.py
+		debian/wireshark-dev/usr/share/pyshared/idl2wrs_be.py \
+		debian/wireshark-dev/usr/share/pyshared/idl2wrs_gen.py
 
 override_dh_auto_test:
 ifeq (,$(filter $(DEB_BUILD_OPTIONS),nocheck))
@@ -114,6 +118,7 @@ endif
 override_dh_makeshlibs:
 	for package in $$(grep 'Package: lib.*[0-9]$$' debian/control  | cut -d' ' -f2); do \
 		lib=$${package%%[0-9]*};\
+		lib=$$(echo "$$lib" | sed 's/-/_/');\
 		major=$${package##*[a-z]}; \
 		echo "$$lib $$major $$package (= $(DEB_VERSION))"  > debian/$$package.shlibs; \
 	done

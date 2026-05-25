@@ -25,10 +25,6 @@
 #include "packet-tcap.h"
 #include "packet-ansi_tcap.h"
 
-#define PNAME  "ANSI Transaction Capabilities Application Part"
-#define PSNAME "ANSI_TCAP"
-#define PFNAME "ansi_tcap"
-
 void proto_register_ansi_tcap(void);
 void proto_reg_handoff_ansi_tcap(void);
 
@@ -179,13 +175,6 @@ static dissector_table_t  ansi_tcap_national_opcode_table; /* National Operation
 
 #define MAX_SSN 254
 
-/* When several Tcap components are received in a single TCAP message,
-   we have to use several buffers for the stored parameters
-   because else this data are erased during TAP dissector call */
-#define MAX_TCAP_INSTANCE 10
-int tcapsrt_global_current=0;
-struct tcapsrt_info_t tcapsrt_global_info[MAX_TCAP_INSTANCE];
-
 static dissector_table_t ber_oid_dissector_table;
 static const char * cur_oid;
 static const char * tcapext_oid;
@@ -193,7 +182,7 @@ static const char * tcapext_oid;
 static dissector_handle_t ansi_map_handle;
 static dissector_handle_t ain_handle;
 
-struct ansi_tcap_private_t ansi_tcap_private;
+static struct ansi_tcap_private_t ansi_tcap_private;
 #define MAX_TID_STR_LEN 1024
 
 static void ansi_tcap_ctx_init(struct ansi_tcap_private_t *a_tcap_ctx) {
@@ -1059,7 +1048,7 @@ find_tcap_subdissector(tvbuff_t *tvb, asn1_ctx_t *actx, proto_tree *tree){
                 uint8_t family = (ansi_tcap_private.d.OperationCode_national & 0x7f00)>>8;
                 uint8_t specifier = (uint8_t)(ansi_tcap_private.d.OperationCode_national & 0xff);
                 if(!dissector_try_uint(ansi_tcap_national_opcode_table, ansi_tcap_private.d.OperationCode_national, tvb, actx->pinfo, actx->subtree.top_tree)){
-                        proto_tree_add_expert_format(tree, actx->pinfo, &ei_ansi_tcap_dissector_not_implemented, tvb, 0, -1,
+                        proto_tree_add_expert_format_remaining(tree, actx->pinfo, &ei_ansi_tcap_dissector_not_implemented, tvb, 0,
                                         "Dissector for ANSI TCAP NATIONAL code:0x%x(Family %u, Specifier %u) \n"
                                         "not implemented. Contact Wireshark developers if you want this supported(Spec required)",
                                         ansi_tcap_private.d.OperationCode_national, family, specifier);
@@ -1104,7 +1093,7 @@ find_tcap_subdissector(tvbuff_t *tvb, asn1_ctx_t *actx, proto_tree *tree){
                     return true;
                 }
         }
-        proto_tree_add_expert_format(tree, actx->pinfo, &ei_ansi_tcap_dissector_not_implemented, tvb, 0, -1,
+        proto_tree_add_expert_format_remaining(tree, actx->pinfo, &ei_ansi_tcap_dissector_not_implemented, tvb, 0,
             "Dissector for ANSI TCAP PRIVATE code:%u not implemented.\n"
             "Contact Wireshark developers if you want this supported(Spec required)",
             ansi_tcap_private.d.OperationCode_private);
@@ -1831,7 +1820,7 @@ proto_register_ansi_tcap(void)
     };
 
 /* Register the protocol name and description */
-    proto_ansi_tcap = proto_register_protocol(PNAME, PSNAME, PFNAME);
+    proto_ansi_tcap = proto_register_protocol("ANSI Transaction Capabilities Application Part", "ANSI_TCAP", "ansi_tcap");
     register_dissector("ansi_tcap", dissect_ansi_tcap, proto_ansi_tcap);
 
    /* Note the high bit should be masked off when registering in this table (0x7fff)*/

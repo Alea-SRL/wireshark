@@ -433,8 +433,7 @@ dissect_esmc_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *treex)
                     uint8_t unused;
 
                     /* type */
-                    type = tvb_get_uint8(tvb, offset);
-                    item_c = proto_tree_add_item(tree_b, hf_esmc_tlv_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+                    item_c = proto_tree_add_item_ret_uint8(tree_b, hf_esmc_tlv_type, tvb, offset, 1, ENC_BIG_ENDIAN, &type);
                     if (type != ESMC_QL_TLV_TYPE)
                     {
                         expert_add_info_format(pinfo, item_c, &ei_esmc_tlv_type_ql_type_not_first, "TLV Type must be == 0x%.2x (QL) because QL TLV must be first in the ESMC PDU", ESMC_QL_TLV_TYPE);
@@ -444,8 +443,7 @@ dissect_esmc_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *treex)
                     offset += 1;
 
                     /* length */
-                    length = tvb_get_ntohs(tvb, offset);
-                    item_c = proto_tree_add_item(tree_b, hf_esmc_tlv_length, tvb, offset, 2, ENC_BIG_ENDIAN);
+                    item_c = proto_tree_add_item_ret_uint16(tree_b, hf_esmc_tlv_length, tvb, offset, 2, ENC_BIG_ENDIAN, &length);
                     if (length != ESMC_QL_TLV_LENGTH)
                     {
                         expert_add_info_format(pinfo, item_c, &ei_esmc_tlv_length_bad, "QL TLV Length must be == 0x%.4x", ESMC_QL_TLV_LENGTH);
@@ -499,8 +497,7 @@ dissect_esmc_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *treex)
                         offset += 1;
 
                         /* length */
-                        length = tvb_get_ntohs(tvb, offset);
-                        item_c = proto_tree_add_item(tree_b, hf_esmc_tlv_length, tvb, offset, 2, ENC_BIG_ENDIAN);
+                        item_c = proto_tree_add_item_ret_uint16(tree_b, hf_esmc_tlv_length, tvb, offset, 2, ENC_BIG_ENDIAN, &length);
                         if (length != ESMC_EXTENDED_QL_TLV_LENGTH)
                         {
                             expert_add_info_format(pinfo, item_c, &ei_esmc_tlv_length_bad, "Extended QL TLV Length must be == 0x%.4x", ESMC_EXTENDED_QL_TLV_LENGTH);

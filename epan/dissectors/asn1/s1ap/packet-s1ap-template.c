@@ -10,7 +10,7 @@
  *
  * Based on the RANAP dissector
  *
- * References: 3GPP TS 36.413 V18.3.0 (2024-12)
+ * References: 3GPP TS 36.413 V19.1.0 (2025-12)
  */
 
 #include "config.h"
@@ -26,6 +26,7 @@
 #include <epan/show_exception.h>
 #include <epan/tfs.h>
 #include <epan/unit_strings.h>
+#include <epan/addr_resolv.h>
 #include <wsutil/array.h>
 
 #include "packet-per.h"
@@ -42,10 +43,6 @@
 #include "packet-ngap.h"
 #include "packet-lpp.h"
 #include "packet-sctp.h"
-
-#define PNAME  "S1 Application Protocol"
-#define PSNAME "S1AP"
-#define PFNAME "s1ap"
 
 /* Dissector will use SCTP PPID 18 or SCTP port. IANA assigned port = 36412 */
 #define SCTP_PORT_S1AP 36412
@@ -126,6 +123,7 @@ static int hf_s1ap_rAT_RestrictionInformation_NR_LEO;
 static int hf_s1ap_rAT_RestrictionInformation_NR_MEO;
 static int hf_s1ap_rAT_RestrictionInformation_NR_GEO;
 static int hf_s1ap_rAT_RestrictionInformation_NR_OTHERSAT;
+static int hf_s1ap_tAC_Name;
 #include "packet-s1ap-hf.c"
 
 /* Initialize the subtree pointers */
@@ -756,6 +754,10 @@ void proto_register_s1ap(void) {
       { "NR-OTHERSAT", "s1ap.rAT_RestrictionInformation.NR_OTHERSAT",
         FT_BOOLEAN, 8, TFS(&tfs_restricted_not_restricted), 0x01,
         NULL, HFILL }},
+    { &hf_s1ap_tAC_Name,
+      { "TAC Name", "s1ap.tAC_name",
+        FT_STRING, BASE_NONE, NULL, 0,
+        NULL, HFILL }},
 #include "packet-s1ap-hfarr.c"
   };
 
@@ -816,7 +818,7 @@ void proto_register_s1ap(void) {
   expert_module_t* expert_s1ap;
 
   /* Register protocol */
-  proto_s1ap = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_s1ap = proto_register_protocol("S1 Application Protocol", "S1AP", "s1ap");
   /* Register fields and subtrees */
   proto_register_field_array(proto_s1ap, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));

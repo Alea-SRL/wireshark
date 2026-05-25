@@ -9,10 +9,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
  */
-
-#ifndef __FOLLOW_H__
-#define __FOLLOW_H__
-
+#pragma once
 #include <epan/epan.h>
 #include <epan/packet.h>
 #include <wsutil/inet_cidr.h>
@@ -71,6 +68,7 @@ typedef struct _follow_info {
     address         client_ip;
     address         server_ip;
     void*           gui_data;
+    uint64_t        stream_id;
     uint64_t        substream_id;  /**< Sub-stream; used only by HTTP2 and QUIC */
 } follow_info_t;
 
@@ -88,76 +86,99 @@ typedef char* (*follow_port_to_display_func)(wmem_allocator_t *allocator, unsign
 typedef uint32_t (*follow_stream_count_func)(void);
 typedef bool (*follow_sub_stream_id_func)(unsigned stream, unsigned sub_stream, bool le, unsigned *sub_stream_out);
 
+/**
+ * @brief Register a new follow stream.
+ *
+ * @param proto_id Protocol ID.
+ * @param tap_listener TAP listener name.
+ * @param conv_filter Conversation filter function.
+ * @param index_filter Index filter function.
+ * @param address_filter Address filter function.
+ * @param port_to_display Port to display function.
+ * @param tap_handler TAP handler function.
+ * @param stream_count Stream count function.
+ * @param sub_stream_id Sub-stream ID function.
+ */
 WS_DLL_PUBLIC
 void register_follow_stream(const int proto_id, const char* tap_listener,
                             follow_conv_filter_func conv_filter, follow_index_filter_func index_filter, follow_address_filter_func address_filter,
                             follow_port_to_display_func port_to_display, tap_packet_cb tap_handler,
                             follow_stream_count_func stream_count, follow_sub_stream_id_func sub_stream_id);
 
-/** Get protocol ID from registered follower
+/**
+ * @brief Get protocol ID from registered follower
  *
  * @param follower Registered follower
  * @return protocol id of follower
  */
 WS_DLL_PUBLIC int get_follow_proto_id(register_follow_t* follower);
 
-/** Get tap name string from registered follower (used for register_tap_listener)
+/**
+ * @brief Get tap name string from registered follower (used for register_tap_listener)
  *
  * @param follower Registered follower
  * @return tap name string of follower
  */
 WS_DLL_PUBLIC const char* get_follow_tap_string(register_follow_t* follower);
 
-/** Get a registered follower by protocol short name
+/**
+ * @brief Get a registered follower by protocol short name
  *
  * @param proto_short_name Protocol short name
  * @return tap registered follower if match, otherwise NULL
  */
 WS_DLL_PUBLIC register_follow_t* get_follow_by_name(const char* proto_short_name);
 
-/** Get a registered follower by protocol id
+/**
+ * @brief Get a registered follower by protocol id
  *
  * @param proto_id Protocol Id
  * @return tap registered follower if match, otherwise NULL
  */
 WS_DLL_PUBLIC register_follow_t* get_follow_by_proto_id(const int proto_id);
 
-/** Provide function that builds a follow filter based on the current packet's conversation.
+/**
+ * @brief Provide function that builds a follow filter based on the current packet's conversation.
  *
  * @param follower [in] Registered follower
  * @return A filter function handler
  */
 WS_DLL_PUBLIC follow_conv_filter_func get_follow_conv_func(register_follow_t* follower);
 
-/** Provide function that builds a follow filter based on stream.
+/**
+ * @brief Provide function that builds a follow filter based on stream.
  *
  * @param follower [in] Registered follower
  * @return A filter function handler
  */
 WS_DLL_PUBLIC follow_index_filter_func get_follow_index_func(register_follow_t* follower);
 
-/** Provide function that builds a follow filter based on address/port pairs.
+/**
+ * @brief Provide function that builds a follow filter based on address/port pairs.
  *
  * @param follower [in] Registered follower
  * @return A filter function handler
  */
 WS_DLL_PUBLIC follow_address_filter_func get_follow_address_func(register_follow_t* follower);
 
-/** Provide function that resolves port number to name based on follower.
+/**
+ * @brief Provide function that resolves port number to name based on follower.
  *
  * @param follower [in] Registered follower
  * @return A port resolver function handler
  */
 WS_DLL_PUBLIC follow_port_to_display_func get_follow_port_to_display(register_follow_t* follower);
 
-/** Provide function that handles tap data (tap_packet_cb parameter of register_tap_listener)
+/**
+ * @brief Provide function that handles tap data (tap_packet_cb parameter of register_tap_listener)
  *
  * @param follower [in] Registered follower
  * @return A tap packet handler
  */
 WS_DLL_PUBLIC tap_packet_cb get_follow_tap_handler(register_follow_t* follower);
 
-/** Provide function that gets the total number of streams for a registered follower
+/**
+ * @brief Provide function that gets the total number of streams for a registered follower
  * The function can be NULL if the follower does not count the number of streams
  *
  * @param follower [in] Registered follower
@@ -165,7 +186,10 @@ WS_DLL_PUBLIC tap_packet_cb get_follow_tap_handler(register_follow_t* follower);
  */
 WS_DLL_PUBLIC follow_stream_count_func get_follow_stream_count_func(register_follow_t* follower);
 
-/** Provide function that, for given stream and sub stream ids, searches for
+/**
+ * @brief Retrieve the next sub-stream ID for a given stream and stream ID.
+ *
+ * Provide function that, for given stream and sub stream ids, searches for
  * the first sub stream id less than or equal (or greater than or equal) the
  * given sub stream id present on the given stream id. Returns true and the
  * sub stream id found, or false.
@@ -181,17 +205,29 @@ WS_DLL_PUBLIC follow_sub_stream_id_func get_follow_sub_stream_id_func(register_f
 /** Tap function handler when dissector's tap provides follow data as a tvb.
  * Used by TCP, UDP and HTTP followers
  */
+/**
+ * @brief Tap listener for dissectors that export follow data via a tvb.
+ *
+ * @param tapdata   Opaque follow‑tap context (typically a follow_info struct).
+ * @param pinfo     Packet metadata for the current frame.
+ * @param edt       Dissection tree (unused).
+ * @param data      Protocol‑specific follow data, expected to contain a tvb.
+ * @param flags     Tap flags describing packet‑level conditions.
+ * @return tap_packet_status indicating whether UI components should update.
+ */
 WS_DLL_PUBLIC tap_packet_status
 follow_tvb_tap_listener(void *tapdata, packet_info *pinfo, epan_dissect_t *edt _U_, const void *data, tap_flags_t flags);
 
-/** Iterator to walk all registered followers and execute func
+/**
+ * @brief Iterator to walk all registered followers and execute func
  *
  * @param func action to be performed on all conversation tables
  * @param user_data any data needed to help perform function
  */
 WS_DLL_PUBLIC void follow_iterate_followers(wmem_foreach_func func, void *user_data);
 
-/** Generate -z stat (tap) name for a follower
+/**
+ * @brief Generate -z stat (tap) name for a follower
  * Currently used only by TShark
  *
  * @param follower [in] Registered follower
@@ -199,9 +235,12 @@ WS_DLL_PUBLIC void follow_iterate_followers(wmem_foreach_func func, void *user_d
  */
 WS_DLL_PUBLIC char* follow_get_stat_tap_string(register_follow_t* follower);
 
-/** Clear payload, fragments, counters, addresses, and ports of follow_info_t
- * for retapping. (Does not clear substream_id, which is used for selecting
- * which tvbs are tapped.)
+/**
+ * @brief Clear payload, fragments, counters, addresses, and ports of follow_info_t
+ * for retapping.
+ *
+ * Does not clear substream_id, which is used for selecting
+ * which tvbs are tapped.
  * Free everything except the GUI element and the follow_info_t structure
  * itself
  *
@@ -209,7 +248,8 @@ WS_DLL_PUBLIC char* follow_get_stat_tap_string(register_follow_t* follower);
  */
 WS_DLL_PUBLIC void follow_reset_stream(follow_info_t* info);
 
-/** Free follow_info_t structure
+/**
+ * @brief Free follow_info_t structure
  * Free everything except the GUI element
  *
  * @param follow_info [in] follower info
@@ -219,5 +259,3 @@ WS_DLL_PUBLIC void follow_info_free(follow_info_t* follow_info);
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif

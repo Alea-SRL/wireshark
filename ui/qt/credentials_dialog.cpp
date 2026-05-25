@@ -16,7 +16,7 @@
 
 #include "credentials_dialog.h"
 #include <ui_credentials_dialog.h>
-#include <ui/tap-credentials.h>
+#include <epan/credentials.h>
 #include "main_application.h"
 #include "ui/qt/widgets/wireshark_file_dialog.h"
 #include "ui/qt/models/credentials_model.h"

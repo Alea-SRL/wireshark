@@ -1,7 +1,7 @@
 /* packet-signal-pdu.c
  * Signal PDU dissector.
  * By Dr. Lars Völker <lars.voelker@technica-engineering.de>
- * Copyright 2020-2025 Dr. Lars Völker
+ * Copyright 2020-2026 Dr. Lars Völker
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -44,9 +44,6 @@
  * SOME/IP, and others.
  */
 
-#define SPDU_NAME                                           "Signal PDU"
-#define SPDU_NAME_LONG                                      "Signal PDU"
-#define SPDU_NAME_FILTER                                    "signal_pdu"
 #define SPDU_NAME_SIGNAL_PREFIX                             "signal_pdu.signals"
 
 
@@ -995,8 +992,12 @@ create_hf_entry(hf_register_info *dynamic_hf, unsigned i, uint32_t id, uint32_t 
     }
 
     if (hf_type == HF_TYPE_RAW && vs != NULL) {
-        dynamic_hf[i].hfinfo.strings = VALS64(vs);
-        dynamic_hf[i].hfinfo.display |= BASE_VAL64_STRING | BASE_SPECIAL_VALS;
+        if (data_type == SPDU_DATA_TYPE_STRING || data_type == SPDU_DATA_TYPE_STRINGZ || data_type == SPDU_DATA_TYPE_UINT_STRING) {
+            ws_warning("Preference Error: Signal_PDU_signal_list Signal PDU ID: 0x%04x Signal Position: %d. String based types must not define values in Signal_PDU_signal_values!\n", id, pos);
+        } else {
+            dynamic_hf[i].hfinfo.strings = VALS64(vs);
+            dynamic_hf[i].hfinfo.display |= BASE_VAL64_STRING | BASE_SPECIAL_VALS;
+        }
     } else {
         dynamic_hf[i].hfinfo.strings = NULL;
     }
@@ -2158,7 +2159,7 @@ dissect_shifted_and_shortened_uint(tvbuff_t *tvb, int offset, int offset_bits, i
 }
 
 static int
-dissect_spdu_payload_signal(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, int offset_bits, spdu_signal_item_t *item, int *multiplexer) {
+dissect_spdu_payload_signal(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, unsigned offset, int offset_bits, spdu_signal_item_t *item, int *multiplexer) {
     DISSECTOR_ASSERT(item != NULL);
     DISSECTOR_ASSERT(item->hf_id_effective != NULL);
 
@@ -2169,11 +2170,11 @@ dissect_spdu_payload_signal(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     int         hf_id_effective = 0;
     int         hf_id_raw = 0;
 
-    int offset_end = (int)((8 * offset + offset_bits + item->bitlength_encoded_type) / 8);
-    int offset_end_bits = (int)((8 * offset + offset_bits + item->bitlength_encoded_type) % 8);
+    unsigned offset_end = ((8 * offset + offset_bits + item->bitlength_encoded_type) / 8);
+    unsigned offset_end_bits = ((8 * offset + offset_bits + item->bitlength_encoded_type) % 8);
 
     int string_length = 0;
-    int signal_length = offset_end - offset;
+    unsigned signal_length = offset_end - offset;
     if (offset_end_bits != 0) {
         signal_length++;
     }
@@ -2400,8 +2401,8 @@ dissect_spdu_payload_signal(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 static int
 dissect_spdu_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *root_tree, uint32_t id, bool update_column) {
-    int offset = 0;
-    int offset_bits = 0;
+    unsigned offset = 0;
+    unsigned offset_bits = 0;
     int bits_parsed = 0;
     int multiplexer = -1;
 
@@ -2413,7 +2414,7 @@ dissect_spdu_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *root_tree, u
         proto_item_append_text(pdu_item, ": %s", name);
         if (update_column) {
             col_append_fstr(pinfo->cinfo, COL_INFO, " (PDU: %s)", name);
-            col_set_str(pinfo->cinfo, COL_PROTOCOL, SPDU_NAME);
+            col_set_str(pinfo->cinfo, COL_PROTOCOL, "Signal PDU");
         }
         proto_item* ti = proto_tree_add_string(tree, hf_pdu_name, tvb, offset, -1, name);
         proto_item_set_generated(ti);
@@ -2442,7 +2443,7 @@ dissect_spdu_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *root_tree, u
         return tvb_captured_length(tvb);
     }
 
-    int length = tvb_captured_length_remaining(tvb, 0);
+    unsigned length = tvb_captured_length_remaining(tvb, 0);
 
     for (unsigned i = 0; i < paramlist->num_of_items; i++) {
         if (!paramlist->items[i].sig_val_names_valid) {
@@ -2793,7 +2794,7 @@ proto_register_signal_pdu(void) {
     };
 
     /* Register ETTs */
-    proto_signal_pdu = proto_register_protocol(SPDU_NAME_LONG, SPDU_NAME, SPDU_NAME_FILTER);
+    proto_signal_pdu = proto_register_protocol("Signal PDU", "Signal PDU", "signal_pdu");
     proto_register_field_array(proto_signal_pdu, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
     expert_module_lpdu = expert_register_protocol(proto_signal_pdu);

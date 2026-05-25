@@ -9,10 +9,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __PRINT_STREAM_H__
-#define __PRINT_STREAM_H__
-
+#pragma once
 #include "ws_symbol_export.h"
 
 #include <wsutil/color.h>
@@ -48,31 +45,112 @@ typedef struct print_stream {
 /*
  * These return a print_stream_t * on success and NULL on failure.
  */
+
+/**
+ * @brief Create a new print stream for text output.
+ *
+ * @param to_file If true, output will be written to a file; otherwise, it will be written to standard output.
+ * @param dest The destination file name.
+ * @return Pointer to the newly created print stream, or NULL on failure.
+ */
 WS_DLL_PUBLIC print_stream_t *print_stream_text_new(bool to_file, const char *dest);
+
+/**
+ * @brief Create a new print stream for text output using standard I/O.
+ *
+ * @param fh File handle to write to.
+ * @return Pointer to the newly created print stream, or NULL on failure.
+ */
 WS_DLL_PUBLIC print_stream_t *print_stream_text_stdio_new(FILE *fh);
+
+/**
+ * @brief Create a new print stream for PostScript output.
+ *
+ * @param to_file If true, output will be written to a file; otherwise, it will be written to standard output.
+ * @param dest The destination file name.
+ * @return Pointer to the newly created print stream, or NULL on failure.
+ */
 WS_DLL_PUBLIC print_stream_t *print_stream_ps_new(bool to_file, const char *dest);
+
+/**
+ * @brief Create a new print stream for PostScript output using standard I/O.
+ *
+ * @param fh File handle to write to.
+ * @return Pointer to the newly created print stream, or NULL on failure.
+ */
 WS_DLL_PUBLIC print_stream_t *print_stream_ps_stdio_new(FILE *fh);
 
-/*
- * These return true if the print was successful, false otherwise.
+/**
+ * @brief Print the preamble to a print stream.
+ *
+ * @param self           The print stream.
+ * @param filename       The name of the capture file being printed.
+ * @param version_string The Wireshark version string.
+ * @return true if the print was successful, false otherwise.
  */
 WS_DLL_PUBLIC bool print_preamble(print_stream_t *self, char *filename, const char *version_string);
+
+/**
+ * @brief Prints a line to the print stream.
+ *
+ * @param self Pointer to the print stream object.
+ * @param indent Number of spaces for indentation.
+ * @param line The line to be printed.
+ * @return true if the line was successfully printed, false otherwise.
+ */
 WS_DLL_PUBLIC bool print_line(print_stream_t *self, int indent, const char *line);
 
-/*
- * equivalent to print_line(), but if the stream supports text coloring then
+/**
+ * @brief Print a colored line to a print stream.
+ *
+ * Equivalent to print_line(), but if the stream supports text coloring then
  * the output text will also be colored with the given foreground and
- * background
+ * background.
+ *
+ * @param self The print stream.
+ * @param indent The indentation level.
+ * @param line The line of text to print.
+ * @param fg The foreground color.
+ * @param bg The background color.
+ * @return true if the print was successful, false otherwise.
  */
 WS_DLL_PUBLIC bool print_line_color(print_stream_t *self, int indent, const char *line, const color_t *fg, const color_t *bg);
+
+/**
+ * @brief Print a bookmark in the print stream.
+ *
+ * @param self Pointer to the print_stream_t object.
+ * @param name The name of the bookmark.
+ * @param title The title of the bookmark.
+ * @return true if successful, false otherwise.
+ */
 WS_DLL_PUBLIC bool print_bookmark(print_stream_t *self, const char *name,
     const char *title);
+
+/**
+ * @brief Create a new page in the print stream.
+ *
+ * @param self Pointer to the print_stream_t object.
+ * @return true if successful, false otherwise.
+ */
 WS_DLL_PUBLIC bool new_page(print_stream_t *self);
+
+/**
+ * @brief Print the finale of the print stream.
+ *
+ * @param self Pointer to the print_stream_t object.
+ * @return true if successful, false otherwise.
+ */
 WS_DLL_PUBLIC bool print_finale(print_stream_t *self);
+
+/**
+ * @brief Destroys a print stream.
+ *
+ * @param self Pointer to the print_stream_t structure to be destroyed.
+ * @return true if successful, false otherwise.
+ */
 WS_DLL_PUBLIC bool destroy_print_stream(print_stream_t *self);
 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* print_stream.h */

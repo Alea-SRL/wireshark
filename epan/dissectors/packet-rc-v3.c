@@ -26,11 +26,6 @@
 #include "packet-per.h"
 #include "packet-ntp.h"
 
-#define PNAME  "RC V3"
-#define PSNAME "RCv3"
-#define PFNAME "rc-v3"
-
-
 void proto_register_rc_v3(void);
 void proto_reg_handoff_rc_v3(void);
 
@@ -1677,13 +1672,11 @@ static const per_sequence_t RANParameter_Testing_Item_sequence[] = {
 static unsigned
 dissect_rc_v3_RANParameter_Testing_Item(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // RANParameter-Testing-Item -> RANParameter-Testing-Item/ranParameter-Type -> RANParameter-Testing-Item-Choice-List -> RANParameter-Testing-LIST -> RANParameter-Testing-Item
-  actx->pinfo->dissection_depth += 4;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 4);
   offset = dissect_per_sequence(tvb, offset, actx, tree, hf_index,
                                    ett_rc_v3_RANParameter_Testing_Item, RANParameter_Testing_Item_sequence);
 
-  actx->pinfo->dissection_depth -= 4;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 4);
   return offset;
 }
 
@@ -2669,13 +2662,11 @@ static const per_sequence_t RANParameter_Definition_sequence[] = {
 static unsigned
 dissect_rc_v3_RANParameter_Definition(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // RANParameter-Definition -> RANParameter-Definition-Choice -> RANParameter-Definition-Choice-LIST -> RANParameter-Definition-Choice-LIST/ranParameter-List -> RANParameter-Definition-Choice-LIST-Item -> RANParameter-Definition
-  actx->pinfo->dissection_depth += 5;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 5);
   offset = dissect_per_sequence(tvb, offset, actx, tree, hf_index,
                                    ett_rc_v3_RANParameter_Definition, RANParameter_Definition_sequence);
 
-  actx->pinfo->dissection_depth -= 5;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 5);
   return offset;
 }
 
@@ -2826,14 +2817,12 @@ static const per_choice_t RANParameter_ValueType_choice[] = {
 static unsigned
 dissect_rc_v3_RANParameter_ValueType(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // RANParameter-ValueType -> RANParameter-ValueType-Choice-Structure -> RANParameter-STRUCTURE -> RANParameter-STRUCTURE/sequence-of-ranParameters -> RANParameter-STRUCTURE-Item -> RANParameter-ValueType
-  actx->pinfo->dissection_depth += 5;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 5);
   offset = dissect_per_choice(tvb, offset, actx, tree, hf_index,
                                  ett_rc_v3_RANParameter_ValueType, RANParameter_ValueType_choice,
                                  NULL);
 
-  actx->pinfo->dissection_depth -= 5;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 5);
   return offset;
 }
 
@@ -8939,7 +8928,7 @@ void proto_register_rc_v3(void) {
 
 
   /* Register protocol */
-  proto_rc_v3 = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_rc_v3 = proto_register_protocol("RC V3", "RCv3", "rc-v3");
   /* Register fields and subtrees */
   proto_register_field_array(proto_rc_v3, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));

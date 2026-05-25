@@ -28,7 +28,7 @@ def get_compressors():
         # https://github.com/amadvance/advancecomp
         'advdef': { 'args': ['--recompress', '--shrink-insane', PNG_FILE_ARG] },
         # https://pmt.sourceforge.io/pngcrush/
-        'pngcrush': { 'args': ['-q', '-ow', '-brute', '-reduce', '-noforce', PNG_FILE_ARG, 'pngcrush.$$$$.png'] },
+        'pngcrush': { 'args': ['-q', '-ow', '-brute', '-reduce', '-noforce', PNG_FILE_ARG, f'{PNG_FILE_ARG}.pngcrush'] },
         # https://github.com/fhanau/Efficient-Compression-Tool
         'ect': { 'args': ['-5', '--mt-deflate', '--mt-file', '-strip', PNG_FILE_ARG]}
     }

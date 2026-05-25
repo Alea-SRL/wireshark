@@ -103,6 +103,9 @@
 
 /* Note: copied from net80211/ieee80211.h					*/
 #define DOT11DECRYPT_FC1_DIR_MASK                  0x03
+#define IEEE80211_FC1_DIR_NODS                     0x00    /* STA->STA */
+#define IEEE80211_FC1_DIR_TODS                     0x01    /* STA->AP  */
+#define IEEE80211_FC1_DIR_FROMDS                   0x02    /* AP ->STA */
 #define DOT11DECRYPT_FC1_DIR_DSTODS                0x03    /* AP ->AP  */
 #define DOT11DECRYPT_FC0_SUBTYPE_QOS               0x80
 #define DOT11DECRYPT_FC0_TYPE_DATA                 0x08
@@ -185,10 +188,18 @@ typedef struct _DOT11DECRYPT_MAC_FRAME_ADDR4_QOS {
 
 /******************************************************************************/
 
-/*
- * Decrypt CCMP encrypted MPDU.
+/**
+ * @brief Decrypt CCMP encrypted MPDU.
  *
- * @Return
+ * @param m Pointer to the MPDU to decrypt (in-place).
+ * @param mac_header_len Length of the MAC header in bytes.
+ * @param len Total length of the MPDU in bytes.
+ * @param TK1 Pointer to the Temporal Key (TK) used for decryption.
+ * @param tk_len Length of the Temporal Key in bytes.
+ * @param mic_len Length of the Message Integrity Code (MIC) in bytes.
+ * @param ap_mld_mac Pointer to the AP's MAC address (for MLD).
+ * @param sta_mld_mac Pointer to the station's MAC address (for MLD).
+ * @return
  * - -1: Length constraint is not satisfied indicating that decryption is impossible
  * - 1: Decryption fails
  * - 0: Decryption succeeds
@@ -199,12 +210,20 @@ int Dot11DecryptCcmpDecrypt(
 	int len,
 	uint8_t *TK1,
 	int tk_len,
-	int mic_len);
+	int mic_len,
+	const uint8_t *ap_mld_mac,
+	const uint8_t *sta_mld_mac);
 
-/*
- * Decrypt GCMP encrypted MPDU.
+/** @brief Decrypt GCMP encrypted MPDU.
  *
- * @Return
+ * @param m Pointer to the MPDU to decrypt (in-place).
+ * @param mac_header_len Length of the MAC header in bytes.
+ * @param len Total length of the MPDU in bytes.
+ * @param TK1 Pointer to the Temporal Key (TK) used for decryption.
+ * @param tk_len Length of the Temporal Key in bytes.
+ * @param ap_mld_mac Pointer to the AP's MAC address (for MLD).
+ * @param sta_mld_mac Pointer to the station's MAC address (for MLD).
+ * @return
  * - -1: Length constraint is not satisfied indicating that decryption is impossible
  * - 1: Decryption fails
  * - 0: Decryption succeeds
@@ -214,12 +233,17 @@ int Dot11DecryptGcmpDecrypt(
 	int mac_header_len,
 	int len,
 	uint8_t *TK1,
-	int tk_len);
+	int tk_len,
+	const uint8_t *ap_mld_mac,
+	const uint8_t *sta_mld_mac);
 
-/*
- * Decrypt TKIP encrypted MPDU.
+/** @brief Decrypt TKIP encrypted MPDU.
  *
- * @Return
+ * @param mpdu Pointer to the MPDU to decrypt (in-place).
+ * @param mac_header_len Length of the MAC header in bytes.
+ * @param mpdu_len Total length of the MPDU in bytes.
+ * @param TK Pointer to the Temporal Key (TK) used for decryption.
+ * @return
  * - -1: Length constraint is not satisfied indicating that decryption is impossible
  * - 1: Decryption fails
  * - 0: Decryption succeeds
@@ -230,8 +254,8 @@ int Dot11DecryptTkipDecrypt(
 	size_t mpdu_len,
 	unsigned char TK[DOT11DECRYPT_TK_LEN]);
 
-/*
- * Decrypt WEP-encrypted 802.11 payload using RC4 stream cipher.
+/**
+ * @brief Decrypt WEP-encrypted 802.11 payload using RC4 stream cipher.
  *
  * Performs WEP decryption on the provided `cypher_text` buffer using the RC4
  * algorithm seeded with the specified initialization vector and WEP key.

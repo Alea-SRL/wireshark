@@ -16,6 +16,7 @@
 /* WSLUA_MODULE Utility Utility Functions */
 
 #include "wslua.h"
+#include "wslua_debugger.h"
 #include <math.h>
 #include <epan/stat_tap_ui.h>
 #include <epan/prefs.h>
@@ -25,6 +26,12 @@ WSLUA_FUNCTION wslua_get_version(lua_State* L) { /* Gets the Wireshark version a
     const char* str = VERSION;
     lua_pushstring(L,str);
     WSLUA_RETURN(1); /* The version string, e.g. "3.2.5". */
+}
+
+WSLUA_FUNCTION wslua_lua_release(lua_State* L) { /* Gets the Lua release as a string. */
+    const char* str = ABOUT_LUA_RELEASE;
+    lua_pushstring(L,str);
+    WSLUA_RETURN(1); /* The version string, e.g. "Lua 5.4.6 (UfW patched)". */
 }
 
 static char* current_plugin_version = NULL;
@@ -503,13 +510,15 @@ typedef struct _statcmd_t {
     int func_ref;
 } statcmd_t;
 
-static int statcmd_init_cb_error_handler(lua_State* L _U_) {
+static int statcmd_init_cb_error_handler(lua_State* L) {
+    wslua_debugger_capture_runtime_error(L, lua_tostring(L, 1));
     return 0;
 }
 
 static bool statcmd_init(const char *opt_arg, void* userdata) {
     statcmd_t* sc = (statcmd_t *)userdata;
     lua_State* L = sc->L;
+    int status;
 
     lua_settop(L,0);
     lua_pushcfunction(L,statcmd_init_cb_error_handler);
@@ -517,9 +526,9 @@ static bool statcmd_init(const char *opt_arg, void* userdata) {
 
     lua_pushstring(L,opt_arg);
 
-    switch ( lua_pcall(L,1,0,1) ) {
-        case 0:
-            break;
+    status = lua_pcall(L, 1, 0, 1);
+    if (status != LUA_OK && !wslua_debugger_after_pcall_failure(L)) {
+        switch (status) {
         case LUA_ERRRUN:
             ws_warning("Runtime error while calling statcmd callback");
             break;
@@ -532,6 +541,7 @@ static bool statcmd_init(const char *opt_arg, void* userdata) {
         default:
             ws_assert_not_reached();
             break;
+        }
     }
 
     return true;

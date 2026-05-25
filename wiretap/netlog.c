@@ -15,6 +15,8 @@
  */
 
 #include "config.h"
+#define WS_LOG_DOMAIN "NetLog"
+
 #include "netlog.h"
 
 #include <string.h>
@@ -23,12 +25,10 @@
 #include "file_wrappers.h"
 
 /* Grab constants for generating supporting layers */
-#include <epan/ipproto.h>
 #include <epan/dissectors/packet-tcp.h>
+#include <epan/iana-info.h>
 
 #include <wsutil/wsjson.h>
-
-#define WS_LOG_DOMAIN "NetLog"
 
 /* This is to avoid having large files overload the JSON parser. Adjust as appropriate. */
 #define MAX_FILE_SIZE (1024*1024*1024)
@@ -738,7 +738,9 @@ static bool netlog_parse_entirety(wtap *wth, FILE_T fh, int *err, char **err_inf
     }
 
     int num_tokens = json_parse_len((const char*)filebuf, bytes_read, NULL, 0);
-    if (num_tokens < 0) {
+    if (num_tokens <= 0) {
+        /* 0 tokens needed is a degenerate cases, e.g., nothing but whitespace
+         * until the first NUL. Reject that too. */
         g_free(filebuf);
         return false;
     }
@@ -773,6 +775,13 @@ static bool netlog_parse_entirety(wtap *wth, FILE_T fh, int *err, char **err_inf
        We can now begin parsing the events to extract the data!
     */
     jsmntok_t* json_events = json_get_array((const char*)filebuf, root_json_token, "events");
+
+    if (json_events == NULL) {
+        ws_debug("NetLog file lacks 'events' array");
+        g_free(json_tokens);
+        g_free(filebuf);
+        return false;
+    }
 
     if (!parse_json_events((char*)filebuf, netlog_event_constants, json_events, json_packets_ht)){
         g_free(json_tokens);

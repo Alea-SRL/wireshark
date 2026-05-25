@@ -1,8 +1,8 @@
 /* packet-nr-rrc-template.c
  * NR;
  * Radio Resource Control (RRC) protocol specification
- * (3GPP TS 38.331 V18.7.0 Release 18) packet dissection
- * Copyright 2018-2025, Pascal Quantin
+ * (3GPP TS 38.331 V19.2.0 Release 19) packet dissection
+ * Copyright 2018-2026, Pascal Quantin
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -43,10 +43,6 @@
 #include "packet-gsm_a_common.h"
 #include "packet-lpp.h"
 
-#define PNAME  "NR Radio Resource Control (RRC) protocol"
-#define PSNAME "NR RRC"
-#define PFNAME "nr-rrc"
-
 void proto_register_nr_rrc(void);
 void proto_reg_handoff_nr_rrc(void);
 
@@ -68,9 +64,9 @@ static reassembly_table nr_rrc_dcch_segment_reassembly_table;
 static bool nr_rrc_nas_in_root_tree;
 static bool nr_rrc_reassemble_dcch_segments;
 
-extern int proto_mac_nr;
-extern int proto_rlc_nr;
-extern int proto_pdcp_nr;
+static int proto_mac_nr;
+static int proto_rlc_nr;
+static int proto_pdcp_nr;
 
 /* Include constants */
 #include "packet-nr-rrc-val.h"
@@ -621,6 +617,14 @@ nr_rrc_FlightPathUpdateDistanceThr_r18_fmt(char *s, uint32_t v)
   snprintf(s, ITEM_LABEL_LENGTH, "%um (%u)", v*5, v);
 }
 
+static void
+nr_rrc_50m_r19_fmt(char *s, uint32_t v)
+{
+  int32_t d = (int32_t)v;
+
+  snprintf(s, ITEM_LABEL_LENGTH, "%dm (%d)", d*50, d);
+}
+
 static int
 dissect_nr_rrc_cg_configinfo_msg(tvbuff_t* tvb _U_, packet_info* pinfo _U_, proto_tree* tree _U_, void* data _U_)
 {
@@ -1162,7 +1166,7 @@ proto_register_nr_rrc(void) {
   module_t *nr_rrc_module;
 
   /* Register protocol */
-  proto_nr_rrc = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_nr_rrc = proto_register_protocol("NR Radio Resource Control (RRC) protocol", "NR RRC", "nr-rrc");
 
   /* Register fields and subtrees */
   proto_register_field_array(proto_nr_rrc, hf, array_length(hf));
@@ -1224,4 +1228,8 @@ proto_reg_handoff_nr_rrc(void)
   lte_rrc_conn_reconf_compl_handle = find_dissector("lte-rrc.rrc_conn_reconf_compl");
   lte_rrc_ul_dcch_handle = find_dissector("lte-rrc.ul.dcch");
   lte_rrc_dl_dcch_handle = find_dissector("lte-rrc.dl.dcch");
+
+  proto_mac_nr = proto_get_id_by_filter_name("mac-nr");
+  proto_rlc_nr = proto_get_id_by_filter_name("rlc-nr");
+  proto_pdcp_nr = proto_get_id_by_filter_name("pdcp-nr");
 }

@@ -183,7 +183,6 @@ static void get_time(char *string, wtap_rec *rec) {
 
 static bool logcat_text_read_packet(wtap *wth, FILE_T fh, wtap_rec *rec,
         int file_type) {
-    uint8_t *pd;
     char *cbuff;
     char *ret = NULL;
 
@@ -219,7 +218,11 @@ static bool logcat_text_read_packet(wtap *wth, FILE_T fh, wtap_rec *rec,
             return false;
         }
 
-        file_seek(fh,file_off,SEEK_SET,&err);
+        if (file_seek(fh, file_off, SEEK_SET, &err) == -1) {
+            g_free(cbuff);
+            g_free(lbuff);
+            return false;
+        }
         g_free(lbuff);
     }
 
@@ -228,8 +231,6 @@ static bool logcat_text_read_packet(wtap *wth, FILE_T fh, wtap_rec *rec,
     rec->rec_header.packet_header.caplen = (uint32_t)strlen(cbuff);
     rec->rec_header.packet_header.len = rec->rec_header.packet_header.caplen;
 
-    ws_buffer_assure_space(&rec->data, rec->rec_header.packet_header.caplen + 1);
-    pd = ws_buffer_start_ptr(&rec->data);
     if ((logcat_text_time_file_type_subtype == file_type
             || logcat_text_threadtime_file_type_subtype == file_type
             || logcat_text_long_file_type_subtype == file_type)
@@ -244,7 +245,7 @@ static bool logcat_text_read_packet(wtap *wth, FILE_T fh, wtap_rec *rec,
         rec->ts.secs = (time_t) 0;
         rec->ts.nsecs = 0;
     }
-    memcpy(pd, cbuff, rec->rec_header.packet_header.caplen + 1);
+    ws_buffer_append(&rec->data, (uint8_t*)cbuff, rec->rec_header.packet_header.caplen + 1);
     g_free(cbuff);
     return true;
 }

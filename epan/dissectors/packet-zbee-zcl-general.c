@@ -13,7 +13,6 @@
 
 /*  Include Files */
 #include "config.h"
-
 #define WS_LOG_DOMAIN "zcl"
 
 #include <wireshark.h>
@@ -28,6 +27,7 @@
 
 #include "packet-zbee.h"
 #include "packet-zbee-aps.h"
+#include "packet-zbee-nwk.h"
 #include "packet-zbee-zcl.h"
 #include "packet-zbee-security.h"
 
@@ -1781,8 +1781,7 @@ dissect_zcl_groups_get_group_membership(tvbuff_t *tvb, proto_tree *tree, unsigne
    proto_tree *grp_list_tree;
    uint8_t count, i;
    /* Retrieve "Group Count" field */
-   count = tvb_get_uint8(tvb, *offset);
-   proto_tree_add_uint(tree, hf_zbee_zcl_groups_group_count, tvb, *offset, 1, count);
+   proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_groups_group_count, tvb, *offset, 1, ENC_NA, &count);
    *offset += 1;
 
    if(count > 0)
@@ -1916,8 +1915,7 @@ dissect_zcl_groups_get_group_membership_response(tvbuff_t *tvb, proto_tree *tree
    *offset += 1;
 
    /* Retrieve "Group Count" field */
-   count = tvb_get_uint8(tvb, *offset);
-   proto_tree_add_uint(tree, hf_zbee_zcl_groups_group_count, tvb, *offset, 1, count);
+   proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_groups_group_count, tvb, *offset, 1, ENC_NA, &count);
    *offset += 1;
    if(count > 0)
    {
@@ -2625,8 +2623,7 @@ dissect_zcl_scenes_view_scene_response(tvbuff_t *tvb, packet_info* pinfo, proto_
     unsigned attr_uint;
 
     /* Retrieve "Status" field */
-    status = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_scenes_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_scenes_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &status);
     *offset += 1;
 
     /* Retrieve "Group ID" field */
@@ -2712,8 +2709,7 @@ dissect_zcl_scenes_get_scene_membership_response(tvbuff_t *tvb, proto_tree *tree
    uint8_t status, count, i;
 
    /* Retrieve "Status" field */
-   status = tvb_get_uint8(tvb, *offset);
-   proto_tree_add_item(tree, hf_zbee_zcl_scenes_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
+   proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_scenes_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &status);
    *offset += 1;
 
    /* Retrieve "Capacity" field */
@@ -2727,8 +2723,7 @@ dissect_zcl_scenes_get_scene_membership_response(tvbuff_t *tvb, proto_tree *tree
    if(status == ZBEE_ZCL_STAT_SUCCESS)
    {
        /* Retrieve "Scene Count" field */
-       count = tvb_get_uint8(tvb, *offset);
-       proto_tree_add_uint(tree, hf_zbee_zcl_scenes_scene_count, tvb, *offset, 1, count);
+       proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_scenes_scene_count, tvb, *offset, 1, ENC_NA, &count);
        *offset += 1;
 
        if(count>0)
@@ -3360,8 +3355,7 @@ dissect_zbee_zcl_on_off(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 
             switch (cmd_id) {
                 case ZBEE_ZCL_ON_OFF_CMD_OFF_WITH_EFFECT:
-                    proto_tree_add_item(payload_tree, hf_zbee_zcl_on_off_effect_identifier, tvb, offset, 1, ENC_NA);
-                    effect_identifier = tvb_get_uint8(tvb, offset);
+                    proto_tree_add_item_ret_uint8(payload_tree, hf_zbee_zcl_on_off_effect_identifier, tvb, offset, 1, ENC_NA, &effect_identifier);
                     offset += 1;
                     switch (effect_identifier) {
                         case 0x00:
@@ -3908,8 +3902,7 @@ dissect_zcl_alarms_get_alarm_response(tvbuff_t *tvb, proto_tree *tree, unsigned 
      uint8_t status;
 
     /* Retrieve "Status" field */
-    status = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_alarms_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_alarms_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &status);
     *offset += 1;
 
     if(status == ZBEE_ZCL_STAT_SUCCESS)
@@ -5421,8 +5414,7 @@ dissect_zcl_rssi_location_device_config_response(tvbuff_t *tvb, proto_tree *tree
    uint8_t status;
 
    /* Retrieve "Status" field */
-   status = tvb_get_uint8(tvb, *offset);
-   proto_tree_add_item(tree, hf_zbee_zcl_rssi_location_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
+   proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_rssi_location_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &status);
    *offset += 1;
 
    if(status == ZBEE_ZCL_STAT_SUCCESS)
@@ -5470,8 +5462,7 @@ dissect_zcl_rssi_location_location_data_response(tvbuff_t *tvb, packet_info* pin
    uint8_t status;
 
    /* Retrieve "Status" field */
-   status = tvb_get_uint8(tvb, *offset);
-   proto_tree_add_item(tree, hf_zbee_zcl_rssi_location_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
+   proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_rssi_location_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &status);
    *offset += 1;
 
    if(status == ZBEE_ZCL_STAT_SUCCESS)
@@ -5675,8 +5666,7 @@ dissect_zcl_rssi_location_report_rssi_meas(tvbuff_t *tvb, proto_tree *tree, unsi
     *offset += 8;
 
     /* Retrieve "Number of Neighbours" field */
-    count = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_rssi_location_no_of_neigh, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_rssi_location_no_of_neigh, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &count);
     *offset += 1;
 
     for( i = 0; i < count; i++)
@@ -10050,8 +10040,7 @@ dissect_zcl_ota_imagenotify(tvbuff_t *tvb, proto_tree *tree, unsigned *offset)
     uint8_t payload_type;
 
     /* Retrieve 'Payload type' field */
-    payload_type = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_ota_payload_type, tvb, *offset, 1, ENC_NA);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_ota_payload_type, tvb, *offset, 1, ENC_NA, &payload_type);
     *offset += 1;
 
     /* Retrieve 'Query Jitter' field */
@@ -10144,8 +10133,7 @@ dissect_zcl_ota_querynextimagersp(tvbuff_t *tvb, proto_tree *tree, unsigned *off
     uint8_t status;
 
     /* Retrieve 'Status' field */
-    status = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_ota_status, tvb, *offset, 1, ENC_NA);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_ota_status, tvb, *offset, 1, ENC_NA, &status);
     *offset += 1;
 
     /* Check if there are optional fields */
@@ -10310,8 +10298,7 @@ dissect_zcl_ota_imageblockrsp(tvbuff_t *tvb, proto_tree *tree, unsigned *offset)
     uint8_t data_size;
 
     /* Retrieve 'Status' field */
-    status = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_ota_status, tvb, *offset, 1, ENC_NA);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_ota_status, tvb, *offset, 1, ENC_NA, &status);
     *offset += 1;
 
     if (status == ZBEE_ZCL_STAT_SUCCESS) {
@@ -10507,8 +10494,7 @@ dissect_zcl_ota_queryspecfilersp(tvbuff_t *tvb, proto_tree *tree, unsigned *offs
     uint8_t status;
 
     /* Retrieve 'Status' field */
-    status = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_ota_status, tvb, *offset, 1, ENC_NA);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_ota_status, tvb, *offset, 1, ENC_NA, &status);
     *offset += 1;
 
     if (status == ZBEE_ZCL_STAT_SUCCESS) {
@@ -12457,16 +12443,14 @@ dissect_zcl_appl_ctrl_attr_func(tvbuff_t *tvb, packet_info* pinfo, proto_tree *t
     uint16_t func_id;
 
     /* ID */
-    func_id = tvb_get_letohs(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_appl_ctrl_attr_func_id, tvb, *offset, 2,ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint16(tree, hf_zbee_zcl_appl_ctrl_attr_func_id, tvb, *offset, 2, ENC_LITTLE_ENDIAN, &func_id);
     *offset += 2;
 
     proto_item_append_text(tree, ", %s",
     val_to_str_ext_const(func_id, &zbee_zcl_appl_ctrl_attr_names_ext, "Reserved"));
 
     /* Data Type */
-    func_data_type = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_appl_ctrl_attr_func_data_type, tvb, *offset, 1, ENC_NA);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_appl_ctrl_attr_func_data_type, tvb, *offset, 1, ENC_NA, &func_data_type);
     *offset += 1;
 
     /* Function Data Dissector */
@@ -13668,11 +13652,6 @@ static int hf_zbee_zcl_gp_attr_gps_secur_lvl_fld_min_gpd_secur_lvl;
 static int hf_zbee_zcl_gp_attr_gps_secur_lvl_fld_protection_with_gp_link_key;
 static int hf_zbee_zcl_gp_attr_gps_secur_lvl_fld_involve_tc;
 
-/* reuse ZGPD command names */
-extern value_string_ext zbee_nwk_gp_cmd_names_ext;
-/* reuse devices table from ZGPD parser */
-extern const value_string zbee_nwk_gp_device_ids_names[];
-
 /*************************/
 /* Function Declarations */
 /*************************/
@@ -14413,11 +14392,9 @@ dissect_zcl_gp_proxy_sink_table_response(proto_tree *tree, tvbuff_t *tvb, unsign
     *offset += 1;
     proto_tree_add_item(tree, hf_zbee_zcl_proxy_sink_tbl_resp_entries_total, tvb, *offset, 1, ENC_NA);
     *offset += 1;
-    start_index = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_proxy_sink_tbl_resp_start_index, tvb, *offset, 1, ENC_NA);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_proxy_sink_tbl_resp_start_index, tvb, *offset, 1, ENC_NA, &start_index);
     *offset += 1;
-    entries_count = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_proxy_sink_tbl_resp_entries_count, tvb, *offset, 1, ENC_NA);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_proxy_sink_tbl_resp_entries_count, tvb, *offset, 1, ENC_NA, &entries_count);
     *offset += 1;
 
     for (i = 0, stop = 0; i < entries_count && !stop; i++) {
@@ -16393,8 +16370,7 @@ dissect_zcl_touchlink_device_info_response(tvbuff_t *tvb, proto_tree *tree, unsi
     *offset += 1;
     proto_tree_add_item(tree, hf_zbee_zcl_touchlink_start_index, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
     *offset += 1;
-    count = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_touchlink_device_record_count, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_touchlink_device_record_count, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &count);
     *offset += 1;
 
     list_tree = proto_tree_add_subtree(tree, tvb, *offset, count * 16, ett_zbee_zcl_touchlink_device_records, NULL, "Device Records");
@@ -16466,8 +16442,7 @@ dissect_zcl_touchlink_group_id_response(tvbuff_t *tvb, proto_tree *tree, unsigne
     *offset += 1;
     proto_tree_add_item(tree, hf_zbee_zcl_touchlink_start_index, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
     *offset += 1;
-    count = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_touchlink_group_count, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_touchlink_group_count, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &count);
     *offset += 1;
 
     list_tree = proto_tree_add_subtree(tree, tvb, *offset, count * 3, ett_zbee_zcl_touchlink_groups, NULL, "Group Information Records");
@@ -16496,8 +16471,7 @@ dissect_zcl_touchlink_endpoint_list_response(tvbuff_t *tvb, proto_tree *tree, un
     *offset += 1;
     proto_tree_add_item(tree, hf_zbee_zcl_touchlink_start_index, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
     *offset += 1;
-    count = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_touchlink_group_count, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_touchlink_group_count, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &count);
     *offset += 1;
 
     list_tree = proto_tree_add_subtree(tree, tvb, *offset, count * 8, ett_zbee_zcl_touchlink_endpoints, NULL, "Endpoint Information Records");
@@ -16888,7 +16862,9 @@ proto_register_zbee_zcl_touchlink(void)
         &ett_zbee_zcl_touchlink_info,
         &ett_zbee_zcl_touchlink_keybits,
         &ett_zbee_zcl_touchlink_groups,
+        &ett_zbee_zcl_touchlink_device_record,
         &ett_zbee_zcl_touchlink_device_records,
+        &ett_zbee_zcl_touchlink_endpoint,
         &ett_zbee_zcl_touchlink_endpoints,
     };
 

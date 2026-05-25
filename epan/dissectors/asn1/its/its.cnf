@@ -49,31 +49,31 @@ TracesExtended
 RoadConfigurationSection
 RoadConfigurationSectionList
 RoadSectionDefinition
-PathPredictedList
-PathPredicted2
 PathExtended
 PathReferences
 OccupiedLanesWithConfidence
 MapReferences
 IvimReference
 IvimReferences
-GeneralizedLanePositions
-UsageIndication
+IssuerIdentifier
 MapemConfiguration
 MapemElementReference
-BasicLaneConfiguration
 OrdinalNumber1B
 Position1d
 ProviderId
 MapemConnectionList
 MapemLaneList
 GeoPosition
-BasicLaneInformation
 StandardLength2B
-RoadSectionId
 PathId
-IssuerIdentifier
 $ETSI-ITS-CDD$VehicleHeight
+MultiplicativeFactor
+ParkingSpaceBasic
+ParkingSpaceDetailed
+ParkingAreaArrangementType
+ParkingReservationType
+ParkingOccupancyInfo
+ParkingSpaceStatus
 
 #.NO_EMIT
 Code-Units WITHOUT_VALS
@@ -85,41 +85,41 @@ CauseCodeChoice
 
 
 #.MODULE
-CAMv1-PDU-Descriptions					camv1
-CAM-PDU-Descriptions					cam
-DENMv1-PDU-Descriptions					denmv1
-DENM-PDU-Description					denm
-EVCSN-PDU-Descriptions					evcsn
-EV-RechargingSpotReservation-PDU-Descriptions		evrsr
-IVIM-PDU-Descriptions					ivim
-TIS-TPG-Transactions-Descriptions			tistpg
-SPATEM-PDU-Descriptions					spatem
-MAPEM-PDU-Descriptions					mapem
-SREM-PDU-Descriptions					srem
-SSEM-PDU-Descriptions					ssem
-AVIAEINumberingAndDataStructures			anads
-ITS-Container						itsv2
-ITS-ContainerV1						itsv1
-#ElectronicRegistrationIdentificationVehicleDataModule	erivdm
-#CITSapplMgmtIDs						csmid
-EfcDsrcApplication					dsrc_app
-IVI							ivi
-GDD							gdd
-DSRC						dsrc
-ETSI-ITS-DSRC						dsrc
-ETSI-ITS-DSRC-AddGrpC               AddGrpC
-RTCMEM-PDU-Descriptions                         rtcmem
-ETSI-ITS-CDDv1                                  itsv1
-ETSI-ITS-CDD                                    its
-CPM-OriginatingStationContainers                cpm
-CPM-PDU-Descriptionsv1                          cpmv1
-CPM-PDU-Descriptions                            cpm
-CPM-PerceivedObjectContainer                    cpm
-CPM-PerceptionRegionContainer                   cpm
-CPM-SensorInformationContainer                  cpm
-VAM-PDU-Descriptions                            vam
-IMZM-PDU-Descriptions                           imzm
-#VAM-Temp-Imports                                vam
+CAMv1-PDU-Descriptions                                  camv1
+CAM-PDU-Descriptions                                    cam
+DENMv1-PDU-Descriptions                                 denmv1
+DENM-PDU-Description                                    denm
+EVCSN-PDU-Descriptions                                  evcsn
+EV-RechargingSpotReservation-PDU-Descriptions           evrsr
+IVIM-PDU-Descriptions                                   ivim
+TIS-TPG-Transactions-Descriptions                       tistpg
+SPATEM-PDU-Descriptions                                 spatem
+MAPEM-PDU-Descriptions                                  mapem
+SREM-PDU-Descriptions                                   srem
+SSEM-PDU-Descriptions                                   ssem
+AVIAEINumberingAndDataStructures                        anads
+ITS-Container                                           itsv2
+ITS-ContainerV1                                         itsv1
+#ElectronicRegistrationIdentificationVehicleDataModule  erivdm
+#CITSapplMgmtIDs                                        csmid
+EfcDsrcApplication                                      dsrc_app
+IVI                                                     ivi
+GDD                                                     gdd
+DSRC                                                    dsrc
+ETSI-ITS-DSRC                                           dsrc
+ETSI-ITS-DSRC-AddGrpC                                   AddGrpC
+RTCMEM-PDU-Descriptions                                 rtcmem
+ETSI-ITS-CDDv1                                          itsv1
+ETSI-ITS-CDD                                            its
+CPM-OriginatingStationContainers                        cpm
+CPM-PDU-Descriptionsv1                                  cpmv1
+CPM-PDU-Descriptions                                    cpm
+CPM-PerceivedObjectContainer                            cpm
+CPM-PerceptionRegionContainer                           cpm
+CPM-SensorInformationContainer                          cpm
+VAM-PDU-Descriptions                                    vam
+IMZM-PDU-Descriptions                                   imzm
+#VAM-Temp-Imports                                       vam
 #.END
 
 #.PDU
@@ -153,12 +153,19 @@ SignalStatusPackage-addGrpC
 LaneAttributes-addGrpC
 MovementEvent-addGrpC
 RequestorDescription-addGrpC
-#CpmContainers
+# CpmContainers
 OriginatingVehicleContainer
 OriginatingRsuContainer
 SensorInformationContainer
 PerceptionRegionContainer
 PerceivedObjectContainer
+# CAM Extensioncontainer
+TwoWheelerContainer
+EHorizonLocationSharingContainer
+VeryLowFrequencyContainer
+PathPredictionContainer
+RoadLanePositionsContainer
+VehicleMovementControlContainer
 
 #.TYPE_RENAME
 
@@ -855,6 +862,13 @@ CauseCodeType
 %(DEFAULT_BODY)s
   }
 
+#.FN_BODY ExtensionContainerId VAL_PTR = &ExtensionContainerId
+    uint32_t ExtensionContainerId;
+%(DEFAULT_BODY)s
+    its_header_t *its_hdr = its_get_private_data(actx->pinfo);
+    its_hdr->CamExtensionContainerId = ExtensionContainerId;
+
+#.FN_PARS WrappedExtensionContainer/containerData  FN_VARIANT=_pdu_new  TYPE_REF_FN=dissect_cam_WrappedExtensionContainerData
 
 #.END
 

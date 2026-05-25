@@ -6,9 +6,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef FTYPES_INT_H
-#define FTYPES_INT_H
+#pragma once
 
 #include "ftypes.h"
 #include <epan/proto.h>
@@ -190,44 +188,187 @@ struct _ftype_t {
 	FvalueBinaryOp modulo;       /**< Modulo operation. */
 };
 
+/**
+ * @brief Registers a field type handler for Wireshark.
+ *
+ * This function registers a new field type handler with the specified details.
+ *
+ * @param ftype The enum value representing the field type to register.
+ * @param ft A pointer to the ftype_t structure containing details of the field type.
+ */
 void ftype_register(enum ftenum ftype, const ftype_t *ft);
 
+/**
+ * @brief Registers the bytes data type handler for Wireshark.
+ */
 void ftype_register_bytes(void);
+
+/**
+ * @brief Registers the double data type handler for Wireshark.
+ */
 void ftype_register_double(void);
+
+/**
+ * @brief Registers the IEEE 11073 float data type.
+ */
 void ftype_register_ieee_11073_float(void);
+
+/**
+ * @brief Registers all integer-related field types.
+ */
 void ftype_register_integers(void);
+
+/**
+ * @brief Registers IPv4 data type.
+ */
 void ftype_register_ipv4(void);
+
+/**
+ * @brief Registers IPv6 data type.
+ */
 void ftype_register_ipv6(void);
+
+/**
+ * @brief Registers the GUID data type.
+ */
 void ftype_register_guid(void);
+
+/**
+ * @brief Registers the "none" data type.
+ */
 void ftype_register_none(void);
+
+/**
+ * @brief Registers string field types.
+ */
 void ftype_register_string(void);
+
+/**
+ * @brief Registers time-related field types.
+ */
 void ftype_register_time(void);
+
+/**
+ * @brief Registers a new ftype for TVB (Protocol Data Unit) data.
+ */
 void ftype_register_tvbuff(void);
 
 /* For debugging. */
+
+/**
+ * @brief Registers pseudofields for byte-related data types.
+ *
+ * @param proto Protocol identifier to which the pseudofields will be registered.
+ */
 void ftype_register_pseudofields_bytes(int proto);
+
+/**
+ * @brief Registers pseudofields for double type.
+ *
+ * @param proto Protocol to register fields for.
+ */
 void ftype_register_pseudofields_double(int proto);
+
+/**
+ * @brief Registers pseudofields for IEEE 11073 float type.
+ *
+ * @param proto Protocol to register fields for.
+ */
 void ftype_register_pseudofields_ieee_11073_float(int proto);
+
+/**
+ * @brief Registers pseudofields for integer types.
+ *
+ * @param proto Protocol to register fields for.
+ */
 void ftype_register_pseudofields_integer(int proto);
+
+/**
+ * @brief Registers pseudofields for IPv4 data types.
+ *
+ * @param proto The protocol to register the fields with.
+ */
 void ftype_register_pseudofields_ipv4(int proto);
+
+/**
+ * @brief Registers pseudofields for IPv6 data types.
+ *
+ * @param proto The protocol to register the fields with.
+ */
 void ftype_register_pseudofields_ipv6(int proto);
+
+/**
+ * @brief Registers pseudofields for GUID type.
+ *
+ * @param proto Protocol to register fields for.
+ */
 void ftype_register_pseudofields_guid(int proto);
+
+/**
+ * @brief Registers pseudofields for a protocol with no specific type.
+ *
+ * @param proto The protocol identifier to register the fields for.
+ */
 void ftype_register_pseudofields_none(int proto);
+
+/**
+ * @brief Registers pseudofields for string types.
+ *
+ * @param proto Protocol number to register the fields with.
+ */
 void ftype_register_pseudofields_string(int proto);
+
+/**
+ * @brief Registers pseudofields for time-related data types.
+ *
+ * @param proto Protocol identifier to which the fields will be registered.
+ */
 void ftype_register_pseudofields_time(int proto);
+
+/**
+ * @brief Registers pseudofields for TVB (Protocol Data Unit) data.
+ *
+ * @param proto The protocol to register the fields with.
+ */
 void ftype_register_pseudofields_tvbuff(int proto);
 
+/**
+ * @brief Convert a literal string to a GByteArray.
+ *
+ * This function takes a literal string and converts it into a GByteArray.
+ * Leading colons are skipped, and special cases for one-byte hex literals are handled.
+ *
+ * @param s The input literal string.
+ * @param err_msg Pointer to store error message if any.
+ * @return A new GByteArray or NULL on failure.
+ */
 GByteArray *
 byte_array_from_literal(const char *s, char **err_msg);
 
+/**
+ * @brief Convert an unsigned long to a byte array.
+ *
+ * @param num The number to convert.
+ * @param err_msg Pointer to store error message if conversion fails.
+ * @return A new GByteArray containing the byte representation of num, or NULL on failure.
+ */
 GByteArray *
 byte_array_from_charconst(unsigned long num, char **err_msg);
 
+/**
+ * @brief Convert bytes to a string representation suitable for display filters.
+ *
+ * This function converts an array of bytes into a hexadecimal string with punctuation,
+ * which can be used in display filters.
+ *
+ * @param scope Memory allocation scope.
+ * @param src Pointer to the source byte array.
+ * @param src_size Size of the source byte array.
+ * @return A newly allocated string representing the bytes, or NULL on failure.
+ */
 char *
 bytes_to_dfilter_repr(wmem_allocator_t *scope,
 			const uint8_t *src, size_t src_size);
-
-#endif /* FTYPES_INT_H */
 
 /*
  * Editor modelines  -  https://www.wireshark.org/tools/modelines.html

@@ -109,6 +109,10 @@ static dissector_table_t streaming_content_type_dissector_table;
 
 static dissector_table_t stream_id_content_type_dissector_table;
 
+static GRegex *g_regex_imsi = NULL;
+static GRegex *g_regex_referenceid = NULL;
+static GRegex *g_regex_location = NULL;
+
 #ifdef HAVE_NGHTTP2
 /* The type of reassembly mode contains:
  *  - HTTP2_DATA_REASSEMBLY_MODE_END_STREAM   Complete reassembly at the end of stream. (default)
@@ -1141,7 +1145,7 @@ http2_fake_headers_update_cb(void* r, char** err)
     }
 
     g_strstrip(rec->header_value);
-    if (rec->header_name[0] == 0) {
+    if (rec->header_value[0] == 0) {
         *err = g_strdup("Header value can't be empty");
         return false;
     }
@@ -1207,6 +1211,43 @@ get_fake_header_value(packet_info* pinfo, const char* name, bool the_other_direc
 
     return NULL;
 }
+
+static GRegex *
+get_regex_imsi(void)
+{
+    if (g_regex_imsi == NULL) {
+        g_regex_imsi = g_regex_new(
+            ".*imsi-([0-9]{5,15}).*",
+            G_REGEX_CASELESS | G_REGEX_FIRSTLINE,
+            0,
+            NULL);
+    }
+
+    return g_regex_imsi;
+}
+
+static GRegex *
+get_regex_referenceid(void)
+{
+    if (g_regex_referenceid == NULL) {
+        g_regex_referenceid = g_regex_new (
+            ".*\\/(referenceid|chargingdata|sm-contexts|sm-policies|pdu-sessions)\\/([A-Za-z0-9\\-.]+).*",
+            G_REGEX_CASELESS | G_REGEX_FIRSTLINE, 0, NULL);
+    }
+    return g_regex_referenceid;
+}
+
+static GRegex *
+get_regex_location(void)
+{
+    if (g_regex_location == NULL) {
+        g_regex_location = g_regex_new (
+            ".*\\/(chargingdata|sm-contexts|sm-policies|pdu-sessions)\\/([A-Za-z0-9\\-.]+).*",
+            G_REGEX_CASELESS | G_REGEX_FIRSTLINE, 0, NULL);
+    }
+    return g_regex_location;
+}
+
 #endif
 
 static void
@@ -1219,6 +1260,23 @@ http2_init_protocol(void)
 static void
 http2_cleanup_protocol(void) {
     g_hash_table_destroy(streamid_hash);
+}
+
+static void
+http2_shutdown(void)
+{
+    if (g_regex_imsi != NULL) {
+        g_regex_unref(g_regex_imsi);
+        g_regex_imsi = NULL;
+    }
+    if (g_regex_referenceid != NULL) {
+        g_regex_unref(g_regex_referenceid);
+        g_regex_referenceid = NULL;
+    }
+    if (g_regex_location != NULL) {
+        g_regex_unref(g_regex_location);
+        g_regex_location = NULL;
+    }
 }
 
 static dissector_handle_t http2_handle;
@@ -2145,10 +2203,10 @@ populate_http_header_tracking(tvbuff_t *tvb, packet_info *pinfo, http2_session_t
         if(http2_3gpp_session) {
             /* 3GPP Supi look up */
             /* If no Supi found the try look in referenceId mapping */
+            GRegex* regex_imsi = get_regex_imsi();
+            GRegex* regex_referenceid = get_regex_referenceid();
             GMatchInfo *match_info_imsi;
             GMatchInfo *match_info_referenceid;
-            static GRegex *regex_imsi = NULL;
-            static GRegex *regex_referenceid = NULL;
             char *matched_imsi = NULL;
             char *matched_referenceid = NULL;
 
@@ -2159,16 +2217,6 @@ populate_http_header_tracking(tvbuff_t *tvb, packet_info *pinfo, http2_session_t
             * We are interested in IMSI and will be formatted as follows:
             *   Pattern: '^imsi-[0-9]{5,15}$'
             */
-            if (regex_imsi == NULL) {
-                regex_imsi = g_regex_new (
-                    ".*imsi-([0-9]{5,15}).*",
-                    G_REGEX_CASELESS | G_REGEX_FIRSTLINE, 0, NULL);
-            }
-            if (regex_referenceid == NULL) {
-                regex_referenceid = g_regex_new (
-                    ".*\\/(referenceid|chargingdata|sm-contexts|sm-policies|pdu-sessions)\\/([A-Za-z0-9\\-.]+).*",
-                    G_REGEX_CASELESS | G_REGEX_FIRSTLINE, 0, NULL);
-            }
 
             g_regex_match(regex_imsi, stream_info->path, 0, &match_info_imsi);
             g_regex_match(regex_referenceid, stream_info->path, 0, &match_info_referenceid);
@@ -2186,8 +2234,8 @@ populate_http_header_tracking(tvbuff_t *tvb, packet_info *pinfo, http2_session_t
                 }
                 g_free(matched_referenceid);
             }
-            g_regex_unref(regex_imsi);
-            g_regex_unref(regex_referenceid);
+            g_match_info_free(match_info_imsi);
+            g_match_info_free(match_info_referenceid);
         }
     }
 
@@ -2196,15 +2244,9 @@ populate_http_header_tracking(tvbuff_t *tvb, packet_info *pinfo, http2_session_t
 
         if(http2_3gpp_session && stream_info->imsi) {
             /* Try lookup location mapping */
+            GRegex* regex_location = get_regex_location();
             GMatchInfo *match_info_location;
-            static GRegex *regex_location = NULL;
             char *matched_location = NULL;
-
-            if (regex_location == NULL) {
-                regex_location = g_regex_new (
-                    ".*\\/(chargingdata|sm-contexts|sm-policies|pdu-sessions)\\/([A-Za-z0-9\\-.]+).*",
-                    G_REGEX_CASELESS | G_REGEX_FIRSTLINE, 0, NULL);
-            }
 
             g_regex_match(regex_location, stream_info->location, 0, &match_info_location);
 
@@ -2215,7 +2257,7 @@ populate_http_header_tracking(tvbuff_t *tvb, packet_info *pinfo, http2_session_t
                 }
                 g_free(matched_location);
             }
-            g_regex_unref(regex_location);
+            g_match_info_free(match_info_location);
         }
     }
 
@@ -2225,10 +2267,10 @@ populate_http_header_tracking(tvbuff_t *tvb, packet_info *pinfo, http2_session_t
         if(http2_3gpp_session) {
             /* 3GPP Supi look up */
             /* If no Supi found the try look in referenceId mapping */
+            GRegex* regex_imsi = get_regex_imsi();
+            GRegex* regex_referenceid = get_regex_referenceid();
             GMatchInfo *match_info_imsi;
             GMatchInfo *match_info_referenceid;
-            static GRegex *regex_imsi = NULL;
-            static GRegex *regex_referenceid = NULL;
             char *matched_imsi = NULL;
             char *matched_referenceid = NULL;
 
@@ -2239,17 +2281,6 @@ populate_http_header_tracking(tvbuff_t *tvb, packet_info *pinfo, http2_session_t
             * We are interested in IMSI and will be formatted as follows:
             *   Pattern: '^imsi-[0-9]{5,15}$'
             */
-            if (regex_imsi == NULL) {
-                regex_imsi = g_regex_new (
-                    ".*imsi-([0-9]{5,15}).*",
-                    G_REGEX_CASELESS | G_REGEX_FIRSTLINE, 0, NULL);
-            }
-            if (regex_referenceid == NULL) {
-                regex_referenceid = g_regex_new (
-                    ".*\\/(referenceid|chargingdata|sm-contexts|sm-policies|pdu-sessions)\\/([A-Za-z0-9\\-.]+).*",
-                    G_REGEX_CASELESS | G_REGEX_FIRSTLINE, 0, NULL);
-            }
-
             g_regex_match(regex_imsi, status, 0, &match_info_imsi);
             g_regex_match(regex_referenceid, status, 0, &match_info_referenceid);
 
@@ -2266,8 +2297,8 @@ populate_http_header_tracking(tvbuff_t *tvb, packet_info *pinfo, http2_session_t
                 }
                 g_free(matched_referenceid);
             }
-            g_regex_unref(regex_imsi);
-            g_regex_unref(regex_referenceid);
+            g_match_info_free(match_info_imsi);
+            g_match_info_free(match_info_referenceid);
         }
     }
 
@@ -2276,8 +2307,8 @@ populate_http_header_tracking(tvbuff_t *tvb, packet_info *pinfo, http2_session_t
 
         if(http2_3gpp_session) {
             /* 3GPP Supi look up */
+            GRegex* regex_imsi = get_regex_imsi();
             GMatchInfo *match_info_imsi;
-            static GRegex *regex_imsi = NULL;
             char *matched_imsi = NULL;
 
             /* 3GPP TS 29.571
@@ -2287,11 +2318,6 @@ populate_http_header_tracking(tvbuff_t *tvb, packet_info *pinfo, http2_session_t
             * We are interested in IMSI and will be formatted as follows:
             *   Pattern: '^imsi-[0-9]{5,15}$'
             */
-            if (regex_imsi == NULL) {
-                regex_imsi = g_regex_new (
-                    ".*imsi-([0-9]{5,15}).*",
-                    G_REGEX_CASELESS | G_REGEX_FIRSTLINE, 0, NULL);
-            }
 
             g_regex_match(regex_imsi, correlation_info, 0, &match_info_imsi);
 
@@ -2302,7 +2328,7 @@ populate_http_header_tracking(tvbuff_t *tvb, packet_info *pinfo, http2_session_t
                 }
                 g_free(matched_imsi);
             }
-            g_regex_unref(regex_imsi);
+            g_match_info_free(match_info_imsi);
         }
     }
 
@@ -2427,11 +2453,11 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, unsigned offset, p
     uint32_t header_value_length;
     const char *header_name;
     const char *header_value;
-    int hoffset = 0;
+    unsigned hoffset = 0;
     nghttp2_hd_inflater *hd_inflater;
     tvbuff_t *header_tvb = NULL;
     int rv;
-    int header_len = 0;
+    unsigned header_len = 0;
     int final;
     uint32_t flow_index;
     http2_header_data_t *header_data;
@@ -3137,8 +3163,7 @@ dissect_frame_prio(tvbuff_t *tvb, proto_tree *http2_tree, unsigned offset, uint8
         proto_tree_add_item(http2_tree, hf_http2_excl_dependency, tvb, offset, 4, ENC_BIG_ENDIAN);
         proto_tree_add_item(http2_tree, hf_http2_stream_dependency, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
-        proto_tree_add_item(http2_tree, hf_http2_weight, tvb, offset, 1, ENC_BIG_ENDIAN);
-        weight = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint8(http2_tree, hf_http2_weight, tvb, offset, 1, ENC_BIG_ENDIAN, &weight);
         /* 6.2: Weight:  An 8-bit weight for the stream; Add one to the value to obtain a weight between 1 and 256 */
         ti = proto_tree_add_uint(http2_tree, hf_http2_weight_real, tvb, offset, 1, weight+1);
         proto_item_set_generated(ti);
@@ -3210,7 +3235,7 @@ get_body_uncompression_info(packet_info *pinfo, http2_session_t* h2session)
 /* Try to dissect reassembled http2.data.data according to content_type. */
 static void
 dissect_body_data(proto_tree *tree, packet_info *pinfo, http2_session_t* h2session, tvbuff_t *tvb,
-                  const int start, int length, const unsigned encoding, bool streaming_mode)
+                  const unsigned start, unsigned length, const unsigned encoding, bool streaming_mode)
 {
     http2_data_stream_body_info_t *body_info = get_data_stream_body_info(pinfo, h2session);
     http2_stream_info_t *stream_info = get_stream_info(pinfo, h2session, false);
@@ -3257,8 +3282,9 @@ dissect_body_data(proto_tree *tree, packet_info *pinfo, http2_session_t* h2sessi
             /* Try heuristics */
             /* Check for possible boundary string */
             if (tvb_strneql(data_tvb, 0, "--", 2) == 0) {
-                int next_offset;
-                int boundary_len = tvb_find_line_end(data_tvb, 0, -1, &next_offset, true);
+                unsigned next_offset;
+                unsigned boundary_len;
+                tvb_find_line_end_remaining(data_tvb, 0, &boundary_len , &next_offset);
                 if ((boundary_len > 4) && (boundary_len < 70)){
                     boundary_len = boundary_len - 2; /* ignore ending CRLF*/
                     /* We have a potential boundary string */
@@ -3291,7 +3317,7 @@ dissect_body_data(proto_tree *tree, packet_info *pinfo, http2_session_t* h2sessi
              *  %x0D                ; Carriage return
              * )
              */
-            int offset = 0;
+            unsigned offset = 0;
             offset = tvb_skip_wsp(data_tvb, 0, length);
             uint8_t oct = tvb_get_uint8(data_tvb, offset);
             if ((oct == 0x5b) || (oct == 0x7b)) {
@@ -3321,7 +3347,7 @@ dissect_http2_data_full_body(tvbuff_t *tvb, packet_info *pinfo, http2_session_t*
         return;
     }
 
-    int datalen = tvb_reported_length(tvb);
+    unsigned datalen = tvb_reported_length(tvb);
 
     enum body_uncompression uncompression = get_body_uncompression_info(pinfo, h2session);
     if (uncompression != BODY_UNCOMPRESSION_NONE) {
@@ -4385,22 +4411,21 @@ dissect_http2_continuation(tvbuff_t *tvb, packet_info *pinfo _U_, http2_session_
 /* Altsvc */
 static int
 dissect_http2_altsvc(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tree,
-                     unsigned offset, uint8_t flags _U_, uint16_t length)
+                     unsigned offset, uint8_t flags _U_, uint32_t length)
 {
     uint32_t origin_len;
-    int remain = length;
 
     proto_tree_add_item_ret_uint(http2_tree, hf_http2_altsvc_origin_len, tvb, offset, 2, ENC_BIG_ENDIAN, &origin_len);
     offset += 2;
-    remain -= 2;
+    length -= 2;
 
     proto_tree_add_item(http2_tree, hf_http2_altsvc_origin, tvb, offset, origin_len, ENC_ASCII);
     offset += origin_len;
-    remain -= origin_len;
+    length -= origin_len;
 
-    if(remain) {
-        proto_tree_add_item(http2_tree, hf_http2_altsvc_field_value, tvb, offset, remain, ENC_ASCII);
-        offset += remain;
+    if (length) {
+        proto_tree_add_item(http2_tree, hf_http2_altsvc_field_value, tvb, offset, length, ENC_ASCII);
+        offset += length;
     }
 
     return offset;
@@ -4434,16 +4459,14 @@ dissect_http2_origin(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tr
 /* Priority Update */
 static int
 dissect_http2_priority_update(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tree,
-                              unsigned offset, uint8_t flags _U_, uint16_t length)
+                              unsigned offset, uint8_t flags _U_, uint32_t length)
 {
-    int remain = length;
-
     proto_tree_add_item(http2_tree, hf_http2_priority_update_stream_id, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
-    remain -= 4;
+    length -= 4;
 
-    proto_tree_add_item(http2_tree, hf_http2_priority_update_field_value, tvb, offset, remain, ENC_ASCII);
-    offset += remain;
+    proto_tree_add_item(http2_tree, hf_http2_priority_update_field_value, tvb, offset, length, ENC_ASCII);
+    offset += length;
 
     return offset;
 }
@@ -4456,7 +4479,7 @@ dissect_http2_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
     proto_tree *http2_tree;
     unsigned offset = 0;
     uint8_t type, flags;
-    uint16_t length;
+    uint32_t length;
     uint32_t streamid;
     struct HTTP2Tap *http2_stats;
     GHashTable* entry;
@@ -4517,12 +4540,10 @@ dissect_http2_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
         return MAGIC_FRAME_LENGTH;
     }
 
-    proto_tree_add_item(http2_tree, hf_http2_length, tvb, offset, 3, ENC_BIG_ENDIAN);
-    length = tvb_get_ntoh24(tvb, offset);
+    proto_tree_add_item_ret_uint(http2_tree, hf_http2_length, tvb, offset, 3, ENC_BIG_ENDIAN, &length);
     offset += 3;
 
-    proto_tree_add_item(http2_tree, hf_http2_type, tvb, offset, 1, ENC_BIG_ENDIAN);
-    type = tvb_get_uint8(tvb, offset);
+    proto_tree_add_item_ret_uint8(http2_tree, hf_http2_type, tvb, offset, 1, ENC_BIG_ENDIAN, &type);
 
     int type_idx;
     const char *type_str = try_val_to_str_idx(type, http2_type_vals, &type_idx);
@@ -4536,8 +4557,7 @@ dissect_http2_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
     offset += 1;
 
     proto_tree_add_item(http2_tree, hf_http2_r, tvb, offset, 4, ENC_BIG_ENDIAN);
-    proto_tree_add_item(http2_tree, hf_http2_streamid, tvb, offset, 4, ENC_BIG_ENDIAN);
-    streamid = tvb_get_ntohl(tvb, offset) & MASK_HTTP2_STREAMID;
+    proto_tree_add_item_ret_uint(http2_tree, hf_http2_streamid, tvb, offset, 4, ENC_BIG_ENDIAN, &streamid);
     proto_item_append_text(ti, ": %s, Stream ID: %u, Length %u", type_str, streamid, length);
     offset += 4;
 
@@ -5484,6 +5504,7 @@ proto_register_http2(void)
 
     register_init_routine(&http2_init_protocol);
     register_cleanup_routine(&http2_cleanup_protocol);
+    register_shutdown_routine(&http2_shutdown);
 
     http2_handle = register_dissector("http2", dissect_http2, proto_http2);
 

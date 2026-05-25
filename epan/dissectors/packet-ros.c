@@ -26,10 +26,6 @@
 #include "packet-pres.h"
 #include "packet-ros.h"
 
-#define PNAME  "X.880 OSI Remote Operations Service"
-#define PSNAME "ROS"
-#define PFNAME "ros"
-
 void proto_register_ros(void);
 void proto_reg_handoff_ros(void);
 
@@ -958,8 +954,8 @@ dissect_ros_Code(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, 
 static int
 dissect_ros(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data)
 {
-	int offset = 0;
-	int old_offset;
+	unsigned offset = 0;
+	unsigned old_offset;
 	proto_item *item;
 	proto_tree *tree;
 	proto_tree *next_tree=NULL;
@@ -1175,7 +1171,7 @@ void proto_register_ros(void) {
   expert_module_t* expert_ros;
 
   /* Register protocol */
-  proto_ros = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_ros = proto_register_protocol("X.880 OSI Remote Operations Service", "ROS", "ros");
   ros_handle = register_dissector("ros", dissect_ros, proto_ros);
   /* Register fields and subtrees */
   proto_register_field_array(proto_ros, hf, array_length(hf));

@@ -19,10 +19,10 @@
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/ipproto.h>
 #include <epan/addr_resolv.h>
 #include <epan/expert.h>
 #include <epan/tfs.h>
+#include <epan/iana-info.h>
 
 #include <wsutil/array.h>
 #include <wsutil/ws_padding_to.h>

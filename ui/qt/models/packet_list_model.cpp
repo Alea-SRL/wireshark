@@ -109,8 +109,11 @@ void PacketListModel::setCaptureFile(capture_file *cf)
 }
 
 // Packet list records have no children (for now, at least).
-QModelIndex PacketListModel::index(int row, int column, const QModelIndex &) const
+QModelIndex PacketListModel::index(int row, int column, const QModelIndex &parent) const
 {
+    if (parent.isValid())
+        return QModelIndex();
+
     if (row >= visible_rows_.count() || row < 0 || !cap_file_ || (unsigned)column >= prefs.num_cols)
         return QModelIndex();
 
@@ -138,6 +141,7 @@ unsigned PacketListModel::recreateVisibleRows()
     visible_rows_.resize(0);
     number_to_row_.fill(0);
     endResetModel();
+    aggregation_key_row_.clear();
 
     foreach (PacketListRecord *record, physical_rows_) {
         updateVisibleRows(record);
@@ -159,6 +163,7 @@ void PacketListModel::clear() {
     visible_rows_.resize(0);
     new_visible_rows_.resize(0);
     number_to_row_.resize(0);
+    aggregation_key_row_.clear();
     endResetModel();
     idle_dissection_timer_->invalidate();
     idle_dissection_row_ = 0;
@@ -534,8 +539,8 @@ ProgressFrame *PacketListModel::progress_frame_;
 double PacketListModel::comps_;
 double PacketListModel::exp_comps_;
 
-QElapsedTimer busy_timer_;
-const int busy_timeout_ = 65; // ms, approximately 15 fps
+static QElapsedTimer busy_timer_;
+constexpr int busy_timeout_ = 65; // ms, approximately 15 fps
 void PacketListModel::sort(int column, Qt::SortOrder order)
 {
     if (!cap_file_ || visible_rows_.count() < 1) return;
@@ -630,11 +635,18 @@ void PacketListModel::sort(int column, Qt::SortOrder order)
     sort_column_is_numeric_ = isNumericColumn(sort_column_);
     QVector<PacketListRecord *> sorted_visible_rows_ = visible_rows_;
     try {
+        if (recent.aggregation_view && prefs.aggregation_fields_num > 0) {
+            for (QHash<QString, int>::const_iterator it = aggregation_key_row_.constBegin();
+                it != aggregation_key_row_.constEnd(); ++it) {
+                sorted_visible_rows_[it.value()]->frameData()->aggregation_key = g_strdup(it.key().toUtf8());
+            }
+        }
         std::sort(sorted_visible_rows_.begin(), sorted_visible_rows_.end(), recordLessThan);
 
         beginResetModel();
         visible_rows_.resize(0);
         number_to_row_.fill(0);
+        aggregation_key_row_.clear();
         foreach (PacketListRecord *record, sorted_visible_rows_) {
             updateVisibleRows(record);
         }
@@ -743,27 +755,38 @@ void PacketListModel::updateVisibleRows(PacketListRecord* record)
     if (!(fdata->passed_dfilter || fdata->ref_time)) {
         return;
     }
-    bool add_record = true;
-    if (recent.aggregation_view) {
-        for (qsizetype i = 0; i < visible_rows_.size(); i++) {
-            frame_data* prev_fdata = visible_rows_[i]->frameData();
-            if (frame_data_aggregation_compare(prev_fdata, fdata) == 0) {
-                record->setRow(visible_rows_[i]->row());
-                frame_data_aggregation_free(prev_fdata);
-                visible_rows_[i] = record;
-                add_record = false;
-                break;
-            }
-        }
-    }
-    if (add_record) {
-        record->setRow(static_cast<int>(visible_rows_.count()) + 1);
+    record->setRow(static_cast<int>(visible_rows_.count()) + 1);
+    if (!recent.aggregation_view || updateVisibleAggregationViewRows(record)) {
         visible_rows_ << record;
     }
     if (static_cast<uint32_t>(number_to_row_.size()) <= fdata->num) {
         number_to_row_.resize(fdata->num + buffer_size_);
     }
     number_to_row_[fdata->num] = record->row();
+    if (recent.aggregation_view) {
+        cap_file_->aggregation_count = static_cast<uint32_t>(visible_rows_.count());
+    }
+}
+
+bool PacketListModel::updateVisibleAggregationViewRows(PacketListRecord* record) {
+    if (prefs.aggregation_fields_num == 0) return true;
+
+    frame_data* fdata = record->frameData();
+    if (fdata->aggregation_key == nullptr) return false; // Only packets containing the aggregation fields are displayed
+
+    QString key = QString::fromUtf8(fdata->aggregation_key);
+    frame_data_aggregation_free(fdata);
+    if (!aggregation_key_row_.contains(key)) {
+        aggregation_key_row_[key] = record->row() - 1;
+        return true;
+    }
+    int row = aggregation_key_row_[key];
+    frame_data* prev_frame = visible_rows_[row]->frameData();
+    frame_data_aggregation_free(prev_frame);
+    prev_frame->aggregated = true;
+    record->setRow(row + 1);
+    visible_rows_[row] = record;
+    return false;
 }
 
 bool PacketListModel::recordLessThan(PacketListRecord *r1, PacketListRecord *r2)
@@ -847,14 +870,26 @@ double PacketListModel::parseNumericColumn(const QString &val, bool *ok)
     return num;
 }
 
-int PacketListModel::rowCount(const QModelIndex &) const
+int PacketListModel::rowCount(const QModelIndex &parent) const
 {
+    if (parent.isValid())
+        return 0;
+
     return static_cast<int>(visible_rows_.count());
 }
 
 int PacketListModel::columnCount(const QModelIndex &) const
 {
     return prefs.num_cols;
+}
+
+Qt::ItemFlags PacketListModel::flags(const QModelIndex &index) const
+{
+    Qt::ItemFlags flags = QAbstractItemModel::flags(index);
+    if (index.isValid()) {
+        flags |= Qt::ItemNeverHasChildren;
+    }
+    return flags;
 }
 
 QVariant PacketListModel::data(const QModelIndex &d_index, int role) const
@@ -912,6 +947,36 @@ QVariant PacketListModel::data(const QModelIndex &d_index, int role) const
             return QVariant();
         }
         return ColorUtils::fromColorT(color);
+    case Qt::AccessibleTextRole:
+    {
+        return record->columnString(cap_file_, d_index.column(), true);
+    }
+    case Qt::AccessibleDescriptionRole:
+    {
+        if (d_index.column() > 0) {
+            return QVariant();
+        }
+
+        uint32_t severity = record->expertSeverity();
+        if (!fdata->marked && !fdata->ignored && !fdata->ref_time && !fdata->has_modified_block && severity == 0) {
+            return QVariant();
+        }
+
+        QStringList labels;
+        if (fdata->marked) labels << tr("Marked");
+        if (fdata->ignored) labels << tr("Ignored");
+        if (fdata->ref_time) labels << tr("Reference Time");
+        if (fdata->has_modified_block) labels << tr("Modified");
+
+        if (severity > 0) {
+            const char *severity_str = val_to_str_const(severity, expert_severity_vals, NULL);
+            if (severity_str) {
+                labels << severity_str;
+            }
+        }
+
+        return labels.join(", ");
+    }
     case Qt::DisplayRole:
     {
         return record->columnString(cap_file_, d_index.column(), true);
@@ -929,8 +994,10 @@ QVariant PacketListModel::headerData(int section, Qt::Orientation orientation,
     if ((orientation == Qt::Horizontal) && ((unsigned)section < prefs.num_cols)) {
         switch (role) {
         case Qt::DisplayRole:
+        case Qt::AccessibleTextRole:
             return QVariant::fromValue(QString(get_column_title(section)));
         case Qt::ToolTipRole:
+        case Qt::AccessibleDescriptionRole:
             return QVariant::fromValue(gchar_free_to_qstring(get_column_tooltip(section)));
         case PacketListModel::HEADER_CAN_DISPLAY_STRINGS:
             return (bool)display_column_strings(section, cap_file_);

@@ -18,7 +18,7 @@
 #include <epan/tfs.h>
 #include <wsutil/array.h>
 #include <epan/in_cksum.h>
-#include <epan/ipproto.h>
+#include <epan/iana-info.h>
 
 #include "packet-ip.h"
 

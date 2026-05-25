@@ -47,17 +47,11 @@
 #ifdef _MSC_VER
 /* disable: "warning C4049: compiler limit : terminating line number emission" */
 #pragma warning(disable:4049)
-/* disable: "warning C4146: unary minus operator applied to unsigned type, result still unsigned" */
-#pragma warning(disable:4146)
 #endif
 
-#define PNAME  "Radio Resource Control (RRC) protocol"
-#define PSNAME "RRC"
-#define PFNAME "rrc"
-
-extern int proto_fp;       /*Handler to FP*/
-extern int proto_umts_mac; /*Handler to MAC*/
-extern int proto_umts_rlc; /*Handler to RLC*/
+static int proto_fp;       /*Handler to FP*/
+static int proto_umts_mac; /*Handler to MAC*/
+static int proto_umts_rlc; /*Handler to RLC*/
 
 GTree * hsdsch_muxed_flows;
 GTree * rrc_ciph_info_tree;
@@ -215728,7 +215722,7 @@ void proto_register_rrc(void) {
   module_t *rrc_module;
 
   /* Register protocol */
-  proto_rrc = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_rrc = proto_register_protocol("Radio Resource Control (RRC) protocol", "RRC", "rrc");
   /* Register fields and subtrees */
   proto_register_field_array(proto_rrc, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
@@ -215840,6 +215834,10 @@ proto_reg_handoff_rrc(void)
   lte_rrc_dl_dcch_handle = find_dissector_add_dependency("lte-rrc.dl.dcch", proto_rrc);
   rrc_bcch_fach_handle = find_dissector("rrc.bcch.fach");
   gsm_rlcmac_dl_handle = find_dissector_add_dependency("gsm_rlcmac_dl", proto_rrc);
+
+  proto_fp = proto_get_id_by_filter_name("fp");
+  proto_umts_mac = proto_get_id_by_filter_name("mac");
+  proto_umts_rlc = proto_get_id_by_filter_name("rlc");
 }
 
 

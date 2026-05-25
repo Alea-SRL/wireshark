@@ -39,7 +39,7 @@ typedef struct _gvcp_transaction_t {
 	uint32_t addr_count;
 } gvcp_transaction_t;
 
-wmem_array_t* gvcp_trans_array;
+static wmem_array_t* gvcp_trans_array;
 
 /*
    structure to hold persistent info for each conversation
@@ -2458,7 +2458,7 @@ static int dissect_gvcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 	int scheduledactioncommand = -1;
 	int ack_code = -1;
 	const char* ack_string = NULL;
-	int request_id = 0;
+	uint32_t request_id = 0;
 	char key_code = 0;
 	proto_item *ti = NULL;
 	proto_item *item = NULL;
@@ -2573,8 +2573,7 @@ static int dissect_gvcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 	offset += 2;
 
 	/* Add the request ID */
-	proto_tree_add_item(gvcp_tree, hf_gvcp_request_id, tvb, offset, 2, ENC_BIG_ENDIAN);
-	request_id = tvb_get_ntohs(tvb, offset);
+	proto_tree_add_item_ret_uint(gvcp_tree, hf_gvcp_request_id, tvb, offset, 2, ENC_BIG_ENDIAN, &request_id);
 	offset += 2;
 
 	conversation = find_or_create_conversation(pinfo);

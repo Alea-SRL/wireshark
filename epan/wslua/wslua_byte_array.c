@@ -699,6 +699,12 @@ WSLUA_METHOD ByteArray_tvb (lua_State *L) {
 }
 
 
+/* WSLUA_ATTRIBUTE ByteArray_length RO The number of bytes in the array.
+   Mirrors `ba:len()`. */
+WSLUA_ATTRIBUTE_GET(ByteArray,length, {
+    lua_pushinteger(L, (lua_Integer)obj->len);
+});
+
 WSLUA_METHODS ByteArray_methods[] = {
     WSLUA_CLASS_FNREG(ByteArray,new),
     WSLUA_CLASS_FNREG(ByteArray,le_int),
@@ -731,8 +737,17 @@ WSLUA_META ByteArray_meta[] = {
     { NULL, NULL }
 };
 
+/* Read-only attributes. `length` mirrors `ByteArray:len()` and lets the
+ * Lua debugger show the size without triggering the expensive hex-dump
+ * __tostring. The attribute name intentionally differs from `len` to
+ * avoid the method/attribute collision check. */
+WSLUA_ATTRIBUTES ByteArray_attributes[] = {
+    WSLUA_ATTRIBUTE_ROREG(ByteArray,length),
+    { NULL, NULL, NULL }
+};
+
 int ByteArray_register(lua_State* L) {
-    WSLUA_REGISTER_CLASS(ByteArray);
+    WSLUA_REGISTER_CLASS_WITH_ATTRS(ByteArray);
     return 0;
 }
 

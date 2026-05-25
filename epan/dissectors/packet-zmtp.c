@@ -28,7 +28,7 @@
 #include <epan/tfs.h>
 #include <wsutil/array.h>
 #include <tap.h>
-#include <ui/tap-credentials.h>
+#include <epan/credentials.h>
 
 #include "packet-tcp.h"
 

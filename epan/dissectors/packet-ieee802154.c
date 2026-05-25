@@ -2438,7 +2438,7 @@ dissect_ieee802154_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, u
     }
 
     unsigned mhr_len = ieee802154_dissect_header(no_fcs_tvb, pinfo, tree, 0, &ieee802154_tree, &packet);
-    if (!mhr_len || tvb_reported_length_remaining(no_fcs_tvb, mhr_len) < 0 ) {
+    if (!mhr_len) {
         return;
     }
 
@@ -2529,10 +2529,8 @@ ieee802154_dissect_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, u
     ieee_hints->packet = packet;
 
     /* Create the protocol tree. */
-    if (tree) {
-        proto_root = proto_tree_add_protocol_format(tree, proto_ieee802154, tvb, 0, tvb_captured_length(tvb), "IEEE 802.15.4");
-        ieee802154_tree = proto_item_add_subtree(proto_root, ett_ieee802154);
-    }
+    proto_root = proto_tree_add_protocol_format(tree, proto_ieee802154, tvb, 0, tvb_captured_length(tvb), "IEEE 802.15.4");
+    ieee802154_tree = proto_item_add_subtree(proto_root, ett_ieee802154);
     /* Add the protocol name. */
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "IEEE 802.15.4");
 
@@ -2554,12 +2552,10 @@ ieee802154_dissect_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, u
         }
     } else { /* IEEE 802.15.4 Sequence Number Suppression */
         packet->seqno = tvb_get_uint8(tvb, offset);
-        if (tree) {
-            proto_tree_add_uint(ieee802154_tree, hf_ieee802154_seqno, tvb, offset, 1, packet->seqno);
-            /* For Ack packets display this in the root. */
-            if (packet->frame_type == IEEE802154_FCF_ACK) {
-                proto_item_append_text(proto_root, ", Sequence Number: %u", packet->seqno);
-            }
+        proto_tree_add_uint(ieee802154_tree, hf_ieee802154_seqno, tvb, offset, 1, packet->seqno);
+        /* For Ack packets display this in the root. */
+        if (packet->frame_type == IEEE802154_FCF_ACK) {
+            proto_item_append_text(proto_root, ", Sequence Number: %u", packet->seqno);
         }
         offset += 1;
     }
@@ -2802,9 +2798,7 @@ ieee802154_dissect_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, u
     /* Destination PAN Id */
     if (packet->dst_pan_present) {
         packet->dst_pan = tvb_get_letohs(tvb, offset);
-        if (ieee802154_tree) {
-            proto_tree_add_uint(ieee802154_tree, hf_ieee802154_dst_panID, tvb, offset, 2, packet->dst_pan);
-        }
+        proto_tree_add_uint(ieee802154_tree, hf_ieee802154_dst_panID, tvb, offset, 2, packet->dst_pan);
         offset += 2;
     }
 
@@ -2814,9 +2808,7 @@ ieee802154_dissect_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, u
         packet->dst16 = tvb_get_letohs(tvb, offset);
 
         /* Provide address hints to higher layers that need it. */
-        if (ieee_hints) {
-            ieee_hints->dst16 = packet->dst16;
-        }
+        ieee_hints->dst16 = packet->dst16;
 
         set_address_tvb(&pinfo->dl_dst, ieee802_15_4_short_address_type, 2, tvb, offset);
         copy_address_shallow(&pinfo->dst, &pinfo->dl_dst);
@@ -2844,12 +2836,10 @@ ieee802154_dissect_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, u
          */
         set_address(&pinfo->dl_dst, AT_EUI64, 8, p_addr);
         copy_address_shallow(&pinfo->dst, &pinfo->dl_dst);
-        if (tree) {
-            proto_tree_add_item(ieee802154_tree, hf_ieee802154_dst64, tvb, offset, 8, ENC_LITTLE_ENDIAN);
-            ti = proto_tree_add_item(ieee802154_tree, hf_ieee802154_addr64, tvb, offset, 8, ENC_LITTLE_ENDIAN);
-            proto_item_set_generated(ti);
-            proto_item_set_hidden(ti);
-        }
+        proto_tree_add_item(ieee802154_tree, hf_ieee802154_dst64, tvb, offset, 8, ENC_LITTLE_ENDIAN);
+        ti = proto_tree_add_item(ieee802154_tree, hf_ieee802154_addr64, tvb, offset, 8, ENC_LITTLE_ENDIAN);
+        proto_item_set_generated(ti);
+        proto_item_set_hidden(ti);
 
         offset += 8;
     }
@@ -2868,9 +2858,7 @@ ieee802154_dissect_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, u
             packet->src_pan = IEEE802154_BCAST_PAN;
         }
     }
-    if (ieee_hints) {
-        ieee_hints->src_pan = packet->src_pan;
-    }
+    ieee_hints->src_pan = packet->src_pan;
 
     /* Source Address */
     if (packet->src_addr_mode == IEEE802154_FCF_ADDR_SHORT) {
@@ -2894,31 +2882,29 @@ ieee802154_dissect_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, u
         copy_address_shallow(&pinfo->src, &pinfo->dl_src);
 
         /* Add the addressing info to the tree. */
-        if (tree) {
-            proto_tree_add_uint(ieee802154_tree, hf_ieee802154_src16, tvb, offset, 2, packet->src16);
-            ti = proto_tree_add_uint(ieee802154_tree, hf_ieee802154_addr16, tvb, offset, 2, packet->src16);
+        proto_tree_add_uint(ieee802154_tree, hf_ieee802154_src16, tvb, offset, 2, packet->src16);
+        ti = proto_tree_add_uint(ieee802154_tree, hf_ieee802154_addr16, tvb, offset, 2, packet->src16);
+        proto_item_set_generated(ti);
+        proto_item_set_hidden(ti);
+
+        if (ieee_hints && ieee_hints->map_rec) {
+            /* Display inferred source address info */
+            ti = proto_tree_add_eui64(ieee802154_tree, hf_ieee802154_src64, tvb, offset, 0,
+                    ieee_hints->map_rec->addr64);
+            proto_item_set_generated(ti);
+            ti = proto_tree_add_eui64(ieee802154_tree, hf_ieee802154_addr64, tvb, offset, 0, ieee_hints->map_rec->addr64);
             proto_item_set_generated(ti);
             proto_item_set_hidden(ti);
 
-            if (ieee_hints && ieee_hints->map_rec) {
-                /* Display inferred source address info */
-                ti = proto_tree_add_eui64(ieee802154_tree, hf_ieee802154_src64, tvb, offset, 0,
-                        ieee_hints->map_rec->addr64);
-                proto_item_set_generated(ti);
-                ti = proto_tree_add_eui64(ieee802154_tree, hf_ieee802154_addr64, tvb, offset, 0, ieee_hints->map_rec->addr64);
-                proto_item_set_generated(ti);
-                proto_item_set_hidden(ti);
-
-                if ( ieee_hints->map_rec->start_fnum ) {
-                    ti = proto_tree_add_uint(ieee802154_tree, hf_ieee802154_src64_origin, tvb, 0, 0,
-                        ieee_hints->map_rec->start_fnum);
-                }
-                else {
-                    ti = proto_tree_add_uint_format_value(ieee802154_tree, hf_ieee802154_src64_origin, tvb, 0, 0,
-                        ieee_hints->map_rec->start_fnum, "Pre-configured");
-                }
-                proto_item_set_generated(ti);
+            if ( ieee_hints->map_rec->start_fnum ) {
+                ti = proto_tree_add_uint(ieee802154_tree, hf_ieee802154_src64_origin, tvb, 0, 0,
+                    ieee_hints->map_rec->start_fnum);
             }
+            else {
+                ti = proto_tree_add_uint_format_value(ieee802154_tree, hf_ieee802154_src64_origin, tvb, 0, 0,
+                    ieee_hints->map_rec->start_fnum, "Pre-configured");
+            }
+            proto_item_set_generated(ti);
         }
 
         offset += 2;
@@ -2939,12 +2925,10 @@ ieee802154_dissect_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, u
          */
         set_address(&pinfo->dl_src, AT_EUI64, 8, p_addr);
         copy_address_shallow(&pinfo->src, &pinfo->dl_src);
-        if (tree) {
-            proto_tree_add_item(ieee802154_tree, hf_ieee802154_src64, tvb, offset, 8, ENC_LITTLE_ENDIAN);
-            ti = proto_tree_add_item(ieee802154_tree, hf_ieee802154_addr64, tvb, offset, 8, ENC_LITTLE_ENDIAN);
-            proto_item_set_generated(ti);
-            proto_item_set_hidden(ti);
-        }
+        proto_tree_add_item(ieee802154_tree, hf_ieee802154_src64, tvb, offset, 8, ENC_LITTLE_ENDIAN);
+        ti = proto_tree_add_item(ieee802154_tree, hf_ieee802154_addr64, tvb, offset, 8, ENC_LITTLE_ENDIAN);
+        proto_item_set_generated(ti);
+        proto_item_set_hidden(ti);
 
         offset += 8;
     }
@@ -2997,9 +2981,7 @@ ieee802154_dissect_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, u
              * part of the payload, is encrypted, and follows the payload IEs. Thus we only parse the command id
              * here for 2006 and earlier frames. */
             packet->command_id = tvb_get_uint8(tvb, offset);
-            if (tree) {
-                proto_tree_add_uint(ieee802154_tree, hf_ieee802154_cmd_id, tvb, offset, 1, packet->command_id);
-            }
+            proto_tree_add_uint(ieee802154_tree, hf_ieee802154_cmd_id, tvb, offset, 1, packet->command_id);
             offset++;
 
             /* Display the command identifier in the info column. */
@@ -4674,8 +4656,7 @@ dissect_mpx_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *ies_tree, void
         case IEEE802159_MPX_FULL_FRAME_NO_MUXID:
             break;  // nothing to do
         case IEEE802159_MPX_NON_LAST_FRAGMENT:
-            fragment_number = tvb_get_uint8(tvb, offset);
-            proto_tree_add_item(tree, hf_ieee802159_mpx_fragment_number, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint8(tree, hf_ieee802159_mpx_fragment_number, tvb, offset, 1, ENC_LITTLE_ENDIAN, &fragment_number);
             offset += 1;
             if (fragment_number == 0) {
                 proto_tree_add_item(tree, hf_ieee802159_mpx_total_frame_size, tvb, offset, 2, ENC_LITTLE_ENDIAN);
@@ -5778,7 +5759,10 @@ static bool trel_key_derivation_func(/*ieee802154_packet* packet*/ unsigned char
     GByteArray* bytes;
     bytes = g_byte_array_new();
     bool res = hex_str_to_bytes(uat_key->pref_key, bytes, false);
-    if (!res) return false;
+    if (!res) {
+        g_byte_array_unref(bytes);
+        return false;
+    }
 
     uint8_t saltstring[] = { 'T', 'h', 'r', 'e', 'a', 'd', 'S', 'e', 'q', 'u', 'e', 'n', 'c', 'e', 'M', 'a', 's', 't', 'e', 'r', 'K', 'e', 'y' };
     uint8_t info_str[] = { 'T', 'h', 'r', 'e', 'a', 'd', 'O', 'v', 'e','r', 'I', 'n', 'f', 'r', 'a', 'K', 'e', 'y' };
@@ -5790,6 +5774,7 @@ static bool trel_key_derivation_func(/*ieee802154_packet* packet*/ unsigned char
     salt[3] = (Key_sequence >> 0) & 0xff;
 
     memcpy(ikm, bytes->data, 16);
+    g_byte_array_unref(bytes);
     memcpy(salt + sizeof(uint32_t), saltstring, sizeof(saltstring));
 
     err = hkdf_extract(GCRY_MD_SHA256, salt, sizeof(salt), ikm, sizeof(ikm), prk);

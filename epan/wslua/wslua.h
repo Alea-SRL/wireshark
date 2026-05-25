@@ -65,6 +65,12 @@
 #define WSLUA_INIT_ROUTINES "init_routines"
 #define WSLUA_PREFS_CHANGED "prefs_changed"
 
+#ifdef HAVE_LUA_UNICODE
+    #define ABOUT_LUA_RELEASE LUA_RELEASE" (UfW patched)"
+#else /* HAVE_LUA_UNICODE */
+    #define ABOUT_LUA_RELEASE LUA_RELEASE
+#endif /* HAVE_LUA_UNICODE */
+
 /* type conversion macros - lua_Number is a double, so casting isn't kosher; and
    using Lua's already-available lua_tointeger() and luaL_checkinteger() might be
    different on different machines; so use these instead please!
@@ -138,14 +144,15 @@ struct _wslua_pinfo {
 
 struct _wslua_tvbrange {
     struct _wslua_tvb* tvb;
-    int offset;
-    int len;
+    unsigned offset;
+    unsigned len;
 };
 
 struct _wslua_tw {
     funnel_text_window_t* ws_tw;
     bool expired;
     void* close_cb_data;
+    char* title;
 };
 
 typedef struct _wslua_field_t {
@@ -349,6 +356,7 @@ struct _wslua_filehandler {
 struct _wslua_dir {
     GDir* dir;
     char* ext;
+    char* path;
 };
 
 struct _wslua_progdlg {
@@ -462,6 +470,17 @@ typedef struct _wslua_attribute_table {
     lua_CFunction getfunc;
     lua_CFunction setfunc;
 } wslua_attribute_table;
+
+/**
+ * @brief Registers attributes for a Lua table.
+ *
+ * This function registers getter and setter functions for fields in a Lua table.
+ *
+ * @param L The Lua state.
+ * @param t A pointer to the attribute table containing field names and their corresponding getter and setter functions.
+ * @param is_getter If true, registers only the getter functions; if false, registers both getter and setter functions.
+ * @return An integer indicating success or failure of the registration process.
+ */
 extern int wslua_reg_attributes(lua_State *L, const wslua_attribute_table *t, bool is_getter);
 
 #define WSLUA_TYPEOF_FIELD "__typeof"
@@ -541,6 +560,18 @@ extern int wslua_reg_attributes(lua_State *L, const wslua_attribute_table *t, bo
 #define WSLUA_ATTRIBUTE_RWREG(class,name) { #name, class##_get_##name, class##_set_##name }
 #define WSLUA_ATTRIBUTE_ROREG(class,name) { #name, class##_get_##name, NULL }
 #define WSLUA_ATTRIBUTE_WOREG(class,name) { #name, NULL, class##_set_##name }
+
+/* Body of a __pairs metamethod that hands the generic-for protocol
+ * a stateless iterator `C##_pairs_iter`. The iterator must accept
+ * (self, prev_key_or_nil) and return the next (key, value) pair or a
+ * single nil when done. Use inside a WSLUA_METAMETHOD body so the
+ * caller retains control of any doc comments shown in the manual. */
+#define WSLUA_STATELESS_PAIRS_BODY(C)                 \
+    check##C(L, 1);                                   \
+    lua_pushcfunction(L, C##_pairs_iter);             \
+    lua_pushvalue(L, 1);                              \
+    lua_pushnil(L);                                   \
+    return 3
 
 #define WSLUA_ATTRIBUTE_FUNC_SETTER(C,field) \
     static int C##_set_##field (lua_State* L) { \
@@ -789,6 +820,13 @@ extern GPtrArray* lua_outstanding_FuncSavers;
 WSLUA_DECLARE_CLASSES()
 WSLUA_DECLARE_FUNCTIONS()
 
+/**
+ * @brief Retrieves the Lua state associated with Wireshark.
+ *
+ * This function returns a pointer to the Lua state used by Wireshark for scripting and extensions.
+ *
+ * @return A pointer to the lua_State structure representing the Lua state.
+ */
 extern lua_State* wslua_state(void);
 
 
@@ -807,93 +845,606 @@ typedef struct _wslua_class {
     const luaL_Reg *instance_meta;      /**< Metatable for class instances (optional) */
     const wslua_attribute_table *attrs; /**< Table of getters/setters for attributes on class instances (optional). */
 } wslua_class;
+
+/**
+ * @brief Registers a class instance meta table.
+ *
+ * This function registers a metatable for use by class instances in Lua. It sets up the metatable with methods and attributes defined in the provided class definition.
+ *
+ * @param L The Lua state.
+ * @param cls_def Pointer to the class definition containing the meta and method information.
+ */
 void wslua_register_classinstance_meta(lua_State *L, const wslua_class *cls_def);
+
+/**
+ * @brief Registers a new Lua class in the global table.
+ *
+ * @param L The Lua state.
+ * @param cls_def A pointer to the class definition structure.
+ */
 void wslua_register_class(lua_State *L, const wslua_class *cls_def);
 
+/**
+ * @brief Concatenates two objects to a string.
+ *
+ * This function attempts to convert the first and second arguments to strings using the __tostring metamethod,
+ * and then concatenates them. If the metamethod is not available, it pushes the value as is.
+ *
+ * @param L The Lua state.
+ * @return Number of values on the stack (1).
+ */
 extern int wslua__concat(lua_State* L);
+
+/**
+ * @brief Converts a Lua value to a boolean.
+ *
+ * This function checks if the given Lua value is a boolean or nil, and returns its boolean value.
+ * If the value is a number, it converts 0 to false and any other number to true.
+ * If the value is neither a boolean nor a number, it raises an error.
+ *
+ * @param L The Lua state.
+ * @param n The index of the value on the stack.
+ * @return The boolean value.
+ */
 extern bool wslua_toboolean(lua_State* L, int n);
+
+/**
+ * @brief Checks if a Lua value at a given index is a boolean.
+ *
+ * This function checks if the value at the specified index is a boolean or nil.
+ *
+ * @param L The Lua state.
+ * @param n The index of the value to check.
+ * @return bool True if the value is a boolean or nil, false otherwise.
+ */
 extern bool wslua_checkboolean(lua_State* L, int n);
+
+/**
+ * @brief Checks if a Lua value at a given index is a boolean and returns its value, or a default value if not.
+ *
+ * @param L The Lua state.
+ * @param n The index of the value to check.
+ * @param def The default value to return if the value is not a boolean.
+ * @return The boolean value from the Lua stack, or the default value.
+ */
 extern bool wslua_optbool(lua_State* L, int n, bool def);
+
+/**
+ * @brief Converts a Lua value to an integer.
+ *
+ * @param L The Lua state.
+ * @param n The index of the value on the stack.
+ * @return The integer value.
+ */
 extern lua_Integer wslua_tointeger(lua_State* L, int n);
+
+/**
+ * @brief Retrieves an optional boolean or integer value from the Lua stack.
+ *
+ * @param L The Lua state.
+ * @param n The index of the value on the stack.
+ * @param def The default value if the value is not a boolean or integer.
+ * @return The retrieved value, either from the stack or the default.
+ */
 extern int wslua_optboolint(lua_State* L, int n, int def);
+
+/**
+ * @brief Checks if the value at the given index is a Lua string and returns it.
+ *
+ * @param L The Lua state.
+ * @param n The index of the value to check.
+ * @param l A pointer to store the length of the string.
+ * @return The checked Lua string, or throws an error if not a string.
+ */
 extern const char* wslua_checklstring_only(lua_State* L, int n, size_t *l);
+
+/**
+ * @brief Checks if a Lua value at a given index is a string.
+ *
+ * @param L The Lua state.
+ * @param n The index of the value to check.
+ * @return const char* The string value, or NULL if not a string.
+ */
 extern const char* wslua_checkstring_only(lua_State* L, int n);
+
+/**
+ * @brief Set functions in a Lua table.
+ *
+ * @param L The Lua state.
+ * @param l Array of function definitions.
+ * @param nup Number of upvalues to pass to each function.
+ */
 extern void wslua_setfuncs(lua_State *L, const luaL_Reg *l, int nup);
+
 extern const char* wslua_typeof_unknown;
-extern const char* wslua_typeof(lua_State *L, int idx);
+
+/**
+ * @brief Return a human-readable type name for the Lua value at a stack index.
+ *
+ * @param L   The Lua state.
+ * @param idx Stack index of the value to inspect.
+ * @return A static or interned string naming the Lua type or wslua class
+ *         of the value. The pointer is valid for the lifetime of the
+ *         interpreter; do not free it.
+ */
+extern const char *wslua_typeof(lua_State *L, int idx);
+
+/**
+ * @brief Push a named field from a Lua table onto the stack.
+ *
+ * @param L    The Lua state.
+ * @param idx  Stack index of the table to query.
+ * @param name The string key to look up in the table.
+ * @return true if the field was found and a non-nil value was pushed;
+ *         false if the field is absent or nil (nothing is pushed in that
+ *         case).
+ */
 extern bool wslua_get_table(lua_State *L, int idx, const char *name);
+
+/**
+ * @brief Push a named field from a Lua value's metatable or environment.
+ *
+ * @param L    The Lua state.
+ * @param idx  Stack index of the object whose field should be fetched.
+ * @param name The field name to retrieve.
+ * @return true if a non-nil value was pushed onto the stack;
+ *         false if the field is absent or nil.
+ */
 extern bool wslua_get_field(lua_State *L, int idx, const char *name);
-extern int dissect_lua(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void* data);
-extern bool heur_dissect_lua(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void* data);
+
+/**
+ * @brief C-side entry point for all Lua-based protocol dissectors.
+ *
+ * @param tvb   The packet data buffer.
+ * @param pinfo Packet metadata and column information.
+ * @param tree  The protocol tree root for this packet.
+ * @param data  Optional opaque data passed from the parent dissector
+ *              (may be NULL).
+ * @return The number of bytes consumed, as returned by the Lua function,
+ *         or 0 if the dissector declined the packet.
+ */
+extern int dissect_lua(tvbuff_t *tvb, packet_info *pinfo,
+                       proto_tree *tree, void *data);
+
+/**
+ * @brief C-side entry point for all Lua-based heuristic dissectors.
+ *
+ * @param tvb   The packet data buffer.
+ * @param pinfo Packet metadata and column information.
+ * @param tree  The protocol tree root for this packet.
+ * @param data  Optional opaque data passed from the parent dissector
+ *              (may be NULL).
+ * @return true if the Lua heuristic claimed the packet; false if the
+ *         payload was not recognised and the framework should try the
+ *         next heuristic.
+ */
+extern bool heur_dissect_lua(tvbuff_t *tvb, packet_info *pinfo,
+                              proto_tree *tree, void *data);
+
+/**
+ * @brief Retrieves an expert field based on group and severity.
+ *
+ * @param group The group of the expert field.
+ * @param severity The severity level of the expert field.
+ * @return A pointer to the expert field if found, otherwise a pointer to an error field.
+ */
 extern expert_field* wslua_get_expert_field(const int group, const int severity);
+
+/**
+ * @brief Notify Lua scripts that preferences have changed.
+ *
+ * This function is called when Wireshark's preferences are modified, and it
+ * notifies any registered Lua scripts about this change.
+ */
 extern void wslua_prefs_changed(void);
+
+/**
+ * @brief Registers the Lua protocol.
+ *
+ * This function registers the Lua protocol with Wireshark, allowing Lua scripts to define and use custom protocols.
+ */
 extern void proto_register_lua(void);
+
+/**
+ * @brief Registers all Lua taps.
+ *
+ * This function registers all Lua taps with Wireshark, enabling Lua scripts to create and use custom taps for packet analysis.
+ *
+ * @return A GString containing the names of all registered taps.
+ */
 extern GString* lua_register_all_taps(void);
+
+/**
+ * @brief Prime the dissector filter with a protocol tree.
+ *
+ * This function primes the dissector filter with the protocol tree from an epan_dissect_t structure.
+ *
+ * @param edt The epan_dissect_t structure containing the protocol tree to prime the filter with.
+ */
 extern void wslua_prime_dfilter(epan_dissect_t *edt);
+
+/**
+ * @brief Checks if there are any registered field extractors.
+ *
+ * @return true if there are registered field extractors, false otherwise.
+ */
 extern bool wslua_has_field_extractors(void);
+
+/**
+ * @brief Primes all fields in the protocol tree.
+ *
+ * This function primes all fields in the given protocol tree, preparing them for use in Lua scripts.
+ *
+ * @param tree The protocol tree to prime.
+ */
 extern void lua_prime_all_fields(proto_tree* tree);
 
+/**
+ * @brief Commits protocol changes.
+ *
+ * This function commits any pending protocol changes made during the current Lua script execution.
+ *
+ * @param L The Lua state.
+ * @return 0 on success, non-zero on failure.
+ */
 extern int Proto_commit(lua_State* L);
 
+/**
+ * @brief Creates a new TreeItem.
+ *
+ * @param tree The parent proto_tree.
+ * @param item The associated proto_item.
+ * @return A newly created TreeItem.
+ */
 extern TreeItem create_TreeItem(proto_tree* tree, proto_item* item);
 
-extern void clear_outstanding_FuncSavers(void);
+/**
+ * @brief Clears outstanding function savers associated with a Lua state.
+ *
+ * @param L The Lua state to clear function savers for.
+ */
+extern void clear_outstanding_FuncSavers(lua_State* L);
 
+/**
+ * @brief Packs a 64-bit integer into a Lua string using the specified endianness.
+ *
+ * @param L The Lua state.
+ * @param b The Lua buffer to add the packed data to.
+ * @param idx The index of the integer on the Lua stack.
+ * @param asLittleEndian Whether to pack in little-endian format.
+ */
 extern void Int64_pack(lua_State* L, luaL_Buffer *b, int idx, bool asLittleEndian);
+
+/**
+ * @brief Unpacks a 64-bit integer from a buffer with specified endianness and pushes it onto the Lua stack.
+ *
+ * @param L The Lua state.
+ * @param buff The buffer containing the packed integer.
+ * @param asLittleEndian Whether the integer is packed in little-endian format.
+ * @return The number of values pushed onto the Lua stack (1).
+ */
 extern int Int64_unpack(lua_State* L, const char *buff, bool asLittleEndian);
+
+/**
+ * @brief Packs a 64-bit unsigned integer into a Lua string buffer with specified endianness.
+ *
+ * @param L The Lua state.
+ * @param b The Lua buffer to pack the integer into.
+ * @param idx The index of the integer in the Lua stack.
+ * @param asLittleEndian Whether to pack the integer in little-endian format.
+ */
 extern void UInt64_pack(lua_State* L, luaL_Buffer *b, int idx, bool asLittleEndian);
+
+/**
+ * @brief Unpacks a 64-bit unsigned integer from a buffer with specified endianness and pushes it onto the Lua stack.
+ *
+ * @param L The Lua state.
+ * @param buff The buffer containing the packed unsigned integer.
+ * @param asLittleEndian Whether the unsigned integer is packed in little-endian format.
+ * @return The number of values pushed onto the Lua stack (1).
+ */
 extern int UInt64_unpack(lua_State* L, const char *buff, bool asLittleEndian);
+
+/**
+ * @brief Retrieves a 64-bit unsigned integer from the Lua stack.
+ *
+ * This function checks the type of the value at the specified index on the Lua stack
+ * and converts it to a uint64_t. It supports numbers, strings, and Int64 userdata types.
+ *
+ * @param L The Lua state.
+ * @param i The index on the Lua stack where the value is located.
+ * @return The 64-bit unsigned integer value.
+ */
 extern uint64_t getUInt64(lua_State *L, int i);
 
+/**
+ * @brief Pushes a tvbuff_t to the Lua stack as a Tvb object.
+ *
+ * @param L The Lua state.
+ * @param tvb The tvbuff_t to push.
+ * @return A pointer to the pushed Tvb object.
+ */
 extern Tvb* push_Tvb(lua_State* L, tvbuff_t* tvb);
+
+/**
+ * @brief Pushes a Tvb object onto the Lua stack.
+ *
+ * @param L The Lua state.
+ * @param t The Tvb object to push.
+ * @return An integer indicating success or failure of the push operation.
+ */
 extern int push_wsluaTvb(lua_State* L, Tvb t);
+
+/**
+ * @brief Pushes a TvbRange object onto the Lua stack.
+ *
+ * @param L The Lua state.
+ * @param tvb The tvbuff_t object.
+ * @param offset The offset within the tvbuff_t.
+ * @param len The length of the range to push.
+ * @return true If successful, false otherwise.
+ */
 extern bool push_TvbRange(lua_State* L, tvbuff_t* tvb, int offset, int len);
+
+/**
+ * @brief Clears all outstanding Tvb objects.
+ *
+ * This function removes and frees all Tvb objects from the outstanding_Tvb array.
+ */
 extern void clear_outstanding_Tvb(void);
+
+/**
+ * @brief Clears all outstanding TvbRange objects.
+ */
 extern void clear_outstanding_TvbRange(void);
 
+/**
+ * @brief Pushes a packet information structure onto the Lua stack.
+ *
+ * @param L The Lua state.
+ * @param p The Wireshark packet information structure.
+ * @return A pointer to the pushed packet information structure.
+ */
 extern Pinfo* push_Pinfo(lua_State* L, packet_info* p);
+
+/**
+ * @brief Clears all outstanding Pinfo objects.
+ */
 extern void clear_outstanding_Pinfo(void);
+
+/**
+ * @brief Clears all outstanding Column objects.
+ */
 extern void clear_outstanding_Column(void);
+
+/**
+ * @brief Clears all outstanding Column objects.
+ */
 extern void clear_outstanding_Columns(void);
+
+/**
+ * @brief Clears any outstanding PrivateTable entries.
+ */
 extern void clear_outstanding_PrivateTable(void);
 
+/**
+ * @brief Retrieves the value of hf_wslua_text.
+ *
+ * @return The value of hf_wslua_text.
+ */
 extern int get_hf_wslua_text(void);
+
+/**
+ * @brief Pushes a TreeItem onto the Lua stack.
+ *
+ * @param L The Lua state.
+ * @param tree The protocol tree associated with the item.
+ * @param item The protocol item to push.
+ * @return A pointer to the pushed TreeItem on the Lua stack.
+ */
 extern TreeItem push_TreeItem(lua_State *L, proto_tree *tree, proto_item *item);
+
+/**
+ * @brief Clears all outstanding TreeItem objects.
+ */
 extern void clear_outstanding_TreeItem(void);
 
+/**
+ * @brief Pushes a field information object onto the Lua stack.
+ *
+ * @param L The Lua state.
+ * @param f The field information to push.
+ * @return A pointer to the pushed field information.
+ */
 extern FieldInfo* push_FieldInfo(lua_State *L, field_info* f);
+
+/**
+ * @brief Clears any outstanding FieldInfo structures.
+ */
 extern void clear_outstanding_FieldInfo(void);
 
+/**
+ * @brief Prints the stack of a Lua state with a given prefix.
+ *
+ * @param s The prefix string to prepend to each stack entry.
+ * @param L The Lua state whose stack is to be printed.
+ */
 extern void wslua_print_stack(char* s, lua_State* L);
 
+/**
+ * @brief Initialize Wireshark Lua support.
+ *
+ * Registers a callback function and initializes various components for Wireshark Lua.
+ *
+ * @param cb Callback function to be registered.
+ * @param client_data Data to be passed to the callback function.
+ * @param app_env_var_prefix Prefix for application environment variables.
+ */
 extern void wslua_init(register_cb cb, void *client_data, const char* app_env_var_prefix);
+
+/**
+ * @brief Performs early cleanup of Lua resources.
+ */
 extern void wslua_early_cleanup(void);
+
+/**
+ * @brief Cleans up Lua resources.
+ *
+ * This function closes the Lua state if it exists and resets initialization flags.
+ */
 extern void wslua_cleanup(void);
 
+/**
+ * @brief Retrieves a tap extractor by name.
+ *
+ * @param name The name of the tap extractor to retrieve.
+ * @return A pointer to the tap extractor, or NULL if not found.
+ */
 extern tap_extractor_t wslua_get_tap_extractor(const char* name);
+
+/**
+ * @brief Set tap enumerations in Lua.
+ *
+ * @param L The Lua state.
+ * @return Number of values pushed to the stack.
+ */
 extern int wslua_set_tap_enums(lua_State* L);
 
 extern ProtoField wslua_is_field_available(lua_State* L, const char* field_abbr);
 
+ /**
+  * @brief Retrieves the actual filename with normalized path separators.
+  *
+  * @param fname The original filename to process.
+  * @return A new string containing the cleaned and normalized filename, or NULL if the file does not exist.
+  */
 extern char* wslua_get_actual_filename(const char* fname);
 
+ /**
+  * @brief Convert binary data to hexadecimal string.
+  *
+  * Converts a given binary data buffer into a hexadecimal string representation.
+  *
+  * @param L Lua state.
+  * @param data Pointer to the binary data.
+  * @param len Length of the binary data.
+  * @param lowercase If true, use lowercase letters in the output; otherwise, use uppercase.
+  * @param sep Separator between bytes in the output string.
+  * @return Number of values pushed onto the Lua stack.
+  */
 extern int wslua_bin2hex(lua_State* L, const uint8_t* data, const unsigned len, const bool lowercase, const char* sep);
+
+/**
+ * @brief Convert hexadecimal string to binary data.
+ *
+ * @param L Lua state.
+ * @param data Hexadecimal string to convert.
+ * @param len Length of the hexadecimal string.
+ * @param sep Separator between bytes (optional).
+ * @return Number of bytes written to the buffer or -1 on error.
+ */
 extern int wslua_hex2bin(lua_State* L, const char* data, const unsigned len, const char* sep);
+
+/**
+ * @brief Open the Lua library for PCRE2 regular expressions.
+ *
+ * @param L The Lua state to register the library with.
+ * @return The number of values pushed onto the stack.
+ */
 extern int luaopen_rex_pcre2(lua_State *L);
 
+/**
+ * @brief Get the current plugin version.
+ *
+ * @return The current plugin version as a string.
+ */
 extern const char* get_current_plugin_version(void);
+
+/**
+ * @brief Clear the current plugin version.
+ */
 extern void clear_current_plugin_version(void);
 
+/**
+ * @brief Deregisters all Lua-based heuristics dissectors.
+ *
+ * This function iterates through all registered heuristic dissectors and removes them from the system.
+ *
+ * @param L The Lua state.
+ * @return 0 on success, non-zero on failure.
+ */
 extern int wslua_deregister_heur_dissectors(lua_State* L);
+
+/**
+ * @brief Deregisters all Lua-based protocol dissectors.
+ *
+ * This function iterates through all registered protocol dissectors and removes them from the system.
+ *
+ * @param L The Lua state.
+ * @return 0 on success, non-zero on failure.
+ */
 extern int wslua_deregister_protocols(lua_State* L);
+
+/**
+ * @brief Deregisters all registered dissector tables.
+ *
+ * This function iterates through all registered dissector tables and deregisters them.
+ *
+ * @param L The Lua state.
+ * @return 0 on success.
+ */
 extern int wslua_deregister_dissector_tables(lua_State* L);
+
+/**
+ * @brief Deregisters all registered listeners.
+ *
+ * This function iterates through all registered listeners and deregisters them.
+ *
+ * @param L The Lua state.
+ * @return 0 on success.
+ */
 extern int wslua_deregister_listeners(lua_State* L);
+
+/**
+ * @brief Deregisters Lua fields.
+ *
+ * @param L The Lua state.
+ * @return Number of values on the stack.
+ */
 extern int wslua_deregister_fields(lua_State* L);
+
+/**
+ * @brief Deregisters file handlers and menus in Wireshark's Lua environment.
+ *
+ * This function is responsible for cleaning up resources associated with file handlers and menus registered by Lua scripts.
+ *
+ * @param L The Lua state from which to deregister the file handlers.
+ */
 extern int wslua_deregister_filehandlers(lua_State* L);
+
+/**
+ * @brief Deregisters all menus registered by Wireshark Lua.
+ *
+ * This function is responsible for removing all menu items that were previously registered
+ * by Wireshark's Lua scripting interface.
+ */
 extern void wslua_deregister_menus(void);
 
+/**
+ * @brief Initialize Wireshark Lua file types.
+ *
+ * This function initializes the Wireshark Lua file types by creating a table
+ * indexed by strings, where each entry contains a name and a corresponding file type.
+ *
+ * @param L The Lua state to initialize.
+ */
 extern void wslua_init_wtap_filetypes(lua_State* L);
 
+ /**
+  * @brief Retrieves the enumeration of conversation types for Lua inspection.
+  *
+  * @return const wslua_conv_types_t* A pointer to the conversation type enumeration.
+  */
 extern const wslua_conv_types_t* wslua_inspect_convtype_enum(void);
 
 #endif

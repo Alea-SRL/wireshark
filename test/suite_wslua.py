@@ -170,6 +170,10 @@ class TestWslua:
         '''wslua fields'''
         check_lua_script('field.lua', dhcp_pcap, True, '-q', '-c1')
 
+    def test_wslua_request_protocol_fields(self, check_lua_script):
+        '''wslua request_protocol_fields'''
+        check_lua_script('request_protocol_fields.lua', empty_pcap, True, '-q')
+
     # reader, writer, and acme_reader were all under wslua_step_file_test
     # in the Bash version.
     def test_wslua_file_reader(self, check_lua_script, cmd_tshark, capture_file, test_env):
@@ -314,6 +318,10 @@ class TestWslua:
     def test_wslua_tvb_no_tree(self, check_lua_script):
         '''wslua tvb without a tree'''
         check_lua_script('tvb.lua', dns_port_pcap, True, '-c1')
+
+    def test_wslua_tree_api(self, check_lua_script):
+        '''wslua tree api'''
+        check_lua_script('tree_api.lua', dns_port_pcap, True, '-V', '-c1')
 
     def test_wslua_try_heuristics(self, check_lua_script):
         '''wslua try_heuristics'''

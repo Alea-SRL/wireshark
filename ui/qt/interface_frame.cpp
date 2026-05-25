@@ -33,7 +33,7 @@
 #include "ui/capture_opts.h"
 #include "ui/capture_globals.h"
 #include <ui/iface_lists.h>
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>
 #include <wsutil/utf8_entities.h>
 #ifdef Q_OS_UNIX
 #include <unistd.h> /* for access() and X_OK */
@@ -57,7 +57,7 @@
 #ifdef HAVE_LIBPCAP
 const int stat_update_interval_ = 1000; // ms
 #endif
-const char *no_capture_link = "#no_capture";
+static constexpr const char *no_capture_link = "#no_capture";
 
 static QMutex scan_mutex;
 
@@ -99,6 +99,8 @@ InterfaceFrame::InterfaceFrame(QWidget * parent)
     ifTypeDescription.insert(IF_USB, tr("USB"));
     ifTypeDescription.insert(IF_EXTCAP, tr("External Capture"));
     ifTypeDescription.insert(IF_VIRTUAL, tr ("Virtual"));
+    ifTypeDescription.insert(IF_TUNNEL, tr ("Tunnel Interfaces"));
+    ifTypeDescription.insert(IF_LOOPBACK, tr ("Loopback Devices"));
 
     QList<InterfaceTreeColumns> columns;
     columns.append(IFTREE_COL_EXTCAP);

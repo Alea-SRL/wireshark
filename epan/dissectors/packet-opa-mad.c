@@ -7575,8 +7575,7 @@ static int parse_GetImageInfo(proto_tree *parentTree, tvbuff_t *tvb, int *offset
     local_offset += 4;
     proto_tree_add_item(GetImageInfo_header_tree, hf_opa_GetImageInfo_numLinks, tvb, local_offset, 4, ENC_BIG_ENDIAN);
     local_offset += 4;
-    numSMs = tvb_get_ntohl(tvb, local_offset);
-    proto_tree_add_item(GetImageInfo_header_tree, hf_opa_GetImageInfo_numSMs, tvb, local_offset, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint(GetImageInfo_header_tree, hf_opa_GetImageInfo_numSMs, tvb, local_offset, 4, ENC_BIG_ENDIAN, &numSMs);
     local_offset += 4;
     proto_tree_add_item(GetImageInfo_header_tree, hf_opa_GetImageInfo_numFailedNodes, tvb, local_offset, 4, ENC_BIG_ENDIAN);
     local_offset += 4;

@@ -1159,7 +1159,7 @@ Printed output can contain lots of text, particularly if you print packet detail
 image::images/ws-print.png[{medium-screenshot-attrs}]
 
 The “Print” dialog box shows a preview area which shows the result of changing the packet format settings.
-You can zoom in and out using the kbd:[{plus}] and kbd:[-] keys and reset the zoom level using the kbd:[0] key.
+You can zoom in and out using the kbd:[{plus}] (or kbd:[=]) and kbd:[-] keys and reset the zoom level using the kbd:[0] key.
 The following settings are available in the Print dialog box:
 
 Packet Format::

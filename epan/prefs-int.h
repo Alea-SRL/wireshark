@@ -8,10 +8,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __PREFS_INT_H__
-#define __PREFS_INT_H__
-
+#pragma once
 #include <stdio.h>
 #include "ws_symbol_export.h"
 #include <epan/wmem_scopes.h>
@@ -30,6 +27,7 @@ struct pref_module {
     const char *description;    /**< Description of module (displayed in preferences notebook) */
     const char *help;           /**< Module help page (passed to user_guide_url() to generate a URL) */
     void (*apply_cb)(void);     /**< routine to call when preferences applied */
+    wmem_allocator_t* scope;    /**< memory scope allocator for this module */
     GList *prefs;               /**< list of its preferences */
     struct pref_module *parent; /**< parent module */
     wmem_tree_t *submodules;    /**< list of its submodules */
@@ -45,7 +43,7 @@ struct pref_module {
                                   * use simple GUI controls to change the options.  In general, the "general"
                                   * Wireshark preferences should have this set to false, while the protocol
                                   * modules will have this set to true */
-    unsigned int effect_flags;  /**< Flags of types effected by preference (PREF_TYPE_DISSECTION, PREF_EFFECT_CAPTURE, etc).
+    unsigned int effect_flags;  /**< Flags of types effected by preference (PREF_EFFECT_DISSECTION, PREF_EFFECT_CAPTURE, etc).
                                      These flags will be set in all module's preferences on creation. Flags must be non-zero
                                      to ensure saving to disk */
 };
@@ -93,7 +91,9 @@ typedef enum {
     PREF_OPEN_FILENAME,
     PREF_PASSWORD,              // (3)
     PREF_PROTO_TCP_SNDAMB_ENUM, // (4)
-    PREF_DISSECTOR              // (5)
+    PREF_DISSECTOR,             // (5)
+    PREF_INT,
+    PREF_FLOAT
 } pref_type_e;
 
 /*
@@ -109,29 +109,65 @@ typedef enum {
 /* read_prefs_file: read in a generic config file and do a callback to */
 /* pref_set_pair_fct() for every key/value pair found */
 /**
+ * @brief Set a preference based on a key-value pair.
+ *
  * Given a string of the form "<pref name>:<pref value>", as might appear
  * as an argument to a "-o" option, parse it and set the preference in
  * question.
+ * @param key The name of the preference to set.
+ * @param value The value to set the preference to.
+ * @param private_data Private data to pass to the callback function.
+ * @param return_range_errors If true, return errors related to range values.
  * @return an indication of whether it succeeded or failed
  * in some fashion.
  */
 typedef prefs_set_pref_e (*pref_set_pair_cb) (char *key, const char *value, void *private_data, bool return_range_errors);
 
+/**
+ * @brief Get the description of a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @return Description of the preference.
+ */
 WS_DLL_PUBLIC
 const char* prefs_get_description(pref_t *pref);
 
+/**
+ * @brief Get the title of a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @return Title of the preference.
+ */
 WS_DLL_PUBLIC
 const char* prefs_get_title(pref_t *pref);
 
+/**
+ * @brief Fetch the name of a preference.
+ * @param pref Pointer to the preference structure.
+ * @return The name of the preference as a constant string.
+ */
 WS_DLL_PUBLIC
 const char* prefs_get_name(pref_t *pref);
 
+/**
+ * @brief Retrieves the type of a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @return Type of the preference.
+ */
 WS_DLL_PUBLIC
 int prefs_get_type(pref_t *pref);
 
+/**
+ * @brief Fetches the maximum value for a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @return The name of the preference as a constant string.
+ */
 WS_DLL_PUBLIC uint32_t prefs_get_max_value(pref_t *pref);
 
-/** Fetch flags that show the effect of the preference
+/**
+ * @brief Fetch flags that show the effect of the preference
  *
  * @param pref A preference.
  *
@@ -141,7 +177,9 @@ WS_DLL_PUBLIC uint32_t prefs_get_max_value(pref_t *pref);
 WS_DLL_PUBLIC
 unsigned int prefs_get_effect_flags(pref_t *pref);
 
-/** Set flags for the effect of the preference
+/**
+ * @brief Set flags for the effect of the preference
+ *
  * The intention is to distinguish preferences that affect
  * dissection from those that don't. A bitmask was added to
  * provide greater flexibility in the types of effects
@@ -150,17 +188,23 @@ unsigned int prefs_get_effect_flags(pref_t *pref);
  * @param pref A preference.
  * @param flags Bitmask of flags to apply to preference. Note that flags
  * must be non-zero to ensure preference is properly saved to disk.
- *
  */
 WS_DLL_PUBLIC
 void prefs_set_effect_flags(pref_t *pref, unsigned int flags);
 
-/** Same as prefs_set_effect_flags, just different way to get preference
+/**
+ * @brief Same as prefs_set_effect_flags, just different way to get preference
+ * @param module A preference module.
+ * @param pref The name of the preference to set the flags for.
+ * @param flags Bitmask of flags to apply to preference. Note that flags
+ * must be non-zero to ensure preference is properly saved to disk.
  */
 WS_DLL_PUBLIC
 void prefs_set_effect_flags_by_name(module_t * module, const char *pref, unsigned int flags);
 
-/** Fetch flags that show module's preferences effect
+/**
+ * @brief Fetch flags that show module's preferences effect
+ *
  * The flag values of the module will be applied to any individual preferences
  * of the module when they are created
  *
@@ -172,7 +216,24 @@ void prefs_set_effect_flags_by_name(module_t * module, const char *pref, unsigne
 WS_DLL_PUBLIC
 unsigned int prefs_get_module_effect_flags(module_t * module);
 
-/** Set flags for module's preferences effect
+/**
+ * @brief Iterate through all modules with preferences
+ *
+ * @param module_list The tree of modules to iterate through
+ * @param callback The callback function to call for each module
+ * @param user_data User data to pass to the callback function
+ * @param skip_obsolete If true, skip obsolete preferences
+ *
+ * @return The return value of the callback function if it returns non-zero,
+ *         otherwise 0
+ */
+WS_DLL_PUBLIC
+unsigned prefs_module_list_foreach(const wmem_tree_t* module_list, module_cb callback,
+    void* user_data, bool skip_obsolete);
+
+/**
+ * @brief Set flags for module's preferences effect
+ *
  * The intention is to distinguish preferences that affect
  * dissection from those that don't. Since modules are a grouping
  * of preferences, it's likely that a whole module will want the
@@ -183,91 +244,378 @@ unsigned int prefs_get_module_effect_flags(module_t * module);
  * @param module A preference module.
  * @param flags Bitmask of flags to apply to module. Note that flags
  * must be non-zero to ensure preferences are properly saved to disk.
- *
  */
 WS_DLL_PUBLIC
 void prefs_set_module_effect_flags(module_t * module, unsigned int flags);
 
+
+/**
+ * @brief Set a range value for a range preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param value The new range value as a string.
+ * @param return_range_errors If true, return errors related to range values.
+ * @param changed_flags Pointer to store flags indicating changes.
+ * @return True if the value was successfully set, false otherwise.
+ */
 WS_DLL_PUBLIC
 bool prefs_set_range_value_work(pref_t *pref, const char *value,
                            bool return_range_errors, unsigned int *changed_flags);
 
+/**
+ * @brief Set a stashed range value for a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param value String representation of the range value.
+ * @return unsigned int Effect flags after setting the stashed value.
+ */
 WS_DLL_PUBLIC
 unsigned int
 prefs_set_stashed_range_value(pref_t *pref, const char *value);
 
-/** Add a range value of a range preference. */
+/**
+ * @brief Add a range value of a range preference.
+ * @param pref Pointer to the preference structure.
+ * @param val The value to add.
+ */
 WS_DLL_PUBLIC
 void
 prefs_range_add_value(pref_t *pref, uint32_t val);
 
-/** Remove a range value of a range preference. */
+/**
+ * @brief Remove a range value of a range preference.
+ * @param pref Pointer to the preference structure.
+ * @param val The value to remove.
+ */
 WS_DLL_PUBLIC
 void
 prefs_range_remove_value(pref_t *pref, uint32_t val);
 
+ /**
+  * @brief Set a boolean preference value.
+  *
+  * @param pref Pointer to the preference structure.
+  * @param value The new boolean value.
+  * @param source The source of the preference change.
+  * @return unsigned int Flags indicating changes made.
+  */
 
 WS_DLL_PUBLIC unsigned int prefs_set_bool_value(pref_t *pref, bool value, pref_source_t source);
+
+/**
+ * @brief Get the boolean value of a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param source The source from which to retrieve the value (default, stashed, or current).
+ * @return true if the preference is set to true, false otherwise.
+ */
 WS_DLL_PUBLIC bool prefs_get_bool_value(pref_t *pref, pref_source_t source);
+
+/**
+ * @brief Inverts the boolean value of a preference based on the specified source.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param source The source from which to invert the value (default, stashed, or current).
+ */
 WS_DLL_PUBLIC void prefs_invert_bool_value(pref_t *pref, pref_source_t source);
 
+/**
+ * @brief Set an unsigned integer preference value.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param value The new unsigned integer value.
+ * @param source The source of the preference change (default, stashed, or current).
+ * @return unsigned int Flags indicating the effect of the change.
+ */
 WS_DLL_PUBLIC unsigned int prefs_set_uint_value(pref_t *pref, unsigned value, pref_source_t source);
+
+/**
+ * @brief Get the base value of an unsigned integer preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @return The base value of the unsigned integer preference.
+ */
 WS_DLL_PUBLIC unsigned prefs_get_uint_base(pref_t *pref);
+
+/**
+ * @brief Get the unsigned integer value of a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param source The source from which to retrieve the value (default, stashed, or current).
+ * @return The unsigned integer value of the preference.
+ */
 WS_DLL_PUBLIC unsigned prefs_get_uint_value(pref_t *pref, pref_source_t source);
 
+/**
+ * @brief Set an integer preference value.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param value The new integer value to set.
+ * @param source The source of the preference change (default, stashed, or current).
+ * @return unsigned int Flags indicating the effects of the change.
+ */
+WS_DLL_PUBLIC unsigned int prefs_set_int_value(pref_t* pref, int value, pref_source_t source);
+
+/**
+ * @brief Get the integer value of a preference based on the specified source.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param source The source from which to retrieve the value (default, stashed, or current).
+ * @return int The integer value of the preference.
+ */
+WS_DLL_PUBLIC int prefs_get_int_value(pref_t* pref, pref_source_t source);
+
+/**
+ * @brief Set a float value for a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param value The new float value to set.
+ * @param source The source of the preference change (default, stashed, or current).
+ * @return unsigned int Flags indicating the effect of the change.
+ */
+WS_DLL_PUBLIC unsigned int prefs_set_float_value(pref_t* pref, double value, pref_source_t source);
+
+/**
+ * @brief Get the float value of a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param source The source from which to retrieve the value (default, stashed, or current).
+ * @return double The float value of the preference.
+ */
+WS_DLL_PUBLIC double prefs_get_float_value(pref_t* pref, pref_source_t source);
+
+ /**
+  * @brief Set an enum preference value.
+  *
+  * @param pref Pointer to the preference structure.
+  * @param value The new enum value.
+  * @param source The source of the preference change.
+  * @return unsigned int Flags indicating changes made.
+  */
 
 WS_DLL_PUBLIC unsigned int prefs_set_enum_value(pref_t *pref, int value, pref_source_t source);
+
+/**
+ * @brief Set an enum value for a preference.
+ *
+ * @param pref The preference to set.
+ * @param value The string representation of the enum value.
+ * @param source The source of the preference change.
+ * @return unsigned int The new enum value.
+ */
 WS_DLL_PUBLIC unsigned int prefs_set_enum_string_value(pref_t *pref, const char *value, pref_source_t source);
+
+/**
+ * @brief Get the current value of an enumeration preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param source The source from which to retrieve the value (default, stashed, or current).
+ * @return int The current value of the enumeration preference.
+ */
 WS_DLL_PUBLIC int prefs_get_enum_value(pref_t *pref, pref_source_t source);
+
+/**
+ * @brief Get the enumeration values for a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @return const enum_val_t* Pointer to the enumeration values.
+ */
 WS_DLL_PUBLIC const enum_val_t* prefs_get_enumvals(pref_t *pref);
+
+/**
+ * @brief Get the radio button values for an enumeration preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @return bool True if the enumeration has radio buttons, false otherwise.
+ */
 WS_DLL_PUBLIC bool prefs_get_enum_radiobuttons(pref_t *pref);
 
+/**
+ * @brief Set a color value for a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param value The new color value.
+ * @param source The source of the preference value.
+ * @return true if the value was changed, false otherwise.
+ */
 WS_DLL_PUBLIC bool prefs_set_color_value(pref_t *pref, color_t value, pref_source_t source);
+
+/**
+ * @brief Get the color value for a preference based on the specified source.
+ *
+ * @param pref The preference structure.
+ * @param source The source of the preference value (default, stashed, or current).
+ * @return Pointer to the color value.
+ */
 WS_DLL_PUBLIC color_t* prefs_get_color_value(pref_t *pref, pref_source_t source);
 
+/**
+ * @brief Set a custom value for a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param value The new value to set.
+ * @param source The source of the preference change.
+ * @return unsigned int Number of preferences that have changed.
+ */
 WS_DLL_PUBLIC unsigned int prefs_set_custom_value(pref_t *pref, const char *value, pref_source_t source);
 
+/**
+ * @brief Set a string value for a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param value The new string value to set.
+ * @param source The source of the preference change.
+ * @return Flags indicating changes, or 0 if no change.
+ */
 WS_DLL_PUBLIC unsigned int prefs_set_string_value(pref_t *pref, const char* value, pref_source_t source);
+
+/**
+ * @brief Get the string value of a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param source The source from which to retrieve the value (default, stashed, or current).
+ * @return The string value of the preference.
+ */
 WS_DLL_PUBLIC const char *prefs_get_string_value(pref_t *pref, pref_source_t source);
 
+/**
+ * @brief Get the UAT value for a preference.
+ *
+ * @param pref The preference to get the UAT value from.
+ * @return Pointer to the UAT value, or NULL if not set.
+ */
 WS_DLL_PUBLIC struct epan_uat* prefs_get_uat_value(pref_t *pref);
 
+/**
+ * @brief Set a range value for a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param value Pointer to the new range value.
+ * @param source Source of the preference value (default, stashed, or current).
+ * @return true if the value was changed, false otherwise.
+ */
 WS_DLL_PUBLIC bool prefs_set_range_value(pref_t *pref, range_t *value, pref_source_t source);
+
+/**
+ * @brief Get the range value for a preference based on the specified source.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param source The source of the preference value (default, stashed, or current).
+ * @return Pointer to the range value of the preference.
+ */
 WS_DLL_PUBLIC range_t* prefs_get_range_value_real(pref_t *pref, pref_source_t source);
 
+/**
+ * @brief Adds or replaces a decode-as value for a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param value The value to add or replace.
+ * @param replace If true, replace the existing value if it exists.
+ * @return True if the operation was successful, false otherwise.
+ */
 WS_DLL_PUBLIC bool prefs_add_decode_as_value(pref_t *pref, unsigned value, bool replace);
+
+/**
+ * @brief Removes a decode-as value from a preference.
+ *
+ * @param pref The preference to modify.
+ * @param value The value to remove.
+ * @param set_default Whether to set the default if the value is the only one in the range.
+ * @return true If the operation was successful, false otherwise.
+ */
 WS_DLL_PUBLIC bool prefs_remove_decode_as_value(pref_t *pref, unsigned value, bool set_default);
 
+/**
+ * @brief Set a password value for a preference.
+ *
+ * @param pref Pointer to the preference structure.
+ * @param value The new password value to set.
+ * @param source The source of the preference change (default, stashed, or current).
+ * @return unsigned int Flags indicating the effect of the change.
+ */
 WS_DLL_PUBLIC unsigned int prefs_set_password_value(pref_t *pref, const char* value, pref_source_t source);
+
+/**
+ * @brief Get the password value for a preference.
+ *
+ * @param pref The preference to get the value from.
+ * @param source The source of the preference value.
+ * @return const char* The password value, or NULL if not found.
+ */
 WS_DLL_PUBLIC const char *prefs_get_password_value(pref_t *pref, pref_source_t source);
 
+ /**
+  * @brief Add a list value to a preference.
+  *
+  * @param pref Pointer to the preference structure.
+  * @param value The value to add to the list.
+  * @param source The source of the preference value.
+  * @return true if the value was added successfully, false otherwise.
+  */
 WS_DLL_PUBLIC bool prefs_add_list_value(pref_t *pref, void *value, pref_source_t source);
+
+/**
+ * @brief Get the list value for a preference based on the source.
+ *
+ * @param pref The preference to retrieve the list value from.
+ * @param source The source of the preference value (default, stashed, or current).
+ * @return GList* The list value corresponding to the preference and source.
+ */
 WS_DLL_PUBLIC GList* prefs_get_list_value(pref_t *pref, pref_source_t source);
 
+/**
+ * @brief Reset a preference to its default value.
+ *
+ * @param pref Pointer to the preference to be reset.
+ */
 WS_DLL_PUBLIC void reset_pref(pref_t *pref);
 
-/** read the preferences file (or similar) and call the callback
+/**
+ * @brief Get the list of all modules with preferences (used for iterating through all preferences)
+ * @return The tree of modules with preferences.
+ */
+WS_DLL_PUBLIC const wmem_tree_t* prefs_get_module_tree(void);
+
+/**
+ * @brief Read the preferences file (or similar) and call the callback
  * function to set each key/value pair found
+ *
+ * @param pf_path The path to the preferences file.
+ * @param pf The file pointer to the preferences file.
+ * @param pref_set_pair_fct The callback function to set each key/value pair.
+ * @param private_data User data to pass to the callback function.
+ * @return The result of reading the preferences file, or an error code if it fails
  */
 WS_DLL_PUBLIC
 int
 read_prefs_file(const char *pf_path, FILE *pf, pref_set_pair_cb pref_set_pair_fct, void *private_data);
 
-/** Given a module name, read the preferences associated with only that module.
+/**
+ * @brief Read the preferences for a specific module.
+ *
+ * Given a module name, read the preferences associated with only that module.
  * Checks for a file in the personal configuration directory named after the
  * module with a ".cfg" extension added first.
  *
  * @param name The preference module name, e.g. "extcap".
+ * @param app_env_var_prefix The prefix for the application environment variable.
  */
 WS_DLL_PUBLIC
 void
 prefs_read_module(const char *name, const char* app_env_var_prefix);
 
+/**
+ * @brief Check if a preference is at its default value.
+ *
+ * @param pref The preference to check.
+ * @return true if the preference is at its default value, false otherwise.
+ */
 WS_DLL_PUBLIC
 bool
 prefs_pref_is_default(pref_t *pref);
 
-/** "Stash" a preference.
+/**
+ * @brief "Stash" a preference.
  * Copy a preference to its stashed value. Can be called from prefs_pref_foreach().
  *
  * @param pref A preference.
@@ -286,7 +634,8 @@ typedef struct pref_unstash_data
     bool handle_decode_as;
 } pref_unstash_data_t;
 
-/** "Unstash" a preference.
+/**
+ * @brief "Unstash" a preference.
  * Set a preference to its stashed value. Can be called from prefs_pref_foreach().
  *
  * @param pref A preference.
@@ -297,7 +646,8 @@ typedef struct pref_unstash_data
 WS_DLL_PUBLIC
 unsigned pref_unstash(pref_t *pref, void *unstash_data_p);
 
-/** Clean up a stashed preference.
+/**
+ * @brief Clean up a stashed preference.
  * Can be called from prefs_pref_foreach().
  *
  * @param pref A preference.
@@ -308,14 +658,16 @@ unsigned pref_unstash(pref_t *pref, void *unstash_data_p);
 WS_DLL_PUBLIC
 unsigned pref_clean_stash(pref_t *pref, void *unused);
 
-/** Set a stashed preference to its default value.
+/**
+ * @brief Set a stashed preference to its default value.
  *
  *@param pref A preference.
  */
 WS_DLL_PUBLIC
 void reset_stashed_pref(pref_t *pref);
 
-/** Convert a string list preference to a preference string.
+/**
+ * @brief Convert a string list preference to a preference string.
  *
  * Given a GList of char pointers, create a quoted, comma-separated
  * string. Should be used with prefs_get_string_list() and
@@ -328,8 +680,18 @@ WS_DLL_PUBLIC
 char *
 join_string_list(GList *sl);
 
+/**
+ * @brief Sanitize a string so that it can be written to a preference file.
+ *
+ * The preference file format (along with some other Wireshark file formats)
+ * expects one entry per line. This takes a string, which may come from user
+ * input, and converts line terminators (along with adjacent whitespace) into
+ * a single space.
+ */
+WS_DLL_PUBLIC
+char *
+prefs_sanitize_string(const char* str);
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* prefs-int.h */

@@ -69,6 +69,7 @@ my %APIs = (
                 'ntohs',
                 'htonl',
                 'htons',
+                # These two are coming in C23, but use GLib version for now:
                 'strdup',
                 'strndup',
                 # Windows doesn't have this; use g_ascii_strtoull() instead
@@ -116,6 +117,7 @@ my %APIs = (
                 'isupper',
                 'isxdigit',
                 'tolower',
+                'toupper',
                 'atof',
                 'strtod',
                 'strcasecmp',
@@ -158,14 +160,6 @@ my %APIs = (
         # have not been entirely removed from old code. These will become errors
         # once they've been removed from all existing code.
         'soft-deprecated' => { 'count_errors' => 0, 'functions' => [
-                'tvb_length_remaining', # replaced with tvb_captured_length_remaining
-
-                # Locale-unsafe APIs
-                # These may have unexpected behaviors in some locales (e.g.,
-                # "I" isn't always the upper-case form of "i", and "i" isn't
-                # always the lower-case form of "I").  Use the g_ascii_* version
-                # instead.
-                'toupper'
             ] },
 
         # APIs that SHOULD NOT be used in Wireshark (any more)
@@ -940,6 +934,24 @@ sub check_try_catch($$)
         return $errorCount;
 }
 
+# Check for UTF-8 BOM at start of file, which can cause problems with some tools and compilers.
+sub has_utf8_bom {
+    my ($filename) = @_;
+
+    # Open file in raw/binary mode
+    open(my $fh, '<:raw', $filename) or die "Could not open '$filename': $!";
+
+    my $bytes;
+    read($fh, $bytes, 3);
+    close($fh);
+
+    # Check if bytes match the UTF-8 BOM: EF BB BF
+    if (defined $bytes && $bytes eq "\xEF\xBB\xBF") {
+        return 1;
+    }
+    return 0;
+}
+
 sub print_usage
 {
         print "Usage: checkAPIs.pl [-M] [-h] [-g group1[:count]] [-g group2] ... \n";
@@ -1069,6 +1081,8 @@ my $filenamelist = "";
 my $help_flag = 0;
 my $pre_commit = 0;
 
+print STDERR "Warning: This script is deprecated. Use check_apis.py instead.\n\n";
+
 my $result = GetOptions(
                         'group=s' => \@apiGroups,
                         'summary-group=s' => \@apiSummaryGroups,
@@ -1128,6 +1142,7 @@ if ("$filenamelist" ne "") {
 die "no files to process" unless (scalar @filelist);
 
 # Read through the files; do various checks
+@filelist = reverse sort @filelist;
 while ($_ = pop @filelist)
 {
         my $filename = $_;
@@ -1148,6 +1163,12 @@ while ($_ = pop @filelist)
         unless (-f $filename) {
                 print STDERR "Warning: $filename is not of type file - skipping.\n";
                 next;
+        }
+
+        if (has_utf8_bom($filename))
+        {
+            print STDERR RED, "Error: Found UTF-8 BOM at start of file $filename\n", RESET;
+            next;
         }
 
         # Read in the file (ouch, but it's easier that way)
@@ -1201,15 +1222,6 @@ while ($_ = pop @filelist)
                 $errorCount++;
         }
 
-        if ($fileContents =~ m{ %hh }xo)
-        {
-                # %hh is C99 and Windows doesn't like it:
-                # http://connect.microsoft.com/VisualStudio/feedback/details/416843/sscanf-cannot-not-handle-hhd-format
-                # Need to use temporary variables instead.
-                print STDERR RED, "Error: Found %hh in " .$filename."\n", RESET;
-                $errorCount++;
-        }
-
         # check for files that we should not include directly
         # this must be done before quoted strings (#include "file.h") are removed
         check_included_files(\$fileContents, $filename);
@@ -1225,7 +1237,7 @@ while ($_ = pop @filelist)
 
         $errorCount += check_pref_var_dupes(\$fileContents, $filename);
 
-        # Remove all blank lines
+        # Remove all blank lines (this doesn't work?)
         $fileContents =~ s{ ^ \s* $ } []xog;
 
         # Remove all '#if 0'd' code

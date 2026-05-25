@@ -18,6 +18,8 @@
 #ifndef __PACKET_ITS_H__
 #define __PACKET_ITS_H__
 
+#include <epan/asn1.h>
+
 
 /* --- Module ETSI-ITS-CDD --- --- ---                                        */
 
@@ -117,15 +119,16 @@ typedef enum _CauseCodeType_enum {
   trafficCondition =   1,
   accident     =   2,
   roadworks    =   3,
+  detectedRoadworks =   4,
   impassability =   5,
-  adverseWeatherCondition_Adhesion =   6,
+  adhesion     =   6,
   aquaplaning  =   7,
   hazardousLocation_SurfaceCondition =   9,
   hazardousLocation_ObstacleOnTheRoad =  10,
   hazardousLocation_AnimalOnTheRoad =  11,
   humanPresenceOnTheRoad =  12,
   wrongWayDriving =  14,
-  rescueAndRecoveryWorkInProgress =  15,
+  rescueRecoveryAndMaintenanceWorkInProgress =  15,
   adverseWeatherCondition_ExtremeWeatherCondition =  17,
   adverseWeatherCondition_Visibility =  18,
   adverseWeatherCondition_Precipitation =  19,
@@ -163,10 +166,10 @@ typedef enum _CauseCodeType_enum {
 #define ITS_IMZM      15
 #define ITS_VAM       16
 #define ITS_DSM       17
-#define ITS_PCIM      18
-#define ITS_PCVM      19
+#define ITS_MIM       18
+#define ITS_MVM       19
 #define ITS_MCM       20
-#define ITS_PAM       21
+#define ITS_PIM       21
 
 /* --- Module ITS-ContainerV1 --- --- ---                                     */
 
@@ -269,6 +272,7 @@ typedef struct its_header {
     uint32_t msgId;
     uint32_t stationId;
     uint32_t CpmContainerId;
+    uint32_t CamExtensionContainerId;
 } its_header_t;
 
 

@@ -28,10 +28,6 @@
 #include "packet-x509sat.h"
 #include "packet-x509if.h"
 
-#define PNAME  "X.509 Selected Attribute Types"
-#define PSNAME "X509SAT"
-#define PFNAME "x509sat"
-
 void proto_register_x509sat(void);
 void proto_reg_handoff_x509sat(void);
 
@@ -434,14 +430,12 @@ static const ber_choice_t Criteria_choice[] = {
 unsigned
 dissect_x509sat_Criteria(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // Criteria -> Criteria/and -> Criteria
-  actx->pinfo->dissection_depth += 2;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 2);
   offset = dissect_ber_choice(actx, tree, tvb, offset,
                                  Criteria_choice, hf_index, ett_x509sat_Criteria,
                                  NULL);
 
-  actx->pinfo->dissection_depth -= 2;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 2);
   return offset;
 }
 
@@ -2616,7 +2610,7 @@ void proto_register_x509sat(void) {
   };
 
   /* Register protocol */
-  proto_x509sat = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_x509sat = proto_register_protocol("X.509 Selected Attribute Types", "X509SAT", "x509sat");
 
   /* Register fields and subtrees */
   proto_register_field_array(proto_x509sat, hf, array_length(hf));
@@ -2847,6 +2841,7 @@ void proto_reg_handoff_x509sat(void) {
   register_ber_oid_dissector("1.3.6.1.4.1.311.60.2.1.1", dissect_DirectoryString_PDU, proto_x509sat, "jurisdictionOfIncorporationLocalityName");
   register_ber_oid_dissector("1.3.6.1.4.1.311.60.2.1.2", dissect_DirectoryString_PDU, proto_x509sat, "jurisdictionOfIncorporationStateOrProvinceName");
   register_ber_oid_dissector("1.3.6.1.4.1.311.60.2.1.3", dissect_CountryName_PDU, proto_x509sat, "jurisdictionOfIncorporationCountryName");
+  register_ber_oid_dissector("1.3.6.1.5.5.7.25.1", dissect_SyntaxUTF8String_PDU, proto_x509sat, "id-rdna-unsigned");
 
 
   /* OBJECT CLASSES */

@@ -300,6 +300,10 @@ indent_size = tab
 indent_style = tab
 indent_size = tab
 
+[packet-cola.[ch]]
+indent_style = tab
+indent_size = tab
+
 [packet-collectd.[ch]]
 indent_style = tab
 indent_size = tab
@@ -1450,6 +1454,10 @@ indent_size = 2
 [packet-nat-pmp.[ch]]
 indent_size = 2
 
+[packet-navitrol.[ch]]
+indent_style = tab
+indent_size = tab
+
 [packet-nbd.[ch]]
 indent_style = tab
 indent_size = tab
@@ -1480,6 +1488,10 @@ indent_style = tab
 indent_size = tab
 
 [packet-netdump.[ch]]
+indent_style = tab
+indent_size = tab
+
+[packet-netlink-generic.[ch]]
 indent_style = tab
 indent_size = tab
 
@@ -1543,6 +1555,10 @@ indent_style = tab
 indent_size = tab
 
 [packet-nlsp.[ch]]
+indent_style = tab
+indent_size = tab
+
+[packet-nmf.[ch]]
 indent_style = tab
 indent_size = tab
 

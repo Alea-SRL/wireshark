@@ -31,10 +31,6 @@
 #include "packet-acse.h"
 #include "packet-ftam.h"
 
-#define PNAME  "ISO 8571 FTAM"
-#define PSNAME "FTAM"
-#define PFNAME "ftam"
-
 void proto_register_ftam(void);
 void proto_reg_handoff_ftam(void);
 
@@ -631,6 +627,24 @@ static int ett_ftam_Attribute_Names;
 static int ett_ftam_AE_title;
 
 static expert_field ei_ftam_zero_pdu;
+
+/*--- Cyclic dependencies ---*/
+
+/* Contents-Type-Attribute/document-type/parameter -> Contents-Type-Attribute/document-type/parameter */
+static unsigned dissect_ftam_T_parameter(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* AP-title -> AP-title */
+static unsigned dissect_ftam_AP_title(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* AE-qualifier -> AE-qualifier */
+static unsigned dissect_ftam_AE_qualifier(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* Extension-Attribute/extension-attribute -> Extension-Attribute/extension-attribute */
+static unsigned dissect_ftam_T_extension_attribute(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+/* Attribute-Extensions-Pattern/_item/extension-set-attribute-Patterns/_item/extension-attribute-Pattern -> Attribute-Extensions-Pattern/_item/extension-set-attribute-Patterns/_item/extension-attribute-Pattern */
+static unsigned dissect_ftam_T_extension_attribute_Pattern(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
 
 
 static int * const Protocol_Version_U_bits[] = {
@@ -1677,11 +1691,14 @@ dissect_ftam_Permitted_Actions_Attribute(bool implicit_tag _U_, tvbuff_t *tvb _U
 
 static unsigned
 dissect_ftam_T_parameter(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // Contents-Type-Attribute/document-type/parameter -> Contents-Type-Attribute/document-type/parameter
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   if (actx->external.direct_reference) {
     offset=call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
   }
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -1881,8 +1898,11 @@ dissect_ftam_Concurrency_Access(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsign
 
 static unsigned
 dissect_ftam_AP_title(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // AP-title -> AP-title
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   /* XXX have no idea about this one */
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -1890,9 +1910,12 @@ dissect_ftam_AP_title(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset 
 
 static unsigned
 dissect_ftam_AE_qualifier(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // AE-qualifier -> AE-qualifier
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   /* XXX have no idea about this one */
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -2042,11 +2065,14 @@ dissect_ftam_T_extension_attribute_identifier(bool implicit_tag _U_, tvbuff_t *t
 
 static unsigned
 dissect_ftam_T_extension_attribute(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // Extension-Attribute/extension-attribute -> Extension-Attribute/extension-attribute
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   if (actx->external.direct_reference) {
     offset=call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
   }
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -3748,11 +3774,14 @@ dissect_ftam_T_attribute_extension_attribute_identifier(bool implicit_tag _U_, t
 
 static unsigned
 dissect_ftam_T_extension_attribute_Pattern(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // Attribute-Extensions-Pattern/_item/extension-set-attribute-Patterns/_item/extension-attribute-Pattern -> Attribute-Extensions-Pattern/_item/extension-set-attribute-Patterns/_item/extension-attribute-Pattern
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   if (actx->external.direct_reference) {
     offset=call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
   }
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -4729,8 +4758,8 @@ dissect_ftam_unstructured_binary(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tr
 static int
 dissect_ftam(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
-	int offset = 0;
-	int old_offset;
+	unsigned offset = 0;
+	unsigned old_offset;
 	proto_item *item=NULL;
 	proto_tree *tree=NULL;
 	asn1_ctx_t asn1_ctx;
@@ -4748,7 +4777,7 @@ dissect_ftam(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
 		old_offset=offset;
 		offset=dissect_ftam_PDU(false, tvb, offset, &asn1_ctx, tree, -1);
 		if(offset == old_offset){
-			proto_tree_add_expert(tree, pinfo, &ei_ftam_zero_pdu, tvb, offset, -1);
+			proto_tree_add_expert_remaining(tree, pinfo, &ei_ftam_zero_pdu, tvb, offset);
 			break;
 		}
 	}
@@ -6611,7 +6640,7 @@ void proto_register_ftam(void) {
   expert_module_t* expert_ftam;
 
   /* Register protocol */
-  proto_ftam = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_ftam = proto_register_protocol("ISO 8571 FTAM", "FTAM", "ftam");
   register_dissector("ftam", dissect_ftam, proto_ftam);
   /* Register fields and subtrees */
   proto_register_field_array(proto_ftam, hf, array_length(hf));

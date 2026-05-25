@@ -8,10 +8,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __TVBUFF_INT_H__
-#define __TVBUFF_INT_H__
-
+#pragma once
 struct tvbuff;
 
 struct tvb_ops {
@@ -21,8 +18,8 @@ struct tvb_ops {
 	const uint8_t *(*tvb_get_ptr)(struct tvbuff *tvb, unsigned abs_offset, unsigned abs_length);
 	void *(*tvb_memcpy)(struct tvbuff *tvb, void *target, unsigned offset, unsigned length);
 
-	int (*tvb_find_uint8)(tvbuff_t *tvb, unsigned abs_offset, unsigned limit, uint8_t needle);
-	int (*tvb_ws_mempbrk_pattern_uint8)(tvbuff_t *tvb, unsigned abs_offset, unsigned limit, const ws_mempbrk_pattern* pattern, unsigned char *found_needle);
+	bool (*tvb_find_uint8)(tvbuff_t *tvb, unsigned abs_offset, unsigned limit, uint8_t needle, unsigned *found_offset);
+	bool (*tvb_ws_mempbrk_pattern_uint8)(tvbuff_t *tvb, unsigned abs_offset, unsigned limit, const ws_mempbrk_pattern* pattern, unsigned *found_offset, unsigned char *found_needle);
 
 	tvbuff_t *(*tvb_clone)(tvbuff_t *tvb, unsigned abs_offset, unsigned abs_length);
 };
@@ -31,6 +28,7 @@ struct tvb_ops {
  * Tvbuff flags.
  */
 #define TVBUFF_FRAGMENT		0x00000001	/* this is a fragment */
+#define TVBUFF_RAW_OFFSET	0x00000002	/* raw_offset has been set */
 
 struct tvbuff {
 	/* Doubly linked list pointers */
@@ -38,8 +36,8 @@ struct tvbuff {
 
 	/* Record-keeping */
 	const struct tvb_ops   *ops;
-	bool		initialized;
-	unsigned			flags;
+	bool			initialized;
+	unsigned		flags;
 	struct tvbuff		*ds_tvb;  /**< data source top-level tvbuff */
 
 	/** Pointer to the data for this tvbuff.
@@ -58,13 +56,13 @@ struct tvbuff {
 	 * by the capture process.
 	 *
 	 * This must never be > reported_length or contained_length. */
-	unsigned			length;
+	unsigned		length;
 
 	/** Amount of data that was reported as being in
 	 * the packet or other data that this represents.
 	 * As indicated above, it may be greater than the
 	 * amount of data that's available. */
-	unsigned			reported_length;
+	unsigned		reported_length;
 
 	/** If this was extracted from a parent tvbuff,
 	 * this is the amount of extracted data that
@@ -80,19 +78,71 @@ struct tvbuff {
 	 * this is the same as reported_length.
 	 *
 	 * This must never be > reported_length. */
-	unsigned			contained_length;
+	unsigned		contained_length;
 
-	/* Offset from beginning of first "real" tvbuff. */
-	int			raw_offset;
+	/* Offset from beginning of first "real" tvbuff.
+         * This is calculated lazily. (XXX - Does it need to be?) */
+	unsigned		raw_offset;
 };
 
+/**
+ * @brief Creates a new TVB (Packet Buffer) with the specified operations.
+ *
+ * @param ops Pointer to the TVB operations structure.
+ * @return Pointer to the newly created TVB.
+ */
 tvbuff_t *tvb_new(const struct tvb_ops *ops);
 
+/**
+ * @brief Creates a new TVBuffer that is a proxy for an existing TVBuffer.
+ *
+ * @param backing The existing TVBuffer to proxy.
+ * @return A new TVBuffer that proxies the given TVBuffer.
+ */
 tvbuff_t *tvb_new_proxy(tvbuff_t *backing);
 
+/**
+ * @brief Adds a child tvbuff to the parent tvbuff chain.
+ *
+ * @param parent The parent tvbuff to which the child will be added.
+ * @param child The child tvbuff to add to the parent.
+ */
 void tvb_add_to_chain(tvbuff_t *parent, tvbuff_t *child);
 
+/**
+ * @brief Calculates the offset from the real beginning of a TVBuffer using a counter.
+ *
+ * @param tvb The TVBuffer for which to calculate the offset.
+ * @param counter The counter value to use for calculation.
+ * @return The calculated offset from the real beginning of the TVBuffer.
+ */
 unsigned tvb_offset_from_real_beginning_counter(const tvbuff_t *tvb, const unsigned counter);
 
+/**
+ * @brief Validates that an offset and length are within the bounds of a TVBuffer.
+ *
+ * @param tvb The TVBuffer to validate against.
+ * @param offset The starting offset for validation.
+ * @param length The length to validate from the offset.
+ */
+void tvb_validate_offset_length(const tvbuff_t *tvb, const unsigned offset, const unsigned length);
+
+/**
+ * @brief Validates that an offset and remaining length are within the bounds of a TVBuffer.
+ *
+ * @param tvb The TVBuffer to validate against.
+ * @param offset The starting offset for validation.
+ * @param rem_len Pointer to the remaining length to validate from the offset.
+ */
+void tvb_validate_offset_and_remaining(const tvbuff_t *tvb, const unsigned offset, unsigned *rem_len);
+
+/**
+ * @brief Validates that an offset and length are within the bounds of a tvbuff.
+ *
+ * @param tvb The tvbuff to check.
+ * @param offset The starting offset.
+ * @param length_val The length to validate.
+ * @param offset_ptr Pointer to store the adjusted offset (if needed).
+ * @param length_ptr Pointer to store the adjusted length (if needed).
+ */
 void tvb_check_offset_length(const tvbuff_t *tvb, const int offset, int const length_val, unsigned *offset_ptr, unsigned *length_ptr);
-#endif

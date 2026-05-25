@@ -203,6 +203,9 @@ static int hf_camssp_reserved;
 static int ett_denmssp_flags;
 static int ett_camssp_flags;
 
+
+static int dissect_cam_WrappedExtensionContainerData(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void* data _U_);
+
 // Subdissectors
 static dissector_table_t its_version_subdissector_table;
 static dissector_table_t its_msgid_subdissector_table;
@@ -250,6 +253,7 @@ static int dissect_cpmcontainers_pdu(tvbuff_t* tvb, packet_info* pinfo, proto_tr
         call_data_dissector(tvb, pinfo, tree);
     return tvb_captured_length(tvb);
 }
+
 
 
 
@@ -335,17 +339,18 @@ static struct { CauseCodeType_enum cause; int* hf; } cause_to_subcause[] = {
     { trafficCondition, &hf_its_trafficCondition1 },
     { accident, &hf_its_accident2 },
     { roadworks, &hf_its_roadworks3 },
-    { adverseWeatherCondition_Precipitation, &hf_its_adverseWeatherCondition_Precipitation19 },
-    { adverseWeatherCondition_Visibility, &hf_its_adverseWeatherCondition_Visibility18 },
-    { adverseWeatherCondition_Adhesion, &hf_its_adverseWeatherCondition_Adhesion6 },
-    { adverseWeatherCondition_ExtremeWeatherCondition, &hf_its_adverseWeatherCondition_ExtremeWeatherCondition17 },
-    { hazardousLocation_AnimalOnTheRoad, &hf_its_hazardousLocation_AnimalOnTheRoad11 },
-    { hazardousLocation_ObstacleOnTheRoad, &hf_its_hazardousLocation_ObstacleOnTheRoad10 },
+    /* detectedRoadworks                                 SubCauseCodeType, */
+    { impassability, &hf_its_impassability5 },
+    { adhesion, &hf_its_adhesion6 },
     { hazardousLocation_SurfaceCondition, &hf_its_hazardousLocation_SurfaceCondition9 },
-    { hazardousLocation_DangerousCurve, &hf_its_hazardousLocation_DangerousCurve96 },
+    { hazardousLocation_ObstacleOnTheRoad, &hf_its_hazardousLocation_ObstacleOnTheRoad10 },
+    { hazardousLocation_AnimalOnTheRoad, &hf_its_hazardousLocation_AnimalOnTheRoad11 },
     { humanPresenceOnTheRoad, &hf_its_humanPresenceOnTheRoad12 },
     { wrongWayDriving, &hf_its_wrongWayDriving14 },
-    { rescueAndRecoveryWorkInProgress, &hf_its_rescueAndRecoveryWorkInProgress15 },
+    { rescueRecoveryAndMaintenanceWorkInProgress, &hf_its_rescueRecoveryAndMaintenanceWorkInProgress15 },
+    { adverseWeatherCondition_ExtremeWeatherCondition, &hf_its_adverseWeatherCondition_Wind17 },
+    { adverseWeatherCondition_Visibility, &hf_its_adverseWeatherCondition_Visibility18 },
+    { adverseWeatherCondition_Precipitation, &hf_its_adverseWeatherCondition_Precipitation19 },
     { slowVehicle, &hf_its_slowVehicle26 },
     { dangerousEndOfQueue, &hf_its_dangerousEndOfQueue27 },
     { vehicleBreakdown, &hf_its_vehicleBreakdown91 },
@@ -353,9 +358,11 @@ static struct { CauseCodeType_enum cause; int* hf; } cause_to_subcause[] = {
     { humanProblem, &hf_its_humanProblem93 },
     { stationaryVehicle, &hf_its_stationaryVehicle94 },
     { emergencyVehicleApproaching, &hf_its_emergencyVehicleApproaching95 },
+    { hazardousLocation_DangerousCurve, &hf_its_hazardousLocation_DangerousCurve96 },
     { collisionRisk, &hf_its_collisionRisk97 },
     { signalViolation, &hf_its_signalViolation98 },
     { dangerousSituation, &hf_its_dangerousSituation99 },
+    /*hf_its_railwayLevelCrossing100*/
     { 0, NULL },
 };
 
@@ -386,6 +393,39 @@ append_country_code_fmt(proto_item *item, tvbuff_t *val_tvb)
 }
 
 #include "packet-its-fn.c"
+
+static int
+dissect_cam_WrappedExtensionContainerData(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void* data _U_)
+{
+    uint32_t ExtensionContainerId;
+    its_header_t* its_hdr = its_get_private_data(pinfo);
+    ExtensionContainerId = its_hdr->CamExtensionContainerId;
+
+    /*
+     * twoWheelerContainer ExtensionContainerId ::= 1
+     * eHorizonLocationSharingContainer ExtensionContainerId ::= 2
+     * veryLowFrequencyContainer ExtensionContainerId ::= 3
+     * pathPredictionContainer ExtensionContainerId ::= 4
+     * roadLanePositionsContainer ExtensionContainerId ::= 5
+     * vehicleMovementControlContainer ExtensionContainerId ::= 6
+    */
+    switch (ExtensionContainerId) {
+    case 1:
+        return dissect_cam_TwoWheelerContainer_PDU(tvb, pinfo, tree, data);
+    case 2:
+        return dissect_cam_EHorizonLocationSharingContainer_PDU(tvb, pinfo, tree, data);
+    case 3:
+        return dissect_cam_VeryLowFrequencyContainer_PDU(tvb, pinfo, tree, data);
+    case 4:
+        return dissect_cam_PathPredictionContainer_PDU(tvb, pinfo, tree, data);
+    case 5:
+        return dissect_cam_RoadLanePositionsContainer_PDU(tvb, pinfo, tree, data);
+    case 6:
+        return dissect_cam_VehicleMovementControlContainer_PDU(tvb, pinfo, tree, data);
+    default:
+        return tvb_reported_length(tvb);
+    }
+}
 
 static void
 its_latitude_fmt(char *s, uint32_t v)
@@ -995,7 +1035,7 @@ void proto_register_its(void)
     { &hf_camssp_reserved, { "reserved", "its.ssp.cam.reserved", FT_UINT16, BASE_DEC, NULL, 0x0003, NULL, HFILL }},
     };
 
-    static int *ett[] = {
+     static int *ett[] = {
         &ett_its,
         &ett_denmssp_flags,
         &ett_camssp_flags,

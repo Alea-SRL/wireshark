@@ -19,6 +19,7 @@
 #include <epan/export_object.h>
 #include <epan/proto_data.h>
 #include <wsutil/array.h>
+#include <wsutil/wsgcrypt.h>
 
 #include "packet-ber.h"
 #include "packet-x509af.h"
@@ -30,10 +31,6 @@
 #if defined(HAVE_LIBGNUTLS)
 #include <gnutls/gnutls.h>
 #endif
-
-#define PNAME  "X.509 Authentication Framework"
-#define PSNAME "X509AF"
-#define PFNAME "x509af"
 
 void proto_register_x509af(void);
 void proto_reg_handoff_x509af(void);
@@ -68,7 +65,6 @@ x509af_export_publickey(tvbuff_t *tvb, asn1_ctx_t *actx, int offset, int len);
 
 typedef struct _x509af_eo_t {
   const char *subjectname;
-  char *serialnum;
   tvbuff_t *payload;
 } x509af_eo_t;
 
@@ -119,10 +115,12 @@ x509af_eo_packet(void *tapdata, packet_info *pinfo, epan_dissect_t *edt _U_, con
     }
     entry->content_type = g_strdup("application/pkix-cert");
 
-    entry->filename = g_strdup_printf("%s.cer", eo_info->serialnum);
-
     entry->payload_len = tvb_captured_length(eo_info->payload);
     entry->payload_data = (uint8_t *)tvb_memdup(NULL, eo_info->payload, 0, entry->payload_len);
+
+    uint8_t sha256sum[HASH_SHA2_256_LENGTH] = {0};
+    gcry_md_hash_buffer(GCRY_MD_SHA256, sha256sum, entry->payload_data, entry->payload_len);
+    entry->filename = g_strdup_printf("%s.cer", bytes_to_str(pinfo->pool, sha256sum, HASH_SHA2_256_LENGTH));
 
     object_list->add_entry(object_list->gui_data, entry);
 
@@ -221,7 +219,7 @@ void proto_register_x509af(void) {
   expert_module_t *expert_x509af;
 
   /* Register protocol */
-  proto_x509af = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_x509af = proto_register_protocol("X.509 Authentication Framework", "X509AF", "x509af");
 
   /* Register fields and subtrees */
   proto_register_field_array(proto_x509af, hf, array_length(hf));
@@ -234,7 +232,7 @@ void proto_register_x509af(void) {
 
   register_cleanup_routine(&x509af_cleanup_protocol);
 
-  pkix_crl_handle = register_dissector(PFNAME, dissect_pkix_crl, proto_x509af);
+  pkix_crl_handle = register_dissector("x509af", dissect_pkix_crl, proto_x509af);
 
   register_ber_syntax_dissector("Certificate", proto_x509af, dissect_x509af_Certificate_PDU);
   register_ber_syntax_dissector("CertificateList", proto_x509af, dissect_CertificateList_PDU);

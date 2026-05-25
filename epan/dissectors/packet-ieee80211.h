@@ -34,12 +34,8 @@ typedef struct {
 typedef struct {
   uint16_t discovered_key_mic_len; /* Discovered from the first EAPOL frame */
   bool last_akm_suite_set;    /* Have we set this? */
-  bool mld_set;
   uint32_t last_akm_suite;
   uint16_t owe_group;
-  uint16_t sae_group;
-  uint8_t ap_mld[6];
-  uint8_t sta_mld[6];
 } ieee80211_conversation_data_t;
 
 typedef struct {
@@ -89,9 +85,10 @@ float ieee80211_htrate(int mcs_index, bool bandwidth, bool short_gi);
 
 WS_DLL_PUBLIC value_string_ext ieee80211_supported_rates_vals_ext;
 
-#ifdef __cplusplus
-}
-#endif /* __cplusplus */
+extern value_string_ext ieee80211_reason_code_ext;
+extern value_string_ext ieee80211_status_code_ext;
+
+extern const value_string wfa_subtype_vals[];
 
 /*
  * Extract the protocol version from the frame control field
@@ -578,6 +575,7 @@ typedef struct anqp_info_dissector_data {
 #define TAG_ELEMENT_ID_EXTENSION     255  /* IEEE Std 802.11ai */
 
 extern const value_string ie_tag_num_vals[];
+extern value_string_ext ff_pa_action_codes_ext;
 
 unsigned
 add_ff_action(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset,
@@ -586,6 +584,10 @@ add_ff_action(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset,
 unsigned
 add_ff_action_public_fields(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo,
                             int offset, uint8_t code);
+
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
 
 /*
  * Editor modelines

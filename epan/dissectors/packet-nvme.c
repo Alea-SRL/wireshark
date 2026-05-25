@@ -2284,7 +2284,7 @@ static const value_string sub_type_tbl[] = {
     { 0, NULL }
 };
 
-static void dissect_nvme_get_logpage_ify_rcrd_resp(tvbuff_t *cmd_tvb, proto_tree *tree, uint64_t rcrd, unsigned roff, int off, unsigned len)
+static void dissect_nvme_get_logpage_ify_rcrd_resp(tvbuff_t *cmd_tvb, struct nvme_cmd_ctx *cmd_ctx, proto_tree *tree, uint64_t rcrd, unsigned roff, int off, unsigned len)
 {
     proto_item *ti;
     proto_tree *grp;
@@ -2294,8 +2294,12 @@ static void dissect_nvme_get_logpage_ify_rcrd_resp(tvbuff_t *cmd_tvb, proto_tree
         (len < 1024) ? len : 1024, NULL, "Discovery Log Entry %"PRIu64" (DLE%"PRIu64")", rcrd, rcrd);
     grp =  proto_item_add_subtree(ti, ett_data);
 
-    if (!roff)
+    if (!roff) {
         proto_tree_add_item_ret_uint(grp, hf_nvme_get_logpage_ify_rcrd_trtype, cmd_tvb, off, 1, ENC_LITTLE_ENDIAN, &tr_type);
+        cmd_ctx->cmd_ctx.get_logpage.tr_type = tr_type;
+    } else {
+        tr_type = cmd_ctx->cmd_ctx.get_logpage.tr_type;
+    }
 
     if (roff <= 1 && (2-roff) <= len)
         proto_tree_add_item(grp, hf_nvme_get_logpage_ify_rcrd_adrfam, cmd_tvb, off-roff+1, 1, ENC_LITTLE_ENDIAN);
@@ -2387,7 +2391,7 @@ static void dissect_nvme_get_logpage_ify_resp(proto_item *ti, tvbuff_t *cmd_tvb,
     }
 
     max_bytes = (max_bytes <= len) ? max_bytes : len;
-    dissect_nvme_get_logpage_ify_rcrd_resp(cmd_tvb, grp, rcrd, roff, poff, len);
+    dissect_nvme_get_logpage_ify_rcrd_resp(cmd_tvb, cmd_ctx, grp, rcrd, roff, poff, len);
     poff += max_bytes;
     len -= max_bytes;
     rcrd++;
@@ -2398,7 +2402,7 @@ static void dissect_nvme_get_logpage_ify_resp(proto_item *ti, tvbuff_t *cmd_tvb,
 
     while (len && rcrd_ctr <= recnum) {
         max_bytes = (len >= 1024) ? 1024 : len;
-        dissect_nvme_get_logpage_ify_rcrd_resp(cmd_tvb, grp, rcrd, 0, poff, len);
+        dissect_nvme_get_logpage_ify_rcrd_resp(cmd_tvb, cmd_ctx, grp, rcrd, 0, poff, len);
         poff += max_bytes;
         len -= max_bytes;
         rcrd++;
@@ -2446,8 +2450,8 @@ static void dissect_nvme_get_logpage_err_inf_resp(proto_item *ti, tvbuff_t *cmd_
 
 static void post_add_intval_from_16bytes(proto_item *ti, tvbuff_t *tvb, unsigned off)
 {
-    uint64_t lo = tvb_get_uint64(tvb, off, 0);
-    uint64_t hi = tvb_get_uint64(tvb, off, 8);
+    uint64_t lo = tvb_get_uint64(tvb, off, ENC_BIG_ENDIAN);
+    uint64_t hi = tvb_get_uint64(tvb, off+8, ENC_BIG_ENDIAN);
     double res;
 
     res = (double)hi;
@@ -2973,7 +2977,7 @@ static const value_string ana_state_tbl[] = {
     { 0x2,  "ANA Non-Optimized State" },
     { 0x3,  "ANA Inaccessible State" },
     { 0x4,  "ANA Persistent Loss State" },
-    { 0xF,  "ANA Change Sate" },
+    { 0xF,  "ANA Change State" },
     { 0, NULL}
 };
 
@@ -4328,7 +4332,7 @@ static void decode_dword0_cqe(tvbuff_t *nvme_tvb, proto_tree *cqe_tree, struct n
         case NVME_AQ_OPC_SET_FEATURES:
         {
             uint16_t sc = tvb_get_uint16(nvme_tvb, 14, ENC_LITTLE_ENDIAN);
-            sc = ((sc & 0x1fe) >> 9);
+            sc = ((sc & 0x1fe) >> 1);
             if (sc) {
                 proto_tree_add_item(cqe_tree, hf_nvme_cqe_dword0_sf_err, nvme_tvb, 0, 4, ENC_LITTLE_ENDIAN);
             } else {
@@ -6555,7 +6559,7 @@ proto_register_nvme(void)
                FT_BOOLEAN, 8, NULL, 0x2, NULL, HFILL}
         },
         { &hf_nvme_identify_ctrl_anacap[3],
-            { "Reports Innaccessible State", "nvme.cmd.identify.ctrl.anacap.isr",
+            { "Reports Inaccessible State", "nvme.cmd.identify.ctrl.anacap.isr",
                FT_BOOLEAN, 8, NULL, 0x4, NULL, HFILL}
         },
         { &hf_nvme_identify_ctrl_anacap[4],
@@ -6563,7 +6567,7 @@ proto_register_nvme(void)
                FT_BOOLEAN, 8, NULL, 0x8, NULL, HFILL}
         },
         { &hf_nvme_identify_ctrl_anacap[5],
-            { "Reports ANA Change Sate", "nvme.cmd.identify.ctrl.anacap.csr",
+            { "Reports ANA Change State", "nvme.cmd.identify.ctrl.anacap.csr",
                FT_BOOLEAN, 8, NULL, 0x10, NULL, HFILL}
         },
         { &hf_nvme_identify_ctrl_anacap[6],

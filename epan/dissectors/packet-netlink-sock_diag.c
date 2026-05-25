@@ -12,9 +12,9 @@
 #include <epan/packet.h>
 #include <epan/aftypes.h>
 #include <epan/etypes.h>
-#include <epan/ipproto.h>
 #include <epan/strutil.h>
 #include <epan/tfs.h>
+#include <epan/iana-info.h>
 #include <wsutil/array.h>
 #include "packet-netlink.h"
 

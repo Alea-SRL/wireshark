@@ -19,7 +19,7 @@
 #include <epan/tfs.h>
 #include <epan/unit_strings.h>
 #include "packet-rdm.h"
-#include "packet-dmx-manfid.h"
+#include "data-dmx-manfid.h"
 
 /*
  * See
@@ -2924,7 +2924,6 @@ static const range_string vals_artnet_poll_reply_bg_queue_policy[] = {
 
 /* Define the artnet proto */
 static int proto_artnet;
-expert_module_t* expert_artnet;
 
 /* general */
 static int hf_artnet_filler;
@@ -4995,9 +4994,8 @@ dissect_artnet_diag_data(tvbuff_t *tvb, unsigned offset, proto_tree *tree)
                       offset, 1, ENC_NA);
   offset += 1;
 
-  length = tvb_get_ntohs(tvb, offset);
-  proto_tree_add_item(tree, hf_artnet_diag_data_length, tvb,
-                      offset, 2, ENC_BIG_ENDIAN);
+  proto_tree_add_item_ret_uint16(tree, hf_artnet_diag_data_length, tvb,
+                                 offset, 2, ENC_BIG_ENDIAN, &length);
   offset+=2;
 
   proto_tree_add_item(tree, hf_artnet_diag_data_data, tvb,
@@ -6095,6 +6093,9 @@ dissect_artnet_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
 
 void
 proto_register_artnet(void) {
+
+  expert_module_t* expert_artnet;
+
   static hf_register_info hf[] = {
 
     /* General */
@@ -6577,7 +6578,7 @@ proto_register_artnet(void) {
     { &hf_artnet_poll_reply_good_output_rdm,
       { "RDM",
         "artnet.poll_reply.good_output_rdm",
-        FT_BOOLEAN, 8, TFS(&tfs_enabled_disabled), 0x80,
+        FT_BOOLEAN, 8, TFS(&tfs_disabled_enabled), 0x80,
         NULL, HFILL }},
 
     { &hf_artnet_poll_reply_swin,
@@ -8334,7 +8335,7 @@ proto_register_artnet(void) {
     &ett_artnet_tod_data_tod
   };
 
-  proto_artnet = proto_register_protocol("Art-Net", "ARTNET", "artnet");
+  proto_artnet = proto_register_protocol("Art-Net", "Art-Net", "artnet");
   proto_register_field_array(proto_artnet, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
 

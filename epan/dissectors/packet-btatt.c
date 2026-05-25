@@ -26,6 +26,7 @@
 #include <epan/reassemble.h>
 #include <epan/strutil.h>
 
+#include "data-usb.h"
 #include "packet-bluetooth.h"
 #include "packet-btatt.h"
 #include "packet-btl2cap.h"
@@ -2135,6 +2136,7 @@ static expert_field ei_btatt_bad_data;
 static expert_field ei_btatt_unexpected_data;
 static expert_field ei_btatt_undecoded;
 static expert_field ei_btatt_invalid_length;
+static expert_field ei_btatt_incomplete_transaction;
 
 static wmem_tree_t *mtus;
 static wmem_tree_t *requests;
@@ -2184,8 +2186,6 @@ static const fragment_items msg_frag_items = {
     &hf_btatt_reassembled_data,
     /* Tag */
     "Message fragments"};
-
-extern value_string_ext ext_usb_vendors_vals;
 
 /* Opcodes */
 static const value_string opcode_vals[] = {
@@ -4157,6 +4157,24 @@ static void *btatt_handle_value(packet_info *pinfo)
     return NULL;
 }
 
+/*! Returns True if the opcode represents the start of an ATT transaction i.e. a Request or Indication.
+    False otherwise. */
+static bool is_request(uint8_t opcode)
+{
+    return (opcode == ATT_OPCODE_EXCHANGE_MTU_REQUEST ||
+            opcode == ATT_OPCODE_FIND_INFORMATION_REQUEST ||
+            opcode == ATT_OPCODE_FIND_BY_TYPE_VALUE_REQUEST ||
+            opcode == ATT_OPCODE_READ_REQUEST ||
+            opcode == ATT_OPCODE_READ_BLOB_REQUEST ||
+            opcode == ATT_OPCODE_READ_BY_TYPE_REQUEST ||
+            opcode == ATT_OPCODE_READ_MULTIPLE_REQUEST ||
+            opcode == ATT_OPCODE_READ_BY_GROUP_TYPE_REQUEST ||
+            opcode == ATT_OPCODE_WRITE_REQUEST ||
+            opcode == ATT_OPCODE_WRITE_PREPARE_REQUEST ||
+            opcode == ATT_OPCODE_WRITE_EXECUTE_REQUEST ||
+            opcode == ATT_OPCODE_HANDLE_VALUE_INDICATION);
+}
+
 static bool is_readable_request(uint8_t opcode)
 {
     return (opcode == ATT_OPCODE_READ_REQUEST ||
@@ -4200,8 +4218,11 @@ static bool bluetooth_gatt_has_no_parameter(uint8_t opcode)
             opcode == ATT_OPCODE_HANDLE_VALUE_CONFIRMATION;
 }
 
+/* Given the opcode and direction of an ATT PDU in a transaction,
+ * determine the direction of all PDUs sent by the server involved in that ATT transaction.
+ * This essentially lets the caller know if the server is local (Host) or remote. */
 static int
-get_handle_db_direction(uint8_t opcode, int direction)
+get_server_direction(uint8_t opcode, int direction)
 {
     if (is_readable_request(opcode) || is_writeable_request(opcode) || opcode == ATT_OPCODE_HANDLE_VALUE_CONFIRMATION || opcode == ATT_OPCODE_WRITE_REQUEST)
         return !direction;
@@ -4213,6 +4234,22 @@ get_handle_db_direction(uint8_t opcode, int direction)
     return direction;
 }
 
+/* Given the direction of a PDU sent by an ATT server, determine that server's BD_ADDR. */
+static void
+get_server_bdaddr_from_direction(btl2cap_data_t *l2cap_data, int direction, uint32_t *server_bd_addr_oui, uint32_t *server_bd_addr_id)
+{
+    if (direction == P2P_DIR_SENT) {
+        /* The packet was sent by the local Host's server */
+        *server_bd_addr_oui = 0;
+        *server_bd_addr_id = 0;
+    }
+    else {
+        /* The packet was sent by a remote Host's server */
+        *server_bd_addr_oui = l2cap_data->remote_bd_addr_oui;
+        *server_bd_addr_id = l2cap_data->remote_bd_addr_id;
+    }
+}
+
 static request_data_t *
 get_request(tvbuff_t *tvb, int offset, packet_info *pinfo, uint8_t opcode,
         btl2cap_data_t *l2cap_data)
@@ -4220,123 +4257,100 @@ get_request(tvbuff_t *tvb, int offset, packet_info *pinfo, uint8_t opcode,
     request_data_t  *request_data;
     wmem_tree_key_t  key[6];
     wmem_tree_t     *sub_wmemtree;
-    uint32_t         frame_number, curr_layer_num, direction, cid;
+    uint32_t         frame_number, curr_layer_num, direction, cid, chandle;
 
     if (!l2cap_data)
         return NULL;
 
     curr_layer_num = pinfo->curr_layer_num;
+    chandle = l2cap_data->chandle;
 
     /* For dynamic channels, use the channel's local CID. For fixed channels, use the CID from the PDU. */
     cid = (l2cap_data->cid == BTL2CAP_FIXED_CID_ATT) ? l2cap_data->cid : l2cap_data->local_cid;
 
-    // Request is always in opposite direction from response
-    direction = pinfo->p2p_dir == P2P_DIR_SENT ? P2P_DIR_RECV : P2P_DIR_SENT;
-
+    /* First, obtain a list of all ATT "requests" made on the current bearer */
     key[0].length = 1;
     key[0].key    = &l2cap_data->interface_id;
     key[1].length = 1;
     key[1].key    = &l2cap_data->adapter_id;
     key[2].length = 1;
-    key[2].key    = &curr_layer_num;
+    key[2].key    = &chandle;
     key[3].length = 1;
     key[3].key    = &cid;
     key[4].length = 1;
-    key[4].key    = &direction;
+    key[4].key    = &curr_layer_num;
     key[5].length = 0;
     key[5].key    = NULL;
 
-    frame_number = pinfo->num;
-
     sub_wmemtree = (wmem_tree_t *) wmem_tree_lookup32_array(requests, key);
-    request_data = (sub_wmemtree) ? (request_data_t *) wmem_tree_lookup32_le(sub_wmemtree, frame_number) : NULL;
-    if (request_data && request_data->request_in_frame == pinfo->num)
+    if (!sub_wmemtree) {
+        return NULL;
+    }
+
+    /* Determine if the current packet is a "request" or a "response" */
+    if (is_request(opcode))
+    {
+        /* It's a request, so search the list for an exact match. */
+        direction = pinfo->p2p_dir;
+        frame_number = pinfo->num;
+
+        key[0].length = 1;
+        key[0].key    = &direction;
+        key[1].length = 1;
+        key[1].key    = &frame_number;
+        key[2].length = 0;
+        key[2].key    = NULL;
+
+        request_data = (request_data_t *) wmem_tree_lookup32_array(sub_wmemtree, key);
         return request_data;
+    }
+    else
+    {
+        /* Assume it's a response. To find the corresponding request,
+           search backwards starting from the previous packet.
 
-    if (request_data) do {
-        frame_number = request_data->request_in_frame - 1;
+           Said request will naturally be in the opposite direction as this response. */
+        direction = pinfo->p2p_dir == P2P_DIR_SENT ? P2P_DIR_RECV : P2P_DIR_SENT;
+        frame_number = pinfo->num - 1;
 
-        if (request_data->request_in_frame == pinfo->num)
-            break;
+        key[0].length = 1;
+        key[0].key    = &direction;
+        key[1].length = 0;
+        key[1].key    = NULL;
 
-      switch (opcode) {
-      case 0x01: /* Error Response */
-          if (tvb_captured_length_remaining(tvb, offset) < 1)
-              return NULL;
-          opcode = tvb_get_uint8(tvb, 1) + 1;
-          /* FALL THROUGH */
-      case 0x03: /* Exchange MTU Response */
-      case 0x05: /* Find Information Response */
-      case 0x07: /* Find By Type Value Response */
-      case 0x09: /* Read By Type Response */
-      case 0x0b: /* Read Response */
-      case 0x0d: /* Read Blob Response */
-      case 0x0f: /* Read Multiple Response */
-      case 0x11: /* Read By Group Type Response */
-      case 0x13: /* Write Response */
-      case 0x17: /* Prepare Write Response */
-      case 0x19: /* Execute Write Response */
-      case 0x21: /* Read Multiple Variable Response */
-      case 0x1E: /* Handle Value Confirmation */
-          if (request_data->opcode == opcode - 1)
-              return request_data;
+        sub_wmemtree = (wmem_tree_t *) wmem_tree_lookup32_array(sub_wmemtree, key);
 
-          break;
-      }
-    } while(0);
+        /* This yields the last request that travelled over this bearer [in the given direction above] */
+        request_data = (sub_wmemtree) ? (request_data_t *) wmem_tree_lookup32_le(sub_wmemtree, frame_number) : NULL;
 
-    request_data = (sub_wmemtree) ? (request_data_t *) wmem_tree_lookup32_le(sub_wmemtree, frame_number) : NULL;
+        switch (opcode) {
+            case ATT_OPCODE_ERROR_RESPONSE:
+                if (tvb_captured_length_remaining(tvb, offset) < 1)
+                    return NULL;
+                opcode = tvb_get_uint8(tvb, 1) + 1;
+                /* FALL THROUGH */
+            case ATT_OPCODE_EXCHANGE_MTU_RESPONSE:
+            case ATT_OPCODE_FIND_INFORMATION_RESPONSE:
+            case ATT_OPCODE_FIND_BY_TYPE_VALUE_RESPONSE:
+            case ATT_OPCODE_READ_BY_TYPE_RESPONSE:
+            case ATT_OPCODE_READ_RESPONSE:
+            case ATT_OPCODE_READ_BLOB_RESPONSE:
+            case ATT_OPCODE_READ_MULTIPLE_RESPONSE:
+            case ATT_OPCODE_READ_BY_GROUP_TYPE_RESPONSE:
+            case ATT_OPCODE_WRITE_RESPONSE:
+            case ATT_OPCODE_WRITE_PREPARE_RESPONSE:
+            case ATT_OPCODE_WRITE_EXECUTE_RESPONSE:
+            case ATT_OPCODE_READ_MULTIPLE_VARIABLE_RESPONSE:
+            case ATT_OPCODE_HANDLE_VALUE_CONFIRMATION:
+                /* Confirm that the request and response are a matching pair */
+                if (request_data && request_data->opcode == opcode - 1)
+                    return request_data;
 
-    if (!request_data)
-        return NULL;
+                break;
 
-    if (request_data->request_in_frame == pinfo->num)
-        return request_data;
-
-    switch (opcode) {
-    case 0x01: /* Error Response */
-        if (tvb_captured_length_remaining(tvb, offset) < 1)
-            return NULL;
-        opcode = tvb_get_uint8(tvb, 1) + 1;
-        /* FALL THROUGH */
-    case 0x03: /* Exchange MTU Response */
-    case 0x05: /* Find Information Response */
-    case 0x07: /* Find By Type Value Response */
-    case 0x09: /* Read By Type Response */
-    case 0x0b: /* Read Response */
-    case 0x0d: /* Read Blob Response */
-    case 0x0f: /* Read Multiple Response */
-    case 0x11: /* Read By Group Type Response */
-    case 0x13: /* Write Response */
-    case 0x17: /* Prepare Write Response */
-    case 0x19: /* Execute Write Response */
-    case 0x21: /* Read Multiple Variable Response */
-    case 0x1E: /* Handle Value Confirmation */
-        if (request_data->opcode == opcode -1)
-            return request_data;
-
-        break;
-    case 0x1B: /* Handle Value Notification */
-    case 0x52: /* Write Command */
-    case 0xD2: /* Signed Write Command */
-        /* There is no response for them */
-        return NULL;
-    case 0x02: /* Exchange MTU Request */
-    case 0x04: /* Find Information Request */
-    case 0x06: /* Find By Type Value Request */
-    case 0x08: /* Read By Type Request */
-    case 0x0a: /* Read Request */
-    case 0x0c: /* Read Blob Request */
-    case 0x0e: /* Read Multiple Request */
-    case 0x10: /* Read By Group Type Request */
-    case 0x12: /* Write Request */
-    case 0x16: /* Prepare Write Request */
-    case 0x18: /* Execute Write Request */
-    case 0x1D: /* Handle Value Indication */
-    case 0x20: /* Read Multiple Variable Request */
-        /* This should never happen */
-    default:
-        return NULL;
+            default:
+                break;
+        }
     }
 
     return NULL;
@@ -4346,12 +4360,13 @@ static void
 save_request(packet_info *pinfo, uint8_t opcode, union request_parameters_union parameters,
         btl2cap_data_t *l2cap_data)
 {
-    wmem_tree_key_t  key[7];
-    uint32_t         frame_number, curr_layer_num, direction, cid;
+    wmem_tree_key_t  key[8];
+    uint32_t         frame_number, curr_layer_num, direction, cid, chandle;
     request_data_t  *request_data;
 
     frame_number = pinfo->num;
     curr_layer_num = pinfo->curr_layer_num;
+    chandle = l2cap_data->chandle;
     cid = (l2cap_data->cid == BTL2CAP_FIXED_CID_ATT) ? l2cap_data->cid : l2cap_data->local_cid;
     direction = pinfo->p2p_dir;
 
@@ -4360,15 +4375,17 @@ save_request(packet_info *pinfo, uint8_t opcode, union request_parameters_union 
     key[1].length = 1;
     key[1].key    = &l2cap_data->adapter_id;
     key[2].length = 1;
-    key[2].key    = &curr_layer_num;
+    key[2].key    = &chandle;
     key[3].length = 1;
     key[3].key    = &cid;
     key[4].length = 1;
-    key[4].key    = &direction;
+    key[4].key    = &curr_layer_num;
     key[5].length = 1;
-    key[5].key    = &frame_number;
-    key[6].length = 0;
-    key[6].key    = NULL;
+    key[5].key    = &direction;
+    key[6].length = 1;
+    key[6].key    = &frame_number;
+    key[7].length = 0;
+    key[7].key    = NULL;
 
     request_data = wmem_new0(wmem_file_scope(), request_data_t);
     request_data->opcode = opcode;
@@ -4406,8 +4423,8 @@ save_handle(packet_info *pinfo, bluetooth_uuid_t uuid, uint32_t handle,
     }
 
     if (!pinfo->fd->visited && l2cap_data) {
-        wmem_tree_key_t  key[6];
-        uint32_t         frame_number, direction;
+        wmem_tree_key_t  key[7];
+        uint32_t         frame_number, direction, server_bd_addr_oui, server_bd_addr_id;
         handle_data_t   *handle_data;
 
         frame_number = pinfo->num;
@@ -4418,18 +4435,25 @@ save_handle(packet_info *pinfo, bluetooth_uuid_t uuid, uint32_t handle,
             direction = !direction;
         }
 
+        /* Presently, pinfo is assumed to always hold a PDU sent by a server (responses, indications, etc.).
+         * The handles in such PDUs always belong to said server. Therefore it is possible to derive
+         * the server's BD_ADDR, by looking at the packet's direction. */
+        get_server_bdaddr_from_direction(l2cap_data, direction, &server_bd_addr_oui, &server_bd_addr_id);
+
         key[0].length = 1;
         key[0].key    = &l2cap_data->interface_id;
         key[1].length = 1;
         key[1].key    = &l2cap_data->adapter_id;
         key[2].length = 1;
-        key[2].key    = &direction;
+        key[2].key    = &server_bd_addr_oui;
         key[3].length = 1;
-        key[3].key    = &handle;
+        key[3].key    = &server_bd_addr_id;
         key[4].length = 1;
-        key[4].key    = &frame_number;
-        key[5].length = 0;
-        key[5].key    = NULL;
+        key[4].key    = &handle;
+        key[5].length = 1;
+        key[5].key    = &frame_number;
+        key[6].length = 0;
+        key[6].key    = NULL;
 
         handle_data = wmem_new(wmem_file_scope(), handle_data_t);
         handle_data->uuid = uuid;
@@ -4443,8 +4467,8 @@ bluetooth_uuid_t
 get_gatt_bluetooth_uuid_from_handle(packet_info *pinfo, uint32_t handle, uint8_t opcode,
     btl2cap_data_t *l2cap_data)
 {
-    wmem_tree_key_t  key[5];
-    uint32_t         frame_number, direction;
+    wmem_tree_key_t  key[6];
+    uint32_t         frame_number, direction, server_bd_addr_oui, server_bd_addr_id;
     handle_data_t   *handle_data;
     wmem_tree_t     *sub_wmemtree;
     bluetooth_uuid_t uuid;
@@ -4453,18 +4477,22 @@ get_gatt_bluetooth_uuid_from_handle(packet_info *pinfo, uint32_t handle, uint8_t
 
     if (l2cap_data) {
         frame_number = pinfo->num;
-        direction = get_handle_db_direction(opcode, pinfo->p2p_dir);
+        direction = get_server_direction(opcode, pinfo->p2p_dir);
+
+        get_server_bdaddr_from_direction(l2cap_data, direction, &server_bd_addr_oui, &server_bd_addr_id);
 
         key[0].length = 1;
         key[0].key    = &l2cap_data->interface_id;
         key[1].length = 1;
         key[1].key    = &l2cap_data->adapter_id;
         key[2].length = 1;
-        key[2].key    = &direction;
+        key[2].key    = &server_bd_addr_oui;
         key[3].length = 1;
-        key[3].key    = &handle;
-        key[4].length = 0;
-        key[4].key    = NULL;
+        key[3].key    = &server_bd_addr_id;
+        key[4].length = 1;
+        key[4].key    = &handle;
+        key[5].length = 0;
+        key[5].key    = NULL;
 
         sub_wmemtree = (wmem_tree_t *) wmem_tree_lookup32_array(handle_to_uuid, key);
         handle_data = (sub_wmemtree) ? (handle_data_t *) wmem_tree_lookup32_le(sub_wmemtree, frame_number) : NULL;
@@ -4480,8 +4508,8 @@ static uint16_t
 get_gatt_service_handle_from_handle(packet_info *pinfo, uint32_t handle,
     btl2cap_data_t *l2cap_data)
 {
-    wmem_tree_key_t  key[5];
-    uint32_t         frame_number, direction;
+    wmem_tree_key_t  key[6];
+    uint32_t         frame_number, direction, server_bd_addr_oui, server_bd_addr_id;
     handle_data_t   *handle_data;
     wmem_tree_t     *sub_wmemtree;
 
@@ -4489,16 +4517,20 @@ get_gatt_service_handle_from_handle(packet_info *pinfo, uint32_t handle,
         frame_number = pinfo->num;
         direction = pinfo->p2p_dir;
 
+        get_server_bdaddr_from_direction(l2cap_data, direction, &server_bd_addr_oui, &server_bd_addr_id);
+
         key[0].length = 1;
         key[0].key    = &l2cap_data->interface_id;
         key[1].length = 1;
         key[1].key    = &l2cap_data->adapter_id;
         key[2].length = 1;
-        key[2].key    = &direction;
+        key[2].key    = &server_bd_addr_oui;
         key[3].length = 1;
-        key[3].key    = &handle;
-        key[4].length = 0;
-        key[4].key    = NULL;
+        key[3].key    = &server_bd_addr_id;
+        key[4].length = 1;
+        key[4].key    = &handle;
+        key[5].length = 0;
+        key[5].key    = NULL;
 
         while (handle > 0) {
             sub_wmemtree = (wmem_tree_t *) wmem_tree_lookup32_array(handle_to_uuid, key);
@@ -4519,8 +4551,8 @@ static uint16_t
 get_gatt_char_decl_handle_from_handle(packet_info *pinfo, uint32_t handle,
     btl2cap_data_t *l2cap_data)
 {
-    wmem_tree_key_t  key[5];
-    uint32_t         frame_number, direction;
+    wmem_tree_key_t  key[6];
+    uint32_t         frame_number, direction, server_bd_addr_oui, server_bd_addr_id;
     handle_data_t   *handle_data;
     wmem_tree_t     *sub_wmemtree;
 
@@ -4528,16 +4560,20 @@ get_gatt_char_decl_handle_from_handle(packet_info *pinfo, uint32_t handle,
         frame_number = pinfo->num;
         direction = pinfo->p2p_dir;
 
+        get_server_bdaddr_from_direction(l2cap_data, direction, &server_bd_addr_oui, &server_bd_addr_id);
+
         key[0].length = 1;
         key[0].key    = &l2cap_data->interface_id;
         key[1].length = 1;
         key[1].key    = &l2cap_data->adapter_id;
         key[2].length = 1;
-        key[2].key    = &direction;
+        key[2].key    = &server_bd_addr_oui;
         key[3].length = 1;
-        key[3].key    = &handle;
-        key[4].length = 0;
-        key[4].key    = NULL;
+        key[3].key    = &server_bd_addr_id;
+        key[4].length = 1;
+        key[4].key    = &handle;
+        key[5].length = 0;
+        key[5].key    = NULL;
 
         while (handle > 0) {
             sub_wmemtree = (wmem_tree_t *) wmem_tree_lookup32_array(handle_to_uuid, key);
@@ -4561,8 +4597,8 @@ static bluetooth_uuid_t
 get_service_uuid_from_handle(packet_info *pinfo, uint32_t handle, uint8_t opcode,
         btl2cap_data_t *l2cap_data)
 {
-    wmem_tree_key_t  key[5];
-    uint32_t         frame_number, direction;
+    wmem_tree_key_t  key[6];
+    uint32_t         frame_number, direction, server_bd_addr_oui, server_bd_addr_id;
     handle_data_t   *handle_data;
     wmem_tree_t     *sub_wmemtree;
     bluetooth_uuid_t uuid;
@@ -4571,18 +4607,22 @@ get_service_uuid_from_handle(packet_info *pinfo, uint32_t handle, uint8_t opcode
 
     if (l2cap_data) {
         frame_number = pinfo->num;
-        direction = get_handle_db_direction(opcode, pinfo->p2p_dir);
+        direction = get_server_direction(opcode, pinfo->p2p_dir);
+
+        get_server_bdaddr_from_direction(l2cap_data, direction, &server_bd_addr_oui, &server_bd_addr_id);
 
         key[0].length = 1;
         key[0].key    = &l2cap_data->interface_id;
         key[1].length = 1;
         key[1].key    = &l2cap_data->adapter_id;
         key[2].length = 1;
-        key[2].key    = &direction;
+        key[2].key    = &server_bd_addr_oui;
         key[3].length = 1;
-        key[3].key    = &handle;
-        key[4].length = 0;
-        key[4].key    = NULL;
+        key[3].key    = &server_bd_addr_id;
+        key[4].length = 1;
+        key[4].key    = &handle;
+        key[5].length = 0;
+        key[5].key    = NULL;
 
         while (handle > 0) {
             sub_wmemtree = (wmem_tree_t *) wmem_tree_lookup32_array(handle_to_uuid, key);
@@ -4604,8 +4644,8 @@ static bluetooth_uuid_t
 get_characteristic_uuid_from_handle(packet_info *pinfo, uint32_t handle, uint8_t opcode,
         btl2cap_data_t *l2cap_data)
 {
-    wmem_tree_key_t  key[5];
-    uint32_t         frame_number, direction;
+    wmem_tree_key_t  key[6];
+    uint32_t         frame_number, direction, server_bd_addr_oui, server_bd_addr_id;
     handle_data_t   *handle_data;
     wmem_tree_t     *sub_wmemtree;
     bluetooth_uuid_t uuid;
@@ -4614,18 +4654,22 @@ get_characteristic_uuid_from_handle(packet_info *pinfo, uint32_t handle, uint8_t
 
     if (l2cap_data) {
         frame_number = pinfo->num;
-        direction = get_handle_db_direction(opcode, pinfo->p2p_dir);
+        direction = get_server_direction(opcode, pinfo->p2p_dir);
+
+        get_server_bdaddr_from_direction(l2cap_data, direction, &server_bd_addr_oui, &server_bd_addr_id);
 
         key[0].length = 1;
         key[0].key    = &l2cap_data->interface_id;
         key[1].length = 1;
         key[1].key    = &l2cap_data->adapter_id;
         key[2].length = 1;
-        key[2].key    = &direction;
+        key[2].key    = &server_bd_addr_oui;
         key[3].length = 1;
-        key[3].key    = &handle;
-        key[4].length = 0;
-        key[4].key    = NULL;
+        key[3].key    = &server_bd_addr_id;
+        key[4].length = 1;
+        key[4].key    = &handle;
+        key[5].length = 0;
+        key[5].key    = NULL;
 
         while (handle > 0) {
             sub_wmemtree = (wmem_tree_t *) wmem_tree_lookup32_array(handle_to_uuid, key);
@@ -4699,7 +4743,7 @@ static int dissect_gatt_uuid(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb
 static int
 dissect_handle(proto_tree *tree, packet_info *pinfo, int hf,
         tvbuff_t *tvb, int offset, btl2cap_data_t *l2cap_data,
-        bluetooth_uuid_t *uuid, int32_t handle, uint8_t opcode)
+        bluetooth_uuid_t *uuid, int32_t handle, uint8_t opcode, uint16_t *p_handle_value)
 {
     proto_item        *handle_item;
     proto_item        *sub_item;
@@ -4766,6 +4810,9 @@ dissect_handle(proto_tree *tree, packet_info *pinfo, int hf,
     if (uuid)
         *uuid = attribute_uuid;
 
+    if (p_handle_value) {
+        *p_handle_value = tvb_get_uint16(tvb, offset, ENC_LITTLE_ENDIAN);
+    }
     return offset + 2;
 }
 
@@ -5050,8 +5097,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         if (bluetooth_gatt_has_no_parameter(att_data->opcode))
             break;
 
-        offset = dissect_handle(tree, pinfo, hf_btatt_included_service_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, att_data->opcode);
-        sub_handle = tvb_get_uint16(tvb, offset - 2, ENC_LITTLE_ENDIAN);
+        offset = dissect_handle(tree, pinfo, hf_btatt_included_service_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, att_data->opcode, &sub_handle);
 
         proto_tree_add_item(tree, hf_btatt_ending_handle, tvb, offset, 2, ENC_LITTLE_ENDIAN);
         offset += 2;
@@ -5079,8 +5125,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         proto_tree_add_bitmask(tree, tvb, offset, hf_btatt_characteristic_properties, ett_btatt_characteristic_properties,  hfx_btatt_characteristic_properties, ENC_NA);
         offset += 1;
 
-        offset = dissect_handle(tree, pinfo, hf_btatt_characteristic_value_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, att_data->opcode);
-        sub_handle = tvb_get_uint16(tvb, offset - 2, ENC_LITTLE_ENDIAN);
+        offset = dissect_handle(tree, pinfo, hf_btatt_characteristic_value_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, att_data->opcode, &sub_handle);
 
         if (tvb_reported_length_remaining(tvb, offset) == 16) {
             proto_tree_add_item(tree, hf_btatt_uuid128, tvb, offset, 16, ENC_NA);
@@ -5394,7 +5439,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         sub_tree = proto_item_add_subtree(sub_item, ett_btatt_list);
 
         while (offset < (int64_t) tvb_captured_length(tvb)) {
-            offset = dissect_handle(sub_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, att_data->opcode);
+            offset = dissect_handle(sub_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, att_data->opcode, NULL);
         }
         break;
     case 0x2906: /* Valid Range */ {
@@ -6286,8 +6331,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         if (bluetooth_gatt_has_no_parameter(att_data->opcode))
             break;
 
-        proto_tree_add_item(tree, hf_btatt_regulatory_certification_data_list_count, tvb, offset, 2, ENC_LITTLE_ENDIAN);
-        count = tvb_get_uint16(tvb, offset, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item_ret_uint16(tree, hf_btatt_regulatory_certification_data_list_count, tvb, offset, 2, ENC_LITTLE_ENDIAN, &count);
         list_length += 2;
         offset += 2;
 
@@ -6336,14 +6380,14 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
                 }
 
                 if (item_length > 2) {
-                    proto_tree_add_item(authorizing_body_data_tree, hf_btatt_regulatory_certification_data_list_item_authorizing_body_data_certification_data_list_count, tvb, offset, 2, ENC_LITTLE_ENDIAN);
-                    certification_data_list_count = tvb_get_uint16(tvb, offset, ENC_LITTLE_ENDIAN);
+                    proto_tree_add_item_ret_uint16(authorizing_body_data_tree, hf_btatt_regulatory_certification_data_list_item_authorizing_body_data_certification_data_list_count,
+                                                   tvb, offset, 2, ENC_LITTLE_ENDIAN, &certification_data_list_count);
                     offset += 2;
                 }
 
                 if (item_length > 4) {
-                    proto_tree_add_item(authorizing_body_data_tree, hf_btatt_regulatory_certification_data_list_item_authorizing_body_data_certification_data_list_length, tvb, offset, 2, ENC_LITTLE_ENDIAN);
-                    certification_data_list_length = tvb_get_uint16(tvb, offset, ENC_LITTLE_ENDIAN);
+                    proto_tree_add_item_ret_uint16(authorizing_body_data_tree, hf_btatt_regulatory_certification_data_list_item_authorizing_body_data_certification_data_list_length,
+                                                   tvb, offset, 2, ENC_LITTLE_ENDIAN, &certification_data_list_length);
                     offset += 2;
                 }
 
@@ -7016,12 +7060,10 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         if (bluetooth_gatt_has_no_parameter(att_data->opcode))
             break;
 
-        proto_tree_add_item(tree, hf_btatt_record_access_control_point_opcode, tvb, offset, 1, ENC_NA);
-        opcode = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint(tree, hf_btatt_record_access_control_point_opcode, tvb, offset, 1, ENC_NA, &opcode);
         offset += 1;
 
-        proto_tree_add_item(tree, hf_btatt_record_access_control_point_operator, tvb, offset, 1, ENC_NA);
-        operator_value = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint(tree, hf_btatt_record_access_control_point_operator, tvb, offset, 1, ENC_NA, &operator_value);
         offset += 1;
 
         sub_item = proto_tree_add_item(tree, hf_btatt_record_access_control_point_operand, tvb, offset, 0, ENC_NA);
@@ -7169,8 +7211,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         if (bluetooth_gatt_has_no_parameter(att_data->opcode))
             break;
 
-        proto_tree_add_item(tree, hf_btatt_sc_control_point_opcode, tvb, offset, 1, ENC_NA);
-        opcode = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint(tree, hf_btatt_sc_control_point_opcode, tvb, offset, 1, ENC_NA, &opcode);
         offset += 1;
 
         switch (opcode) {
@@ -7625,8 +7666,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         if (bluetooth_gatt_has_no_parameter(att_data->opcode))
             break;
 
-        proto_tree_add_item(tree, hf_btatt_cycling_power_control_point_opcode, tvb, offset, 1, ENC_NA);
-        opcode = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint(tree, hf_btatt_cycling_power_control_point_opcode, tvb, offset, 1, ENC_NA, &opcode);
         offset += 1;
 
         switch (opcode) {
@@ -7921,8 +7961,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         if (bluetooth_gatt_has_no_parameter(att_data->opcode))
             break;
 
-        proto_tree_add_item(tree, hf_btatt_ln_control_point_opcode, tvb, offset, 1, ENC_NA);
-        opcode = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint(tree, hf_btatt_ln_control_point_opcode, tvb, offset, 1, ENC_NA, &opcode);
         offset += 1;
 
         switch (opcode) {
@@ -8960,14 +8999,12 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         if (bluetooth_gatt_has_no_parameter(att_data->opcode))
             break;
 
-        proto_tree_add_item(tree, hf_btatt_user_control_point_opcode, tvb, offset, 1, ENC_NA);
-        opcode = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint(tree, hf_btatt_user_control_point_opcode, tvb, offset, 1, ENC_NA, &opcode);
         offset += 1;
 
         switch (opcode) {
         case 0x01: /* Register New User */
-            sub_item = proto_tree_add_item(tree, hf_btatt_user_control_point_consent_code, tvb, offset, 2, ENC_LITTLE_ENDIAN);
-            value =  tvb_get_uint16(tvb, offset, ENC_LITTLE_ENDIAN);
+            sub_item = proto_tree_add_item_ret_uint(tree, hf_btatt_user_control_point_consent_code, tvb, offset, 2, ENC_LITTLE_ENDIAN, &value);
             if (value > 9999)
                 expert_add_info(pinfo, sub_item, &ei_btatt_consent_out_of_bounds);
             offset += 2;
@@ -8977,8 +9014,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
             proto_tree_add_item(tree, hf_btatt_user_index, tvb, offset, 1, ENC_NA);
             offset += 1;
 
-            sub_item = proto_tree_add_item(tree, hf_btatt_user_control_point_consent_code, tvb, offset, 2, ENC_LITTLE_ENDIAN);
-            value =  tvb_get_uint16(tvb, offset, ENC_LITTLE_ENDIAN);
+            sub_item = proto_tree_add_item_ret_uint(tree, hf_btatt_user_control_point_consent_code, tvb, offset, 2, ENC_LITTLE_ENDIAN, &value);
             if (value > 9999)
                 expert_add_info(pinfo, sub_item, &ei_btatt_consent_out_of_bounds);
             offset += 2;
@@ -9310,8 +9346,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         if (bluetooth_gatt_has_no_parameter(att_data->opcode))
             break;
 
-        proto_tree_add_item(tree, hf_btatt_cgm_specific_ops_control_point_opcode, tvb, offset, 1, ENC_NA);
-        opcode = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint(tree, hf_btatt_cgm_specific_ops_control_point_opcode, tvb, offset, 1, ENC_NA, &opcode);
         offset += 1;
 
         sub_item = proto_tree_add_item(tree, hf_btatt_cgm_specific_ops_control_point_operand, tvb, offset, 0, ENC_NA);
@@ -9896,8 +9931,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         if (bluetooth_gatt_has_no_parameter(att_data->opcode))
             break;
 
-        proto_tree_add_item(tree, hf_btatt_ots_action_opcode, tvb, offset, 1, ENC_NA);
-        opcode = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint(tree, hf_btatt_ots_action_opcode, tvb, offset, 1, ENC_NA, &opcode);
         offset += 1;
 
         switch (opcode) {
@@ -9974,8 +10008,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         if (bluetooth_gatt_has_no_parameter(att_data->opcode))
             break;
 
-        proto_tree_add_item(tree, hf_btatt_ots_list_opcode, tvb, offset, 1, ENC_NA);
-        opcode = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint(tree, hf_btatt_ots_list_opcode, tvb, offset, 1, ENC_NA, &opcode);
         offset += 1;
 
         switch (opcode) {
@@ -10555,8 +10588,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         if (bluetooth_gatt_has_no_parameter(att_data->opcode))
             break;
 
-        proto_tree_add_item(tree, hf_btatt_volume_control_point_procedure, tvb, offset, 1, ENC_NA);
-        opcode = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint(tree, hf_btatt_volume_control_point_procedure, tvb, offset, 1, ENC_NA, &opcode);
         offset += 1;
 
         /* All procedures must have change counter */
@@ -10731,8 +10763,8 @@ is_long_attribute_value(bluetooth_uuid_t uuid)
 static unsigned
 get_mtu(packet_info *pinfo, btl2cap_data_t *l2cap_data)
 {
-    wmem_tree_key_t  key[5];
-    uint32_t         frame_number;
+    wmem_tree_key_t  key[4];
+    uint32_t         frame_number, chandle;
     mtu_data_t      *mtu_data;
     wmem_tree_t     *sub_wmemtree;
     unsigned         mtu = 23;
@@ -10756,17 +10788,16 @@ get_mtu(packet_info *pinfo, btl2cap_data_t *l2cap_data)
          * the dynamic bearers is at least equal to that of the fixed bearer. */
 
         frame_number = pinfo->num;
+        chandle = l2cap_data->chandle;
 
         key[0].length = 1;
         key[0].key    = &l2cap_data->interface_id;
         key[1].length = 1;
         key[1].key    = &l2cap_data->adapter_id;
         key[2].length = 1;
-        key[2].key    = &l2cap_data->remote_bd_addr_oui;
-        key[3].length = 1;
-        key[3].key    = &l2cap_data->remote_bd_addr_id;
-        key[4].length = 0;
-        key[4].key    = NULL;
+        key[2].key    = &chandle;
+        key[3].length = 0;
+        key[3].key    = NULL;
 
         sub_wmemtree = (wmem_tree_t *) wmem_tree_lookup32_array(mtus, key);
         mtu_data = (sub_wmemtree) ? (mtu_data_t *) wmem_tree_lookup32_le(sub_wmemtree, frame_number) : NULL;
@@ -10781,24 +10812,23 @@ get_mtu(packet_info *pinfo, btl2cap_data_t *l2cap_data)
 static void
 save_mtu(packet_info *pinfo, btl2cap_data_t *l2cap_data, unsigned mtu)
 {
-    wmem_tree_key_t  key[6];
-    uint32_t         frame_number;
+    wmem_tree_key_t  key[5];
+    uint32_t         frame_number, chandle;
     mtu_data_t      *mtu_data;
 
     frame_number = pinfo->num;
+    chandle = l2cap_data->chandle;
 
     key[0].length = 1;
     key[0].key    = &l2cap_data->interface_id;
     key[1].length = 1;
     key[1].key    = &l2cap_data->adapter_id;
     key[2].length = 1;
-    key[2].key    = &l2cap_data->remote_bd_addr_oui;
+    key[2].key    = &chandle;
     key[3].length = 1;
-    key[3].key    = &l2cap_data->remote_bd_addr_id;
-    key[4].length = 1;
-    key[4].key    = &frame_number;
-    key[5].length = 0;
-    key[5].key    = NULL;
+    key[3].key    = &frame_number;
+    key[4].length = 0;
+    key[4].key    = NULL;
 
     mtu_data = wmem_new(wmem_file_scope(), mtu_data_t);
     mtu_data->mtu = mtu;
@@ -10810,11 +10840,12 @@ static void
 save_value_fragment(packet_info *pinfo, tvbuff_t *tvb, int offset,
         uint32_t handle, unsigned data_offset, btl2cap_data_t *l2cap_data)
 {
-    wmem_tree_key_t   key[6];
-    uint32_t          frame_number, cid;
+    wmem_tree_key_t   key[7];
+    uint32_t          frame_number, cid, chandle;
     fragment_data_t  *fragment_data;
 
     frame_number = pinfo->num;
+    chandle = l2cap_data->chandle;
     cid = (l2cap_data->cid == BTL2CAP_FIXED_CID_ATT) ? l2cap_data->cid : l2cap_data->local_cid;
 
     key[0].length = 1;
@@ -10822,13 +10853,15 @@ save_value_fragment(packet_info *pinfo, tvbuff_t *tvb, int offset,
     key[1].length = 1;
     key[1].key    = &l2cap_data->adapter_id;
     key[2].length = 1;
-    key[2].key    = &cid;
+    key[2].key    = &chandle;
     key[3].length = 1;
-    key[3].key    = &handle;
+    key[3].key    = &cid;
     key[4].length = 1;
-    key[4].key    = &frame_number;
-    key[5].length = 0;
-    key[5].key    = NULL;
+    key[4].key    = &handle;
+    key[5].length = 1;
+    key[5].key    = &frame_number;
+    key[6].length = 0;
+    key[6].key    = NULL;
 
     fragment_data = wmem_new(wmem_file_scope(), fragment_data_t);
     fragment_data->length = tvb_captured_length_remaining(tvb, offset);
@@ -10842,8 +10875,8 @@ save_value_fragment(packet_info *pinfo, tvbuff_t *tvb, int offset,
 static uint8_t *
 get_value(packet_info *pinfo, uint32_t handle, btl2cap_data_t *l2cap_data, unsigned *length)
 {
-    wmem_tree_key_t   key[5];
-    uint32_t          frame_number, cid;
+    wmem_tree_key_t   key[6];
+    uint32_t          frame_number, cid, chandle;
     fragment_data_t  *fragment_data;
     wmem_tree_t      *sub_wmemtree;
     unsigned          last_offset = UINT_MAX;
@@ -10853,6 +10886,7 @@ get_value(packet_info *pinfo, uint32_t handle, btl2cap_data_t *l2cap_data, unsig
 
     if (l2cap_data) {
         frame_number = pinfo->num;
+        chandle = l2cap_data->chandle;
         cid = (l2cap_data->cid == BTL2CAP_FIXED_CID_ATT) ? l2cap_data->cid : l2cap_data->local_cid;
 
         key[0].length = 1;
@@ -10860,11 +10894,13 @@ get_value(packet_info *pinfo, uint32_t handle, btl2cap_data_t *l2cap_data, unsig
         key[1].length = 1;
         key[1].key    = &l2cap_data->adapter_id;
         key[2].length = 1;
-        key[2].key    = &cid;
+        key[2].key    = &chandle;
         key[3].length = 1;
-        key[3].key    = &handle;
-        key[4].length = 0;
-        key[4].key    = NULL;
+        key[3].key    = &cid;
+        key[4].length = 1;
+        key[4].key    = &handle;
+        key[5].length = 0;
+        key[5].key    = NULL;
 
         sub_wmemtree = (wmem_tree_t *) wmem_tree_lookup32_array(fragments, key);
         while (1) {
@@ -10965,8 +11001,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         request_opcode = tvb_get_uint8(tvb, offset);
         offset += 1;
 
-        offset = dissect_handle(main_tree, pinfo, hf_btatt_handle_in_error, tvb, offset, l2cap_data, NULL, HANDLE_TVB, opcode);
-        handle = tvb_get_letohs(tvb, offset - 2);
+        offset = dissect_handle(main_tree, pinfo, hf_btatt_handle_in_error, tvb, offset, l2cap_data, NULL, HANDLE_TVB, opcode, &handle);
 
         error_code = tvb_get_uint8(tvb, offset);
 
@@ -11127,8 +11162,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         {
             uint8_t format;
 
-            sub_item = proto_tree_add_item(main_tree, hf_btatt_uuid_format, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-            format = tvb_get_uint8(tvb, offset);
+            sub_item = proto_tree_add_item_ret_uint8(main_tree, hf_btatt_uuid_format, tvb, offset, 1, ENC_LITTLE_ENDIAN, &format);
             offset += 1;
 
             if (format == 1) {
@@ -11136,8 +11170,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                     sub_item = proto_tree_add_item(main_tree, hf_btatt_information_data, tvb, offset, 4, ENC_NA);
                     sub_tree = proto_item_add_subtree(sub_item, ett_btatt_list);
 
-                    offset = dissect_handle(sub_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, opcode);
-                    handle = tvb_get_uint16(tvb, offset - 2, ENC_LITTLE_ENDIAN);
+                    offset = dissect_handle(sub_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, opcode, &handle);
 
                     proto_tree_add_item(sub_tree, hf_btatt_uuid16, tvb, offset, 2, ENC_LITTLE_ENDIAN);
                     uuid = get_bluetooth_uuid(tvb, offset, 2);
@@ -11156,8 +11189,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                     sub_item = proto_tree_add_item(main_tree, hf_btatt_information_data, tvb, offset, 4, ENC_NA);
                     sub_tree = proto_item_add_subtree(sub_item, ett_btatt_list);
 
-                    offset = dissect_handle(sub_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, opcode);
-                    handle = tvb_get_uint16(tvb, offset - 2, ENC_LITTLE_ENDIAN);
+                    offset = dissect_handle(sub_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, opcode, &handle);
 
                     proto_tree_add_item(sub_tree, hf_btatt_uuid128, tvb, offset, 16, ENC_NA);
                     uuid = get_bluetooth_uuid(tvb, offset, 16);
@@ -11216,7 +11248,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
             sub_tree = proto_item_add_subtree(sub_item, ett_btatt_list);
 
-            offset = dissect_handle(sub_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, opcode);
+            offset = dissect_handle(sub_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, opcode, NULL);
 
             proto_tree_add_item(sub_tree, hf_btatt_group_end_handle, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             offset += 2;
@@ -11301,7 +11333,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                                 ATTRIBUTE_TYPE_OTHER, l2cap_data);
                     }
 
-                    offset = dissect_handle(sub_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, opcode);
+                    offset = dissect_handle(sub_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, opcode, NULL);
 
                     if (request_data) {
                         offset = dissect_attribute_value(sub_tree, sub_item, pinfo, tvb, offset, length - 2, tvb_get_uint16(tvb, offset - 2, ENC_LITTLE_ENDIAN), request_data->parameters.read_by_type.uuid, &att_data);
@@ -11320,8 +11352,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         break;
 
     case 0x0a: /* Read Request */
-        offset = dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, HANDLE_TVB, opcode);
-        handle = tvb_get_letohs(tvb, offset - 2);
+        offset = dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, HANDLE_TVB, opcode, &handle);
 
         col_append_info_by_handle(pinfo, handle, opcode, l2cap_data);
 
@@ -11340,7 +11371,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
     case 0x0b: /* Read Response */
         if (request_data) {
-            dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_write.handle, opcode);
+            dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_write.handle, opcode, NULL);
 
             col_append_info_by_handle(pinfo, request_data->parameters.read_write.handle, opcode, l2cap_data);
         }
@@ -11363,8 +11394,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         break;
 
     case 0x0c: /* Read Blob Request */
-        offset = dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, HANDLE_TVB, opcode);
-        handle = tvb_get_letohs(tvb, offset - 2);
+        offset = dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, HANDLE_TVB, opcode, &handle);
 
         col_append_info_by_handle(pinfo, handle, opcode, l2cap_data);
         col_append_fstr(pinfo->cinfo, COL_INFO, ", Offset: %u", tvb_get_letohs(tvb, offset));
@@ -11387,7 +11417,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
     case 0x0d: /* Read Blob Response */
         if (request_data && request_data->opcode == (opcode - 1)) {
-            dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_write.handle, opcode);
+            dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_write.handle, opcode, NULL);
 
             col_append_info_by_handle(pinfo, request_data->parameters.read_write.handle, opcode, l2cap_data);
 
@@ -11435,8 +11465,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
         col_append_str(pinfo->cinfo, COL_INFO, ", Handles: ");
         while (tvb_reported_length_remaining(tvb, offset) >= 2) {
-            offset = dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, HANDLE_TVB, opcode);
-            handle = tvb_get_letohs(tvb, offset - 2);
+            offset = dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, HANDLE_TVB, opcode, &handle);
             col_append_fstr(pinfo->cinfo, COL_INFO, "0x%04x ", handle);
 
             dissect_attribute_value(main_tree, NULL, pinfo, tvb, offset, 0, handle, uuid, &att_data);
@@ -11460,7 +11489,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
             if (opcode == 0x0f) {
                 for (i_handle = 0; i_handle < request_data->parameters.read_multiple.number_of_handles; i_handle += 1) {
-                    dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_multiple.handle[i_handle], opcode);
+                    dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_multiple.handle[i_handle], opcode, NULL);
                     offset = dissect_attribute_value(main_tree, NULL, pinfo, tvb, offset, tvb_captured_length_remaining(tvb, offset), request_data->parameters.read_multiple.handle[i_handle], uuid, &att_data);
                 }
             } else {
@@ -11477,7 +11506,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                     if (remain < length)
                         break;
 
-                    dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_multiple.handle[i_handle], opcode);
+                    dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_multiple.handle[i_handle], opcode, NULL);
                     dissect_attribute_value(main_tree, NULL, pinfo, tvb, offset, length, request_data->parameters.read_multiple.handle[i_handle], uuid, &att_data);
 
                     i_handle++;
@@ -11507,9 +11536,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
                     sub_tree = proto_item_add_subtree(sub_item, ett_btatt_list);
 
-                    offset = dissect_handle(sub_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, opcode);
-                    handle = tvb_get_uint16(tvb, offset - 2, ENC_LITTLE_ENDIAN);
-
+                    offset = dissect_handle(sub_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, NULL, HANDLE_TVB, opcode, &handle);
                     proto_tree_add_item(sub_tree, hf_btatt_group_end_handle, tvb, offset, 2, ENC_LITTLE_ENDIAN);
                     offset += 2;
 
@@ -11533,8 +11560,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     case 0x1d: /* Handle Value Indication */
     case 0x52: /* Write Command */
     case 0x1b: /* Handle Value Notification */
-        offset = dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, HANDLE_TVB, opcode);
-        handle = tvb_get_letohs(tvb, offset - 2);
+        offset = dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, HANDLE_TVB, opcode, &handle);
         col_append_info_by_handle(pinfo, handle, opcode, l2cap_data);
         offset = dissect_attribute_value(main_tree, NULL, pinfo, tvb, offset, tvb_captured_length_remaining(tvb, offset), tvb_get_uint16(tvb, offset - 2, ENC_LITTLE_ENDIAN), uuid, &att_data);
         if (!pinfo->fd->visited && l2cap_data && (opcode == 0x12 || opcode == 0x1d)) {
@@ -11551,7 +11577,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         /* No parameters */
 
         if (request_data && request_data->opcode == (opcode - 1)) {
-            dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_write.handle, opcode);
+            dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_write.handle, opcode, NULL);
 
             dissect_attribute_value(main_tree, NULL, pinfo, tvb, offset, 0, request_data->parameters.read_write.handle, uuid, &att_data);
 
@@ -11562,8 +11588,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
     case 0x16: /* Prepare Write Request */
     case 0x17: /* Prepare Write Response */
-        offset = dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, HANDLE_TVB, opcode);
-        handle = tvb_get_letohs(tvb, offset - 2);
+        offset = dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, HANDLE_TVB, opcode, &handle);
 
         col_append_info_by_handle(pinfo, handle, opcode, l2cap_data);
         col_append_fstr(pinfo->cinfo, COL_INFO, ", Offset: %u", tvb_get_letohs(tvb, offset));
@@ -11630,7 +11655,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
     case 0x1E: /* Handle Value Confirmation */
         if (request_data && request_data->opcode == (opcode - 1)) {
-            dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_write.handle, opcode);
+            dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_write.handle, opcode, NULL);
 
             col_append_info_by_handle(pinfo, request_data->parameters.read_write.handle, opcode, l2cap_data);
 
@@ -11642,8 +11667,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         {
             uint8_t length;
 
-            offset = dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, HANDLE_TVB, opcode);
-            handle = tvb_get_letohs(tvb, offset - 2);
+            offset = dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, HANDLE_TVB, opcode, &handle);
 
             col_append_info_by_handle(pinfo, handle, opcode, l2cap_data);
 
@@ -11663,7 +11687,7 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         break;
     }
 
-    if (request_data && request_data->opcode == (opcode - 1)) {
+    if (request_data) {
         if (request_data->request_in_frame > 0  && request_data->request_in_frame != pinfo->num) {
             sub_item = proto_tree_add_uint(main_tree, hf_request_in_frame, tvb, 0, 0, request_data->request_in_frame);
             proto_item_set_generated(sub_item);
@@ -11674,6 +11698,11 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         if (request_data->response_in_frame > 0 && request_data->response_in_frame != pinfo->num) {
             sub_item = proto_tree_add_uint(main_tree, hf_response_in_frame, tvb, 0, 0, request_data->response_in_frame);
             proto_item_set_generated(sub_item);
+        }
+        else if (request_data->response_in_frame == 0 && request_data->request_in_frame == pinfo->num)
+        {
+            /* So far, no response has been seen for this request. */
+            expert_add_info(pinfo, main_item, &ei_btatt_incomplete_transaction);
         }
     }
 
@@ -11709,7 +11738,7 @@ dissect_btgatt_nordic_uart_rx(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree 
 static int
 dissect_btgatt_nordic_dfu_control_point(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-    int     offset = 0;
+    unsigned offset = 0;
     uint8_t opcode;
     uint8_t request_opcode;
     uint8_t status;
@@ -11718,8 +11747,7 @@ dissect_btgatt_nordic_dfu_control_point(tvbuff_t *tvb, packet_info *pinfo, proto
     if (bluetooth_gatt_has_no_parameter(att_data->opcode))
         return -1;
 
-    proto_tree_add_item(tree, hf_gatt_nordic_dfu_control_point_opcode, tvb, offset, 1, ENC_NA);
-    opcode = tvb_get_uint8(tvb, offset);
+    proto_tree_add_item_ret_uint8(tree, hf_gatt_nordic_dfu_control_point_opcode, tvb, offset, 1, ENC_NA, &opcode);
     offset += 1;
 
     switch (opcode) {
@@ -11749,12 +11777,10 @@ dissect_btgatt_nordic_dfu_control_point(tvbuff_t *tvb, packet_info *pinfo, proto
 
         break;
     case 0x10: /* Response Code */
-        proto_tree_add_item(tree, hf_gatt_nordic_dfu_control_point_request_opcode, tvb, offset, 1, ENC_NA);
-        request_opcode = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint8(tree, hf_gatt_nordic_dfu_control_point_request_opcode, tvb, offset, 1, ENC_NA, &request_opcode);
         offset += 1;
 
-        proto_tree_add_item(tree, hf_gatt_nordic_dfu_control_point_response_value, tvb, offset, 1, ENC_NA);
-        status = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint8(tree, hf_gatt_nordic_dfu_control_point_response_value, tvb, offset, 1, ENC_NA, &status);
         offset += 1;
 
         if (request_opcode == 0x07 && status == 0x01) { /* Report Received Image Size && Success */
@@ -11770,7 +11796,7 @@ dissect_btgatt_nordic_dfu_control_point(tvbuff_t *tvb, packet_info *pinfo, proto
     }
 
     if (tvb_captured_length_remaining(tvb, offset) > 0) {
-        proto_tree_add_expert(tree, pinfo, &ei_btatt_unexpected_data, tvb, offset, -1);
+        proto_tree_add_expert_remaining(tree, pinfo, &ei_btatt_unexpected_data, tvb, offset);
         offset = tvb_captured_length(tvb);
     }
 
@@ -17579,6 +17605,7 @@ proto_register_btatt(void)
         { &ei_btatt_bad_data,               { "btatt.bad_data",                       PI_PROTOCOL,  PI_WARN, "Bad Data", EXPFILL }},
         { &ei_btatt_unexpected_data,        { "btatt.unexpected_data",                PI_PROTOCOL,  PI_WARN, "Unexpected Data", EXPFILL }},
         { &ei_btatt_undecoded,              { "btatt.undecoded",                      PI_UNDECODED, PI_NOTE, "Undecoded", EXPFILL }},
+        { &ei_btatt_incomplete_transaction, { "btatt.incomplete_transaction",         PI_SEQUENCE,  PI_WARN, "Incomplete ATT transaction", EXPFILL }},
     };
 
     static build_valid_func btatt_handle_da_build_value[1] = {btatt_handle_value};

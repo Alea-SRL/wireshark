@@ -52,9 +52,6 @@ typedef struct z3950_diaginfo_t {
     int      diagcondition;
 } z3950_diaginfo_t;
 
-#define PNAME  "Z39.50 Protocol"
-#define PSNAME "Z39.50"
-#define PFNAME "z3950"
 #define Z3950_PORT 210    /* UDP port */
 
 /* Known attribute set ids */
@@ -931,7 +928,7 @@ dissect_z3950(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U
 
 
     /* make entry in the Protocol column on summary display */
-    col_set_str(pinfo->cinfo, COL_PROTOCOL, PSNAME);
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "Z39.50");
 
     /* create the z3950 protocol tree */
     z3950_item = proto_tree_add_item(tree, proto_z3950, tvb, 0, -1, ENC_NA);
@@ -1153,7 +1150,7 @@ void proto_register_z3950(void) {
 
 
     /* Register protocol */
-    proto_z3950 = proto_register_protocol(PNAME, PSNAME, PFNAME);
+    proto_z3950 = proto_register_protocol("Z39.50 Protocol", "Z39.50", "z3950");
     /* Register fields and subtrees */
     proto_register_field_array(proto_z3950, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
@@ -1169,7 +1166,7 @@ void proto_register_z3950(void) {
                                    &z3950_desegment);
 
     /* Allow dissector to be found by name. */
-    z3950_handle = register_dissector(PSNAME, dissect_z3950_segment,
+    z3950_handle = register_dissector("Z39.50", dissect_z3950_segment,
 					      proto_z3950);
 
 }
@@ -1575,16 +1572,14 @@ dissect_marc_record(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * 
                     tvb, offset, 1, ENC_ASCII);
             offset += 1;
             do {
-                int next_subfield;
+                unsigned next_subfield;
                 proto_tree_add_item(field_tree, hf_marc_field_subfield_indicator,
                         tvb, offset, 1, ENC_ASCII);
                 offset += 1;
                 proto_tree_add_item(field_tree, hf_marc_field_subfield_tag,
                         tvb, offset, 1, ENC_ASCII);
                 offset += 1;
-                next_subfield = tvb_find_uint8(tvb, offset, next_offset - offset,
-                                                MARC_SUBFIELD_INDICATOR);
-                if (next_subfield >= 0) {
+                if (tvb_find_uint8_length(tvb, offset, next_offset - offset, MARC_SUBFIELD_INDICATOR, &next_subfield)) {
                     proto_tree_add_item(field_tree, hf_marc_field_subfield,
                             tvb, offset, next_subfield - offset, ENC_ASCII);
                     offset += (next_subfield - offset);

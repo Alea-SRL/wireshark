@@ -28,10 +28,6 @@
 #include "packet-x509sat.h"
 #include "packet-p1.h"
 
-#define PNAME  "X.509 Certificate Extensions"
-#define PSNAME "X509CE"
-#define PFNAME "x509ce"
-
 void proto_register_x509ce(void);
 void proto_reg_handoff_x509ce(void);
 
@@ -315,6 +311,12 @@ static int ett_x509ce_EntrustVersionInfo;
 static int ett_x509ce_EntrustInfoFlags;
 static int ett_x509ce_NFTypes;
 static int ett_x509ce_ScramblerCapabilities;
+/*--- Cyclic dependencies ---*/
+
+/* PolicyQualifierInfo/qualifier -> PolicyQualifierInfo/qualifier */
+static unsigned dissect_x509ce_T_qualifier(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+
+
 
 
 unsigned
@@ -609,9 +611,12 @@ dissect_x509ce_T_policyQualifierId(bool implicit_tag _U_, tvbuff_t *tvb _U_, uns
 
 static unsigned
 dissect_x509ce_T_qualifier(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  // PolicyQualifierInfo/qualifier -> PolicyQualifierInfo/qualifier
+  increment_dissection_depth_by_n(actx->pinfo, 1);
   offset=call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, tree, NULL);
 
 
+  decrement_dissection_depth_by_n(actx->pinfo, 1);
   return offset;
 }
 
@@ -3037,7 +3042,7 @@ void proto_register_x509ce(void) {
   };
 
   /* Register protocol */
-  proto_x509ce = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_x509ce = proto_register_protocol("X.509 Certificate Extensions", "X509CE", "x509ce");
 
   /* Register fields and subtrees */
   proto_register_field_array(proto_x509ce, hf, array_length(hf));

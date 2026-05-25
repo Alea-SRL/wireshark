@@ -19,7 +19,8 @@
 #include <wsutil/filesystem.h>
 #include <wsutil/privileges.h>
 #include <wsutil/please_report_bug.h>
-#include <wsutil/application_flavor.h>
+#include <wsutil/nstime.h>
+#include <app/application_flavor.h>
 #include <wsutil/wslog.h>
 #include <extcap/ssh-base.h>
 #include <writecap/pcapio.h>
@@ -110,7 +111,7 @@ enum {
 
 static char prompt_str[SSH_READ_BLOCK_SIZE + 1];
 static int32_t prompt_len = -1;
-CISCO_SW_TYPE global_sw_type = CISCO_UNKNOWN;
+static CISCO_SW_TYPE global_sw_type = CISCO_UNKNOWN;
 static bool send_output_quit;	/* IOS XE 17: send quit during output */
 
 static const struct ws_option longopts[] = {
@@ -1045,7 +1046,7 @@ static int process_buffer_response_ios_xe_16(ssh_channel channel, uint8_t* packe
 						ws_debug("Exporting packet %d\n", *processed_packets);
 						/*  dump the packet to the pcap file */
 						if (!libpcap_write_packet(fp,
-								(uint32_t)(cur_time / G_USEC_PER_SEC), (uint32_t)(cur_time % G_USEC_PER_SEC),
+								(uint32_t)(cur_time / WS_USECS_PER_SEC), (uint32_t)(cur_time % WS_USECS_PER_SEC),
 								packet_size, packet_size, packet, &bytes_written, &err)) {
 							ws_debug("Error in libpcap_write_packet(): %s", g_strerror(err));
 							break;
@@ -1119,7 +1120,7 @@ static int process_buffer_response_ios_xe_17(ssh_channel channel, uint8_t* packe
 						ws_debug("Exporting packet %d\n", *processed_packets);
 						/*  dump the packet to the pcap file */
 						if (!libpcap_write_packet(fp,
-								(uint32_t)(cur_time / G_USEC_PER_SEC), (uint32_t)(cur_time % G_USEC_PER_SEC),
+								(uint32_t)(cur_time / WS_USECS_PER_SEC), (uint32_t)(cur_time % WS_USECS_PER_SEC),
 								packet_size, packet_size, packet, &bytes_written, &err)) {
 							ws_debug("Error in libpcap_write_packet(): %s", g_strerror(err));
 							break;
@@ -1413,7 +1414,7 @@ static int detect_host_prompt(ssh_channel channel)
 			return EXIT_FAILURE;
 	}
 	if (len > 0) {
-		g_strlcpy(prompt_str, line, SSH_READ_BLOCK_SIZE + 1);
+		(void) g_strlcpy(prompt_str, line, SSH_READ_BLOCK_SIZE + 1);
 
 		/* Is there hashtag at the end => enabled mode? */
 		if (prompt_str[strlen(prompt_str)-1] != '#') {
@@ -1438,7 +1439,7 @@ static int detect_host_prompt(ssh_channel channel)
 			return EXIT_FAILURE;
 	}
 	if (len > 0) {
-		g_strlcpy(prompt_2, line, SSH_READ_BLOCK_SIZE + 1);
+		(void) g_strlcpy(prompt_2, line, SSH_READ_BLOCK_SIZE + 1);
 		/* Does second prompt_str match first one? */
 		if (0 == g_strcmp0(prompt_str, prompt_2)) {
 			ws_debug("Detected prompt %s", prompt_str);

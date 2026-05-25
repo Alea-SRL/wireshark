@@ -10,8 +10,8 @@
  */
 #include "config.h"
 #include <epan/packet.h>
-#include <epan/ipproto.h>
 #include <epan/unit_strings.h>
+#include <epan/iana-info.h>
 #include "packet-e212.h"
 #include "packet-tls.h"
 

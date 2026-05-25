@@ -41,6 +41,7 @@ static dissector_handle_t  pcap_pktdata_handle;
 
 static int hf_pcapng_block;
 
+static int hf_pcapng_block_offset;
 static int hf_pcapng_block_type;
 static int hf_pcapng_block_type_vendor;
 static int hf_pcapng_block_type_value;
@@ -231,6 +232,7 @@ static int * const hfx_pcapng_option_data_packet_darwin_flags[] = {
 };
 
 static bool pref_dissect_next_layer;
+static bool pref_additional_block_info;
 
 static const value_string block_type_vals[] = {
     { BLOCK_TYPE_IDB,                       "Interface Description Block" },
@@ -339,15 +341,20 @@ static const value_string option_code_interface_description_vals[] = {
  *    An Enhanced Packet Block (EPB) may be augmented with any or all of the
  *    following block options for Darwin process information:
  *
- *          +------------------+-------+--------+-------------------+
- *          | Name             | Code  | Length | Multiple allowed? |
- *          +------------------+-------+--------+-------------------+
- *          | darwin_dpib_id   | 32769 | 4      | no?               |
- *          | darwin_svc_class | 32770 | 4      | no?               |
- *          | darwin_edpib_id  | 32771 | 4      | no?               |
- *          | darwin_flags     | 32772 | 4      | no?               |
- *          | darwin_flow_id   | 32773 | 4      | no?               |
- *          +------------------+------+---------+-------------------+
+ *          +--------------------+-------+--------+-------------------+
+ *          | Name               | Code  | Length | Multiple allowed? |
+ *          +--------------------+-------+--------+-------------------+
+ *          | darwin_dpib_id     | 32769 | 4      | no                |
+ *          | darwin_svc_class   | 32770 | 4      | no                |
+ *          | darwin_edpib_id    | 32771 | 4      | no                |
+ *          | darwin_flags       | 32772 | 4      | no                |
+ *          | darwin_flow_id     | 32773 | 4      | no                |
+ *          | darwin_trace_tag   | 32774 | 4      | no                |
+ *          | darwin_drop_reason | 32775 | 4      | no                |
+ *          | darwin_drop_line   | 32776 | 4      | no                |
+ *          | darwin_drop_func   | 32773 | var    | no                |
+ *          | darwin_comp_gencnt | 32773 | 4      | no                |
+ *          +--------------------+------+---------+-------------------+
  *
  *           Table XXX.2: Darwin options for Enhanced Packet Blocks
  *
@@ -360,30 +367,6 @@ static const value_string option_code_interface_description_vals[] = {
  *            which means that a matching Darwin Process Info Block MUST
  *            exist.
  *
- *    darwin_srv_class:
- *            The darwin_svc_class option is a number that maps to a
- *            specific Darwin Service Class mnemonic that the packet is
- *            associated with.
- *
- *    The following Darwin Service Class values are defined:
- *
- *              +---------------------+------------------------+
- *              | Service Class Value | Service Class Mnemonic |
- *              +---------------------+------------------------+
- *              | 0                   | BE                     |
- *              | 100                 | BK_SYS                 |
- *              | 200                 | BK                     |
- *              | 300                 | RD                     |
- *              | 400                 | OAM                    |
- *              | 500                 | AV                     |
- *              | 600                 | RV                     |
- *              | 700                 | VI                     |
- *              | 800                 | VO                     |
- *              | 900                 | CTL                    |
- *              +---------------------+------------------------+
- *
- *              Table XXX.3: Darwin Service Class Option Values
- *
  *    darwin_edpib_id:
  *            The darwin_edpib_id option specifies the Darwin Process Info
  *            Block ID for the effective process (eproc) this packet is
@@ -393,35 +376,83 @@ static const value_string option_code_interface_description_vals[] = {
  *            ID MUST be valid, which means that a matching Darwin Process
  *            Info Block MUST exist.
  *
+ *    darwin_svc_class:
+ *            The darwin_svc_class option is a number that maps to a
+ *            specific Darwin Service Class mnemonic that the packet is
+ *            associated with. The Darwin Service Class is an internal
+ *            enumeration that generally follows the guildelines in
+ *            https://www.rfc-editor.org/rfc/rfc4594
+ *
+ *            The following Darwin Service Class values are defined:
+ *
+ *              +-------+-----------+--------------------------------------------+
+ *              | Value |  Mnemonic | Notes                                      |
+ *              +-------+-----------+--------------------------------------------+
+ *              | 0     | BE        | rfc 4594 section 4.9: Best Effort, User    |
+ *              | 100   | BE_SYS    | rfc 4594 section 4.10: Best Effort, System |
+ *              | 200   | BK        | rfc 4594 section 4.8: Bulk                 |
+ *              | 300   | RD        | rfc 4594 section 4.7: Low Latency          |
+ *              | 400   | OAM       | rfc 4594 section 3.3: Ops, Admin, Mgmt     |
+ *              | 500   | AV        | rfc 4594 section 4.5: Streaming            |
+ *              | 600   | RV        | rfc 4594 section 4.4: Interactive          |
+ *              | 700   | VI        | rfc 4594 section 4.3: Conferencing         |
+ *              | 800   | VO        | rfc 4594 section 4.1: Telephony            |
+ *              | 900   | CTL       | rfc 4594 section 3.2: Network Control      |
+ *              +-------+-----------+--------------------------------------------+
+ *
+ *              Table XXX.3: Darwin Service Class Option Values
+ *
  *    darwin_flags:
  *            The darwin_flags option is a 32 bit field for indicating
  *            various Darwin specific flags.
  *
- *    The following Darwin Flags are defined:
+ *            The following Darwin Flags are defined:
  *
- *                          +-------------------------+
- *                          |     FLAG_MASK    | Flag |
- *                          +-------------------------+
- *                          |    0x00000020    |  wk  |
- *                          |    0x00000010    |  ch  |
- *                          |    0x00000008    |  so  |
- *                          |    0x00000004    |  re  |
- *                          |    0x00000002    |  ka  |
- *                          |    0x00000001    |  nf  |
- *                          +-------------------------+
+ *              +------------+------+------------------------------------------------+
+ *              | Mask       | Flag | Notes (direction)                              |
+ *              +------------+------+------------------------------------------------+
+ *              | 0x00000020 |  wk  | Wake Packet: Will wake the OS from sleep (In)  |
+ *              | 0x00000010 |  ch  | Channel: User-space networking (In, Out)       |
+ *              | 0x00000008 |  so  | Socket: Kernel-space networking (In, Out)      |
+ *              | 0x00000004 |  re  | RExmit: Detected retransmit (In)               |
+ *              | 0x00000002 |  ka  | Keep Alive: Keep Alive (Out)                   |
+ *              | 0x00000001 |  nf  | New Flow: first packet on a new flow (In, Out) |
+ *              +------------+------+------------------------------------------------+
  *
- *                           Table XXX.4: Darwin Flags
+ *              Table XXX.4: Darwin Flags
  *
- *      wk = Wake Packet
- *      ch = Nexus Channel
- *      so = Socket
- *      re = ReXmit
- *      ka = Keep Alive
- *      nf = New Flow
  *
  *    darwin_flow_id:
  *            The darwin_flow_id option is a 32 bit value that
- *            identifies a specific flow this packet is a part of.
+ *            identifies a specific flow (5-tuple) this packet belongs to.
+ *
+ *    darwin_trace_tag:
+ *            The darwin_trace_tag option is a 32 bit value that
+ *            identifies a random tracing tag. NOTE: same tracing tag
+ *            value can be shared by multiple flows (see `darwin_flow_id` above)
+ *
+ *    darwin_drop_reason:
+ *            The darwin_drop_reason option is a 32 bit value that
+ *            is specific to the `droptap` pseudo interface.
+ *            This option identifies the reason for dropping the packet.
+ *
+ *    darwin_drop_line:
+ *            The darwin_drop_line option is a 32 bit value that
+ *            is specific to the `droptap` pseudo interface.
+ *            This option identifies the approximate source code
+ *            location of the packet processing logic that is responsible
+ *            for dropping the packet.
+ *
+ *    darwin_drop_func:
+ *            The darwin_drop_func option is a NUL-terminated value that
+ *            is specific to the `droptap` pseudo interface.
+ *            This option identifies the function name that is responsible
+ *            for dropping the packet.
+ *
+ *    darwin_comp_gencnt:
+ *            The darwin_comp_gencnt option is a 32 bit value that
+ *            specifies the generation count, which is used for
+ *            traffic compression.
  */
 
 
@@ -435,11 +466,17 @@ static const value_string option_code_enhanced_packet_vals[] = {
     { OPT_PKT_VERDICT,      "Verdict" },
     { OPT_PKT_PROCIDTHRDID, "Process ID thread ID" },
     OPTION_CODE_CUSTOM_OPTIONS,
-    { 32769,   "Darwin DPIB ID" },
-    { 32770,   "Darwin Service Class" },
-    { 32771,   "Darwin Effective DPIB ID" },
-    { 32772,   "Darwin Flags" },
-    { 32773,   "Darwin Flow ID" },
+    { OPT_PKT_DARWIN_PIB_ID,            "Darwin DPIB ID" },
+    { OPT_PKT_DARWIN_SVC_CODE,          "Darwin Service Class" },
+    { OPT_PKT_DARWIN_EFFECTIVE_PIB_ID,  "Darwin Effective DPIB ID" },
+    { OPT_PKT_DARWIN_MD_FLAGS,          "Darwin Flags" },
+    { OPT_PKT_DARWIN_FLOW_ID,           "Darwin Flow ID" },
+    { OPT_PKT_DARWIN_TRACE_TAG,         "Darwin Trace tag" },
+    { OPT_PKT_DARWIN_DROP_REASON,       "Darwin Drop Reason" },
+    { OPT_PKT_DARWIN_DROP_LINE,         "Darwin Drop Line" },
+    { OPT_PKT_DARWIN_DROP_FUNC,         "Darwin Drop Function" },
+    { OPT_PKT_DARWIN_COMP_GENCNT,       "Darwin Comp Gen Count" },
+
     { 0, NULL }
 };
 
@@ -553,6 +590,7 @@ static const value_string dsb_secrets_types_vals[] = {
 };
 
 void proto_register_pcapng(void);
+void event_register_pcapng(void);
 void proto_reg_handoff_pcapng(void);
 
 #define BYTE_ORDER_MAGIC_SIZE  4
@@ -1481,13 +1519,20 @@ dissect_shb_data(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
 
     byte_order_magic_item = proto_tree_add_item(tree, hf_pcapng_section_header_byte_order_magic, tvb, offset, 4, ENC_NA);
     if (byte_order_magic_bad) {
+        if (pref_additional_block_info)
+            proto_item_append_text(argp->block_item, " (Invalid endian)");
         expert_add_info(pinfo, byte_order_magic_item, &ei_invalid_byte_order_magic);
         return false;
     }
-    if (argp->info->encoding == ENC_BIG_ENDIAN)
+    if (argp->info->encoding == ENC_BIG_ENDIAN) {
+        if (pref_additional_block_info)
+            proto_item_append_text(argp->block_item, " (Big-endian)");
         proto_item_append_text(byte_order_magic_item, " (Big-endian)");
-    else
+    } else {
+        if (pref_additional_block_info)
+            proto_item_append_text(argp->block_item, " (Little-endian)");
         proto_item_append_text(byte_order_magic_item, " (Little-endian)");
+    }
     offset += 4;
 
     proto_tree_add_item(tree, hf_pcapng_section_header_major_version, tvb, offset, 2, argp->info->encoding);
@@ -1546,8 +1591,7 @@ dissect_pb_data(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
 
     proto_item_append_text(argp->block_item, " %u", argp->info->frame_number);
 
-    proto_tree_add_item(tree, hf_pcapng_packet_block_interface_id, tvb, offset, 2, argp->info->encoding);
-    interface_id = tvb_get_uint16(tvb, offset, argp->info->encoding);
+    proto_tree_add_item_ret_uint(tree, hf_pcapng_packet_block_interface_id, tvb, offset, 2, argp->info->encoding, &interface_id);
     offset += 2;
     interface_description = get_interface_description(argp->info, interface_id,
                                                       pinfo, argp->block_tree);
@@ -1774,8 +1818,7 @@ dissect_isb_data(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
     uint32_t interface_id;
     struct interface_description *interface_description;
 
-    proto_tree_add_item(tree, hf_pcapng_interface_id, tvb, offset, 4, argp->info->encoding);
-    interface_id = tvb_get_uint32(tvb, offset, argp->info->encoding);
+    proto_tree_add_item_ret_uint(tree, hf_pcapng_interface_id, tvb, offset, 4, argp->info->encoding, &interface_id);
     offset += 4;
     interface_description = get_interface_description(argp->info, interface_id,
                                                       pinfo, argp->block_tree);
@@ -1799,8 +1842,7 @@ dissect_epb_data(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
 
     proto_item_append_text(argp->block_item, " %u", argp->info->frame_number);
 
-    proto_tree_add_item(tree, hf_pcapng_interface_id, tvb, offset, 4, argp->info->encoding);
-    interface_id = tvb_get_uint32(tvb, offset, argp->info->encoding);
+    proto_tree_add_item_ret_uint(tree, hf_pcapng_interface_id, tvb, offset, 4, argp->info->encoding, &interface_id);
     offset += 4;
     interface_description = get_interface_description(argp->info, interface_id,
                                                       pinfo, argp->block_tree);
@@ -1870,9 +1912,12 @@ dissect_cb_data(proto_tree *tree, packet_info *pinfo _U_, tvbuff_t *tvb,
                 block_data_arg *argp)
 {
     int offset = 0;
+    uint32_t pen;
 
-    proto_tree_add_item(tree, hf_pcapng_cb_pen, tvb, offset, 4, argp->info->encoding);
+    proto_tree_add_item_ret_uint(tree, hf_pcapng_cb_pen, tvb, offset, 4, argp->info->encoding, &pen);
     offset += 4;
+    if (pref_additional_block_info)
+        proto_item_append_text(argp->block_item, " (PEN: %u (%s))", pen, enterprises_lookup(pen, NULL));
 
     /* Todo: Add known PEN custom data dissection. */
     proto_tree_add_item(tree, hf_pcapng_cb_data, tvb, offset, tvb_reported_length(tvb) - offset, argp->info->encoding);
@@ -1898,6 +1943,7 @@ int dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, struct in
     uint32_t         block_type;
     uint32_t         block_length = 0, block_length_trailer;
     uint32_t         length;
+    const char      *block_type_name;
     tvbuff_t        *volatile next_tvb = NULL;
     block_data_arg   arg;
     volatile bool stop_dissecting = false;
@@ -1916,6 +1962,9 @@ int dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, struct in
     block_item = proto_tree_add_item(tree, hf_pcapng_block, tvb, offset, length, ENC_NA);
     block_tree = proto_item_add_subtree(block_item, ett_pcapng_section_header_block);
 
+    proto_tree_add_uint64_format_value(block_tree, hf_pcapng_block_offset, tvb, offset, length, info->block_offset,
+                                       "0x%08" PRIx64 " (%" PRIu64 ")", info->block_offset, info->block_offset);
+
     /* Block type */
     block_type_item = proto_tree_add_item(block_tree, hf_pcapng_block_type, tvb, offset, 4, info->encoding);
     block_type_tree = proto_item_add_subtree(block_type_item, ett_pcapng_block_type);
@@ -1926,15 +1975,16 @@ int dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, struct in
 
     /* Name is either from local 'name', or from fixed block_type_vals */
     if (p_local_block_callback) {
-        proto_item_append_text(block_item, " %u: %s", info->block_number, p_local_block_callback->name);
-        proto_item_append_text(block_type_item, ": (%s)", p_local_block_callback->name);
-        proto_item_append_text(block_type_value_item, ": (%s)", p_local_block_callback->name);
+        block_type_name = p_local_block_callback->name;
     }
     else {
-        proto_item_append_text(block_item, " %u: %s", info->block_number, val_to_str_const(block_type, block_type_vals, "Unknown"));
-        proto_item_append_text(block_type_item, ": (%s)", val_to_str_const(block_type, block_type_vals, "Unknown"));
-        proto_item_append_text(block_type_value_item, ": (%s)", val_to_str_const(block_type, block_type_vals, "Unknown"));
+        block_type_name = val_to_str_const(block_type, block_type_vals, "Unknown");
     }
+    if (pref_additional_block_info)
+        proto_item_append_text(block_item, " %u: Offset: 0x%08" PRIx64 " (%" PRIu64 "), Length: %u, %s",
+            info->block_number, info->block_offset, info->block_offset, length, block_type_name);
+    proto_item_append_text(block_type_item, ": (%s)", block_type_name);
+    proto_item_append_text(block_type_value_item, ": (%s)", block_type_name);
     info->block_number += 1;
 
     arg.block_item = block_item;
@@ -2066,6 +2116,8 @@ dissect_pcapng(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
         return 0;
 
     info.encoding = ENC_BIG_ENDIAN;
+    info.block_offset = 0;
+    info.prev_block_length = 0;
     info.block_number = 1;
     info.section_number = 0;
     info.interface_number = 0;
@@ -2113,6 +2165,8 @@ dissect_pcapng(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
         }
         else {
             length = tvb_get_uint32(tvb, offset + 4, info.encoding);
+            info.block_offset += info.prev_block_length;
+            info.prev_block_length = length;
         }
         next_tvb = tvb_new_subset_length(tvb, offset, length);
 
@@ -2147,8 +2201,8 @@ void register_pcapng_local_block_dissector(uint32_t block_number, local_block_ca
     g_hash_table_insert(s_local_block_callback_table, GUINT_TO_POINTER(block_number), block_callback_info);
 }
 
-void
-proto_register_pcapng(void)
+static void
+common_register_pcapng(void)
 {
     module_t         *module;
     expert_module_t  *expert_module;
@@ -2157,6 +2211,11 @@ proto_register_pcapng(void)
         { &hf_pcapng_block,
             { "Block",                                     "pcapng.block",
             FT_NONE, BASE_NONE, NULL, 0x00,
+            NULL, HFILL }
+        },
+        { &hf_pcapng_block_offset,
+            { "Block Offset",                              "pcapng.block.offset",
+            FT_UINT64, BASE_HEX_DEC, NULL, 0x00,
             NULL, HFILL }
         },
         { &hf_pcapng_block_type,
@@ -2827,6 +2886,11 @@ proto_register_pcapng(void)
             "Dissect next layer",
             &pref_dissect_next_layer);
 
+    prefs_register_bool_preference(module, "additional_block_info",
+            "Additional Block Info",
+            "Display additional information for each block",
+            &pref_additional_block_info);
+
     expert_module = expert_register_protocol(proto_pcapng);
     expert_register_field_array(expert_module, ei, array_length(ei));
 
@@ -2835,6 +2899,20 @@ proto_register_pcapng(void)
 
     /* Ensure this table will be deleted */
     register_shutdown_routine(&pcapng_shutdown_protocol);
+}
+
+void
+proto_register_pcapng(void)
+{
+    common_register_pcapng();
+}
+
+void
+event_register_pcapng(void)
+{
+    common_register_pcapng();
+
+    /* No need for a handoff function */
 }
 
 void

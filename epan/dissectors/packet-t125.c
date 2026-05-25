@@ -27,11 +27,6 @@
 
 #include "packet-t124.h"
 
-#define PNAME  "MULTIPOINT-COMMUNICATION-SERVICE T.125"
-#define PSNAME "T.125"
-#define PFNAME "t125"
-
-
 #define HF_T125_ERECT_DOMAIN_REQUEST 1
 #define HF_T125_DISCONNECT_PROVIDER_ULTIMATUM 8
 #define HF_T125_ATTACH_USER_REQUEST 10
@@ -157,13 +152,13 @@ dissect_t125_BOOLEAN(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _
 
 static unsigned
 dissect_t125_T_userData(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
-    tvbuff_t	*next_tvb = NULL;
-	heur_dtbl_entry_t *hdtbl_entry;
+  tvbuff_t *next_tvb = NULL;
+  heur_dtbl_entry_t *hdtbl_entry;
   offset = dissect_ber_octet_string(implicit_tag, actx, tree, tvb, offset, hf_index,
                                        &next_tvb);
 
-    if(next_tvb)
-    	dissector_try_heuristic(t125_heur_subdissector_list, next_tvb,
+  if(next_tvb)
+    (void) dissector_try_heuristic(t125_heur_subdissector_list, next_tvb,
 	     actx->pinfo, top_tree, &hdtbl_entry, NULL);
 
   return offset;
@@ -233,14 +228,14 @@ dissect_t125_Result(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U
 
 static unsigned
 dissect_t125_T_userData_01(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
-    tvbuff_t	*next_tvb = NULL;
-	heur_dtbl_entry_t *hdtbl_entry;
+  tvbuff_t *next_tvb = NULL;
+  heur_dtbl_entry_t *hdtbl_entry;
 
   offset = dissect_ber_octet_string(implicit_tag, actx, tree, tvb, offset, hf_index,
                                        &next_tvb);
 
-    if(next_tvb)
-    	dissector_try_heuristic(t125_heur_subdissector_list, next_tvb,
+  if(next_tvb)
+    (void) dissector_try_heuristic(t125_heur_subdissector_list, next_tvb,
 	     actx->pinfo, top_tree, &hdtbl_entry, NULL);
 
   return offset;
@@ -563,7 +558,7 @@ void proto_register_t125(void) {
   };
 
   /* Register protocol */
-  proto_t125 = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_t125 = proto_register_protocol("MULTIPOINT-COMMUNICATION-SERVICE T.125", "T.125", "t125");
   /* Register fields and subtrees */
   proto_register_field_array(proto_t125, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));

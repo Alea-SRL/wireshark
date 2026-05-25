@@ -23,9 +23,9 @@ void proto_register_fp_hint(void);
 void proto_reg_handoff_fp_hint(void);
 
 static int proto_fp_hint;
-extern int proto_fp;
-extern int proto_umts_mac;
-extern int proto_umts_rlc;
+static int proto_fp;
+static int proto_umts_mac;
+static int proto_umts_rlc;
 
 static int ett_fph;
 static int ett_fph_rb;
@@ -165,13 +165,13 @@ static uint16_t assign_rb_info(tvbuff_t *tvb, packet_info *pinfo, uint16_t offse
         deciphered = (next_byte >> 3) & 0x1;
 
         if (i >= MAX_RLC_CHANS) {
-            proto_tree_add_expert_format(tree, pinfo, &ei_fph_radio_bearers, tvb, offset, -1,
+            proto_tree_add_expert_format_remaining(tree, pinfo, &ei_fph_radio_bearers, tvb, offset,
                 "Frame contains more Radio Bearers than currently supported (%u present, %u supported)",
                 rbcnt, MAX_RLC_CHANS);
             return -1;
         }
         if (i >= MAX_MAC_FRAMES) {
-            proto_tree_add_expert_format(tree, pinfo, &ei_fph_mac_frames, tvb, offset, -1,
+            proto_tree_add_expert_format_remaining(tree, pinfo, &ei_fph_mac_frames, tvb, offset,
                 "Frame contains more MAC Frames than currently supported (%u present, %u supported)",
                 rbcnt, MAX_MAC_FRAMES);
             return -1;
@@ -295,6 +295,12 @@ static void assign_fph_dch(tvbuff_t *tvb, packet_info *pinfo, uint16_t offset, f
     fpi->num_chans = cnt;
     fpi->dch_crc_present = 1;
     while (i < cnt) {
+        if (i >= MAX_FP_CHANS) {
+            proto_tree_add_expert_format_remaining(tree, pinfo, &ei_fph_fp_channels, tvb, offset,
+                "Frame contains more FP channels than currently supported (%u supported)",
+                MAX_FP_CHANS);
+            return;
+        }
         pi = proto_tree_add_item(tree, hf_fph_tf, tvb, offset, 4, ENC_NA);
         subtree = proto_item_add_subtree(pi, ett_fph_rb);
         hdr = tvb_get_ptr(tvb, offset, 4);
@@ -314,12 +320,6 @@ static void assign_fph_dch(tvbuff_t *tvb, packet_info *pinfo, uint16_t offset, f
                 proto_tree_add_uint(subtree, hf_fph_tf_size, tvb, offset + 1, 3, size);
         }
         offset += 4;
-        if (i > MAX_FP_CHANS) {
-            proto_tree_add_expert_format(tree, pinfo, &ei_fph_fp_channels, tvb, offset, -1,
-                "Frame contains more FP channels than currently supported (%u supported)",
-                MAX_FP_CHANS);
-            return;
-        }
         i++;
     }
     rbcnt = tvb_get_uint8(tvb, offset); offset++;
@@ -405,7 +405,7 @@ static void assign_fph_edch(tvbuff_t *tvb, packet_info *pinfo, uint16_t offset, 
         }
         i++;
         if (i >= MAX_EDCH_DDIS) {
-            proto_tree_add_expert_format(tree, pinfo, &ei_fph_fp_channels, tvb, offset, -1,
+            proto_tree_add_expert_format_remaining(tree, pinfo, &ei_fph_fp_channels, tvb, offset,
                 "Frame contains more FP channels than currently supported (%u supported)",
                 MAX_FP_CHANS);
             return;
@@ -590,6 +590,10 @@ proto_register_fp_hint(void)
 void
 proto_reg_handoff_fp_hint(void)
 {
+    proto_fp = proto_get_id_by_filter_name("fp");
+    proto_umts_mac = proto_get_id_by_filter_name("mac");
+    proto_umts_rlc = proto_get_id_by_filter_name("rlc");
+
     atm_untrunc_handle = find_dissector_add_dependency("atm_untruncated", proto_fp_hint);
     data_handle = find_dissector("data");
     ethwithfcs_handle = find_dissector_add_dependency("eth_withfcs", proto_fp_hint);

@@ -1029,6 +1029,7 @@ static const value_string user_port_object_result_rr_vals[] = {
     { 0x08, "Replace" },
     { 0x09, "Clear Delete" },
     { 0x0A, "Clear Insert" },
+    { 0x0B, "Increment Counter" },
     { 0, NULL }
 };
 
@@ -1193,12 +1194,14 @@ static int hf_oam_dpoe_user_port_object_result_rr_queue_obj_inst;
 static int hf_oam_dpoe_user_port_object_result_rr_queue_queue_index;
 static int hf_oam_dpoe_user_port_object_result_rr_set_fc;
 static int hf_oam_dpoe_user_port_object_result_rr_set_fi;
+static int hf_oam_dpoe_user_port_object_result_rr_set_value;
 static int hf_oam_dpoe_user_port_object_result_rr_copy;
 static int hf_oam_dpoe_user_port_object_result_rr_delete;
 static int hf_oam_dpoe_user_port_object_result_rr_insert;
 static int hf_oam_dpoe_user_port_object_result_rr_replace;
 static int hf_oam_dpoe_user_port_object_result_rr_cd;
 static int hf_oam_dpoe_user_port_object_result_rr_ci;
+static int hf_oam_dpoe_user_port_object_result_rr_inc_counter;
 static int hf_oam_dpoe_qc_ll_u;
 static int hf_oam_dpoe_qc_ports_d;
 static int hf_oam_dpoe_qc_nq;
@@ -2200,10 +2203,8 @@ dissect_oampdu_vendor_specific(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
                                 uint8_t nqs_i;
                                 uint8_t rvpqs_i;
 
-                                proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_repthr_nqs, tvb, offset, 1, ENC_BIG_ENDIAN);
-                                nqs = tvb_get_uint8(tvb, offset);
-                                proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_repthr_rvpqs, tvb, offset+1, 1, ENC_BIG_ENDIAN);
-                                rvpqs = tvb_get_uint8(tvb, offset+1);
+                                proto_tree_add_item_ret_uint8(dpoe_opcode_response_tree, hf_oam_dpoe_repthr_nqs, tvb, offset, 1, ENC_BIG_ENDIAN, &nqs);
+                                proto_tree_add_item_ret_uint8(dpoe_opcode_response_tree, hf_oam_dpoe_repthr_rvpqs, tvb, offset+1, 1, ENC_BIG_ENDIAN, &rvpqs);
 
                                 for (nqs_i = 0; nqs_i < nqs; nqs_i++) {
                                     for (rvpqs_i = 0; rvpqs_i < rvpqs; rvpqs_i++) {
@@ -2270,6 +2271,9 @@ dissect_oampdu_vendor_specific(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
                                                 proto_item_append_text(dpoe_opcode_response, " Set output field");
                                                 proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_user_port_object_result_rr_set_fc, tvb, offset+2, 1, ENC_BIG_ENDIAN);
                                                 proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_user_port_object_result_rr_set_fi, tvb, offset+3, 1, ENC_BIG_ENDIAN);
+                                                if (variable_length > 4) {
+                                                    proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_user_port_object_result_rr_set_value, tvb, offset+4, variable_length-4, ENC_NA);
+                                                }
                                                 break;
                                             case 0x05:
                                                 proto_item_append_text(dpoe_opcode_response, " Copy output field");
@@ -2294,6 +2298,10 @@ dissect_oampdu_vendor_specific(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
                                             case 0x0A:
                                                 proto_item_append_text(dpoe_opcode_response, " Do not insert field (override other Insert result)");
                                                 proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_user_port_object_result_rr_ci, tvb, offset+2, 2, ENC_BIG_ENDIAN);
+                                                break;
+                                            case 0x0B:
+                                                proto_item_append_text(dpoe_opcode_response, " Increment programmable counter");
+                                                proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_user_port_object_result_rr_inc_counter, tvb, offset+2, 2, ENC_BIG_ENDIAN);
                                                 break;
                                             default:
                                                 break;
@@ -2404,8 +2412,7 @@ dissect_oampdu_vendor_specific(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
                                 proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_1904_1_mac_control_functions_supported, tvb, offset, 2, ENC_BIG_ENDIAN);
                             } else if (leaf_branch == DPOE_LB_1904_1_CFG_MCAST_LLID) {
                                 uint8_t action;
-                                proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_1904_1_cfg_mcast_llid_action, tvb, offset, 1, ENC_BIG_ENDIAN);
-                                action = tvb_get_uint8(tvb, offset);
+                                proto_tree_add_item_ret_uint8(dpoe_opcode_response_tree, hf_oam_dpoe_1904_1_cfg_mcast_llid_action, tvb, offset, 1, ENC_BIG_ENDIAN, &action);
                                 switch (action) {
                                     case 0x00:
                                     case 0x01:
@@ -2433,8 +2440,7 @@ dissect_oampdu_vendor_specific(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
                 case 0x08:
                     break;
                 case DPOE_OPCODE_FILE_TRANSFER:
-                    opcode = tvb_get_uint8(tvb, offset);
-                    proto_tree_add_item(dpoe_opcode_tree, hf_oam_dpoe_file_transfer_opcode, tvb, offset, 1, ENC_BIG_ENDIAN);
+                    proto_tree_add_item_ret_uint8(dpoe_opcode_tree, hf_oam_dpoe_file_transfer_opcode, tvb, offset, 1, ENC_BIG_ENDIAN, &opcode);
                     offset += 1;
                     switch (opcode) {
                         case DPOE_FILE_TRANSFER_WRITE:
@@ -3170,6 +3176,11 @@ proto_register_oampdu(void)
                 FT_UINT8, BASE_HEX, NULL, 0x0,
                 NULL, HFILL } },
 
+        { &hf_oam_dpoe_user_port_object_result_rr_set_value,
+            { "Set Value", "oampdu.user.port.object.result.rr.set.value",
+                FT_BYTES, BASE_NONE, NULL, 0x0,
+                NULL, HFILL } },
+
         { &hf_oam_dpoe_user_port_object_result_rr_copy,
             { "Field Code to set from field used in last clause of rule", "oampdu.user.port.object.result.rr.copy",
                 FT_UINT32, BASE_HEX, NULL, 0x0,
@@ -3197,6 +3208,11 @@ proto_register_oampdu(void)
 
         { &hf_oam_dpoe_user_port_object_result_rr_ci,
             { "Field Code not to insert", "oampdu.user.port.object.result.rr.ci",
+                FT_UINT16, BASE_HEX, NULL, 0x0,
+                NULL, HFILL } },
+
+        { &hf_oam_dpoe_user_port_object_result_rr_inc_counter,
+            { "Programmable counter index", "oampdu.user.port.object.result.rr.inc_counter",
                 FT_UINT16, BASE_HEX, NULL, 0x0,
                 NULL, HFILL } },
 

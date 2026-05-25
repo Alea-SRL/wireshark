@@ -92,6 +92,11 @@
 #define pint_bswap64(x) __builtin_bswap64(x)
 #endif
 
+/**
+ * @brief Reads a big-endian (network-order) uint16_t from an unaligned pointer.
+ * @param p Pointer to at least 2 bytes of data in network byte order.
+ * @return The value converted to host byte order.
+ */
 static inline uint16_t pntohu16(const void *p)
 {
     uint16_t ret;
@@ -102,6 +107,11 @@ static inline uint16_t pntohu16(const void *p)
     return ret;
 }
 
+/**
+ * @brief Reads a big-endian (network-order) uint32_t from an unaligned pointer.
+ * @param p Pointer to at least 4 bytes of data in network byte order.
+ * @return The value converted to host byte order.
+ */
 static inline uint32_t pntohu32(const void *p)
 {
     uint32_t ret;
@@ -112,6 +122,11 @@ static inline uint32_t pntohu32(const void *p)
     return ret;
 }
 
+/**
+ * @brief Reads a big-endian (network-order) uint64_t from an unaligned pointer.
+ * @param p Pointer to at least 8 bytes of data in network byte order.
+ * @return The value converted to host byte order.
+ */
 static inline uint64_t pntohu64(const void *p)
 {
     uint64_t ret;
@@ -122,6 +137,11 @@ static inline uint64_t pntohu64(const void *p)
     return ret;
 }
 
+/**
+ * @brief Reads a little-endian uint16_t from an unaligned pointer.
+ * @param p Pointer to at least 2 bytes of data in little-endian byte order.
+ * @return The value converted to host byte order.
+ */
 static inline uint16_t pletohu16(const void *p)
 {
     uint16_t ret;
@@ -132,6 +152,11 @@ static inline uint16_t pletohu16(const void *p)
     return ret;
 }
 
+/**
+ * @brief Reads a little-endian uint32_t from an unaligned pointer.
+ * @param p Pointer to at least 4 bytes of data in little-endian byte order.
+ * @return The value converted to host byte order.
+ */
 static inline uint32_t pletohu32(const void *p)
 {
     uint32_t ret;
@@ -142,6 +167,11 @@ static inline uint32_t pletohu32(const void *p)
     return ret;
 }
 
+/**
+ * @brief Reads a little-endian uint64_t from an unaligned pointer.
+ * @param p Pointer to at least 8 bytes of data in little-endian byte order.
+ * @return The value converted to host byte order.
+ */
 static inline uint64_t pletohu64(const void *p)
 {
     uint64_t ret;
@@ -152,6 +182,11 @@ static inline uint64_t pletohu64(const void *p)
     return ret;
 }
 
+/**
+ * @brief Writes a uint16_t to an unaligned pointer in big-endian (network) byte order.
+ * @param p Destination buffer; must have at least 2 bytes available.
+ * @param v Value in host byte order to write.
+ */
 static inline void phtonu16(uint8_t *p, uint16_t v)
 {
 #if G_BYTE_ORDER == G_LITTLE_ENDIAN
@@ -160,6 +195,11 @@ static inline void phtonu16(uint8_t *p, uint16_t v)
     memcpy(p, &v, sizeof(v));
 }
 
+/**
+ * @brief Writes a uint32_t to an unaligned pointer in big-endian (network) byte order.
+ * @param p Destination buffer; must have at least 4 bytes available.
+ * @param v Value in host byte order to write.
+ */
 static inline void phtonu32(uint8_t *p, uint32_t v)
 {
 #if G_BYTE_ORDER == G_LITTLE_ENDIAN
@@ -168,13 +208,24 @@ static inline void phtonu32(uint8_t *p, uint32_t v)
     memcpy(p, &v, sizeof(v));
 }
 
-static inline void phtonu64(uint8_t *p, uint64_t v) {
+/**
+ * @brief Writes a uint64_t to an unaligned pointer in big-endian (network) byte order.
+ * @param p Destination buffer; must have at least 8 bytes available.
+ * @param v Value in host byte order to write.
+ */
+static inline void phtonu64(uint8_t *p, uint64_t v)
+{
 #if G_BYTE_ORDER == G_LITTLE_ENDIAN
     v = pint_bswap64(v);
 #endif
     memcpy(p, &v, sizeof(v));
 }
 
+/**
+ * @brief Writes a uint16_t to an unaligned pointer in little-endian byte order.
+ * @param p Destination buffer; must have at least 2 bytes available.
+ * @param v Value in host byte order to write.
+ */
 static inline void phtoleu16(uint8_t *p, uint32_t v)
 {
 #if G_BYTE_ORDER == G_BIG_ENDIAN
@@ -183,6 +234,11 @@ static inline void phtoleu16(uint8_t *p, uint32_t v)
     memcpy(p, &v, sizeof(v));
 }
 
+/**
+ * @brief Writes a uint32_t to an unaligned pointer in little-endian byte order.
+ * @param p Destination buffer; must have at least 4 bytes available.
+ * @param v Value in host byte order to write.
+ */
 static inline void phtoleu32(uint8_t *p, uint32_t v)
 {
 #if G_BYTE_ORDER == G_BIG_ENDIAN
@@ -191,7 +247,13 @@ static inline void phtoleu32(uint8_t *p, uint32_t v)
     memcpy(p, &v, sizeof(v));
 }
 
-static inline void phtoleu64(uint8_t *p, uint64_t v) {
+/**
+ * @brief Writes a uint64_t to an unaligned pointer in little-endian byte order.
+ * @param p Destination buffer; must have at least 8 bytes available.
+ * @param v Value in host byte order to write.
+ */
+static inline void phtoleu64(uint8_t *p, uint64_t v)
+{
 #if G_BYTE_ORDER == G_BIG_ENDIAN
     v = pint_bswap64(v);
 #endif
@@ -200,12 +262,25 @@ static inline void phtoleu64(uint8_t *p, uint64_t v) {
 
 #else
 /* Portable functions */
+
+/**
+ * @brief Convert a network byte order 16-bit unsigned integer to host byte order.
+ *
+ * @param p Pointer to the memory location containing the 16-bit unsigned integer in network byte order.
+ * @return The converted 16-bit unsigned integer in host byte order.
+ */
 static inline uint16_t pntohu16(const void *p)
 {
     return (uint16_t)*((const uint8_t *)(p)+0)<<8|
            (uint16_t)*((const uint8_t *)(p)+1)<<0;
 }
 
+/**
+ * @brief Convert a network-order 32-bit unsigned integer to host order.
+ *
+ * @param p Pointer to the network-order 32-bit unsigned integer.
+ * @return The host-order 32-bit unsigned integer.
+ */
 static inline uint32_t pntohu32(const void *p)
 {
     return (uint32_t)*((const uint8_t *)(p)+0)<<24|
@@ -213,6 +288,13 @@ static inline uint32_t pntohu32(const void *p)
            (uint32_t)*((const uint8_t *)(p)+2)<<8|
            (uint32_t)*((const uint8_t *)(p)+3)<<0;
 }
+
+ /**
+  * @brief Convert a network-order 64-bit unsigned integer to host order.
+  *
+  * @param p Pointer to the network-order 64-bit unsigned integer.
+  * @return The host-order 64-bit unsigned integer.
+  */
 
 static inline uint64_t pntohu64(const void *p)
 {
@@ -226,12 +308,24 @@ static inline uint64_t pntohu64(const void *p)
            (uint64_t)*((const uint8_t *)(p)+7)<<0;
 }
 
+/**
+ * @brief Convert a 16-bit big-endian value to a host-order unsigned integer.
+ *
+ * @param p Pointer to the memory location containing the big-endian 16-bit value.
+ * @return uint16_t The converted host-order unsigned 16-bit integer.
+ */
 static inline uint16_t pletohu16(const void *p)
 {
     return (uint16_t)*((const uint8_t *)(p)+1)<<8|
            (uint16_t)*((const uint8_t *)(p)+0)<<0;
 }
 
+/**
+ * @brief Convert a 32-bit big-endian value to a host-order uint32_t.
+ *
+ * @param p Pointer to the 4-byte big-endian value.
+ * @return The converted uint32_t value in host order.
+ */
 static inline uint32_t pletohu32(const void *p)
 {
     return (uint32_t)*((const uint8_t *)(p)+3)<<24|
@@ -240,6 +334,12 @@ static inline uint32_t pletohu32(const void *p)
            (uint32_t)*((const uint8_t *)(p)+0)<<0;
 }
 
+/**
+ * @brief Convert a pointer to an unsigned 64-bit integer in little-endian format.
+ *
+ * @param p Pointer to the memory location containing the little-endian bytes.
+ * @return The converted unsigned 64-bit integer.
+ */
 static inline uint64_t pletohu64(const void *p)
 {
     return (uint64_t)*((const uint8_t *)(p)+7)<<56|
@@ -252,16 +352,23 @@ static inline uint64_t pletohu64(const void *p)
            (uint64_t)*((const uint8_t *)(p)+0)<<0;
 }
 
-/* Pointer routines to put items out in a particular byte order.
- * These will work regardless of the byte alignment of the pointer.
+/**
+ * @brief Writes a uint16_t to an unaligned pointer in big-endian (network) byte order.
+ * @param p Destination buffer; must have at least 2 bytes available.
+ * @param v Value in host byte order to write.
  */
-
 static inline void phtonu16(uint8_t *p, uint16_t v)
 {
     p[0] = (uint8_t)(v >> 8);
     p[1] = (uint8_t)(v >> 0);
 }
 
+/**
+ * @brief Convert a 32-bit unsigned integer to network byte order and store it in a buffer.
+ *
+ * @param p Pointer to the buffer where the converted value will be stored.
+ * @param v The 32-bit unsigned integer value to convert.
+ */
 static inline void phtonu32(uint8_t *p, uint32_t v)
 {
     p[0] = (uint8_t)(v >> 24);
@@ -270,6 +377,12 @@ static inline void phtonu32(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)(v >> 0);
 }
 
+/**
+ * @brief Converts a 64-bit unsigned integer to network byte order and stores it in a buffer.
+ *
+ * @param p Pointer to the buffer where the converted value will be stored.
+ * @param v The 64-bit unsigned integer value to convert.
+ */
 static inline void phtonu64(uint8_t *p, uint64_t v) {
     p[0] = (uint8_t)(v >> 56);
     p[1] = (uint8_t)(v >> 48);
@@ -281,12 +394,24 @@ static inline void phtonu64(uint8_t *p, uint64_t v) {
     p[7] = (uint8_t)(v >> 0);
 }
 
+/**
+ * @brief Convert a 16-bit unsigned integer from host byte order to little-endian and store it in memory.
+ *
+ * @param p Pointer to the memory location where the converted value will be stored.
+ * @param v The 16-bit unsigned integer value to convert.
+ */
 static inline void phtoleu16(uint8_t *p, uint16_t v)
 {
     p[0] = (uint8_t)(v >> 0);
     p[1] = (uint8_t)(v >> 8);
 }
 
+/**
+ * @brief Convert a 32-bit unsigned integer from host byte order to little-endian and store it in a buffer.
+ *
+ * @param p Pointer to the buffer where the converted value will be stored.
+ * @param v The 32-bit unsigned integer value to convert.
+ */
 static inline void phtoleu32(uint8_t *p, uint32_t v) {
     p[0] = (uint8_t)(v >> 0);
     p[1] = (uint8_t)(v >> 8);
@@ -294,6 +419,12 @@ static inline void phtoleu32(uint8_t *p, uint32_t v) {
     p[3] = (uint8_t)(v >> 24);
 }
 
+/**
+ * @brief Converts a 64-bit unsigned integer from host byte order to little-endian byte order and stores it in a buffer.
+ *
+ * @param p Pointer to the buffer where the converted value will be stored.
+ * @param v The 64-bit unsigned integer value to convert.
+ */
 static inline void phtoleu64(uint8_t *p, uint64_t v) {
     p[0] = (uint8_t)(v >> 0);
     p[1] = (uint8_t)(v >> 8);
@@ -308,31 +439,60 @@ static inline void phtoleu64(uint8_t *p, uint64_t v) {
 
 /*
  * Single-byte versions, for completeness.
+*/
+
+/**
+ * @brief Convert a network byte order (big-endian) unsigned 8-bit integer to host byte order.
+ *
+ * @param p Pointer to the memory location containing the network byte order unsigned 8-bit integer.
+ * @return uint8_t The host byte order unsigned 8-bit integer.
  */
 static inline uint8_t pntohu8(const void *p)
 {
     return *((const uint8_t *)(p)+0)<<0;
 }
 
+/**
+ * @brief Convert a little-endian 8-bit value to a host byte order 8-bit value.
+ *
+ * @param p Pointer to the little-endian 8-bit value.
+ * @return The host byte order 8-bit value.
+ */
 static inline uint8_t pletohu8(const void *p)
 {
     return *((const uint8_t *)(p)+0)<<0;
 }
 
+/**
+ * @brief Store an 8-bit unsigned integer in network byte order.
+ *
+ * @param p Pointer to the buffer where the value will be stored.
+ * @param v The 8-bit unsigned integer value to store.
+ */
 static inline void phtonu8(uint8_t *p, uint8_t v)
 {
     p[0] = (uint8_t)((v) >> 0);
 }
 
+/**
+ * @brief Convert an unsigned 8-bit value from host byte order to little-endian format.
+ *
+ * @param p Pointer to the buffer where the converted value will be stored.
+ * @param v The unsigned 8-bit value to convert.
+ */
 static inline void phtoleu8(uint8_t *p, uint8_t v)
 {
     p[0] = (uint8_t)((v) >> 0);
 }
 
-/*
- * Non-power-of-2 field sizes; do these a byte at a time, and let the
- * compiler optimize them to combinations of power-of-2 operations if
- * possible.
+/**
+ * @brief Convert a network-order 24-bit value to host order.
+ *
+ * This function takes a pointer to a buffer containing a 24-bit value in network
+ * byte order and converts it to host byte order as a uint32_t.
+ *
+ * @param p Pointer to the buffer containing the 24-bit value.
+ * @return The converted 24-bit value in host byte order.
  */
 static inline uint32_t pntohu24(const void *p)
 {
@@ -341,6 +501,15 @@ static inline uint32_t pntohu24(const void *p)
            (uint32_t)*((const uint8_t *)(p)+2)<<0;
 }
 
+/**
+ * @brief Convert a network-order 40-bit value to host order.
+ *
+ * This function takes a pointer to a buffer containing a 40-bit value in network
+ * byte order and converts it to host byte order as a uint64_t.
+ *
+ * @param p Pointer to the buffer containing the 40-bit value.
+ * @return The converted 40-bit value in host byte order.
+ */
 static inline uint64_t pntohu40(const void *p)
 {
     return (uint64_t)*((const uint8_t *)(p)+0)<<32|
@@ -350,6 +519,12 @@ static inline uint64_t pntohu40(const void *p)
            (uint64_t)*((const uint8_t *)(p)+4)<<0;
 }
 
+/**
+ * @brief Convert a network-order 48-bit unsigned integer to host order.
+ *
+ * @param p Pointer to the memory location containing the 48-bit unsigned integer in network order.
+ * @return The converted 48-bit unsigned integer in host order.
+ */
 static inline uint64_t pntohu48(const void *p)
 {
     return (uint64_t)*((const uint8_t *)(p)+0)<<40|
@@ -360,6 +535,12 @@ static inline uint64_t pntohu48(const void *p)
            (uint64_t)*((const uint8_t *)(p)+5)<<0;
 }
 
+/**
+ * @brief Convert a network-order 56-bit value to host order.
+ *
+ * @param p Pointer to the 56-bit value in network order.
+ * @return uint64_t The 56-bit value converted to host order.
+ */
 static inline uint64_t pntohu56(const void *p)
 {
     return (uint64_t)*((const uint8_t *)(p)+0)<<48|
@@ -371,6 +552,12 @@ static inline uint64_t pntohu56(const void *p)
            (uint64_t)*((const uint8_t *)(p)+6)<<0;
 }
 
+/**
+ * @brief Convert a 24-bit big-endian value to an unsigned 32-bit integer.
+ *
+ * @param p Pointer to the memory location containing the 24-bit big-endian value.
+ * @return uint32_t The converted 32-bit unsigned integer.
+ */
 static inline uint32_t pletohu24(const void *p)
 {
     return (uint32_t)*((const uint8_t *)(p)+2)<<16|
@@ -378,6 +565,12 @@ static inline uint32_t pletohu24(const void *p)
            (uint32_t)*((const uint8_t *)(p)+0)<<0;
 }
 
+/**
+ * @brief Convert a 40-bit big-endian value to a 64-bit unsigned integer.
+ *
+ * @param p Pointer to the memory location containing the 40-bit big-endian value.
+ * @return uint64_t The converted 64-bit unsigned integer.
+ */
 static inline uint64_t pletohu40(const void *p)
 {
     return (uint64_t)*((const uint8_t *)(p)+4)<<32|
@@ -387,6 +580,12 @@ static inline uint64_t pletohu40(const void *p)
            (uint64_t)*((const uint8_t *)(p)+0)<<0;
 }
 
+/**
+ * @brief Convert a little-endian packed 48-bit integer to an unsigned 64-bit integer.
+ *
+ * @param p Pointer to the memory location containing the little-endian packed 48-bit integer.
+ * @return uint64_t The converted unsigned 64-bit integer.
+ */
 static inline uint64_t pletohu48(const void *p)
 {
     return (uint64_t)*((const uint8_t *)(p)+5)<<40|
@@ -396,6 +595,13 @@ static inline uint64_t pletohu48(const void *p)
            (uint64_t)*((const uint8_t *)(p)+1)<<8|
            (uint64_t)*((const uint8_t *)(p)+0)<<0;
 }
+
+ /**
+  * @brief Convert a 6-byte big-endian value to a 56-bit unsigned integer.
+  *
+  * @param p Pointer to the 6-byte big-endian value.
+  * @return uint64_t The converted 56-bit unsigned integer.
+  */
 
 static inline uint64_t pletohu56(const void *p)
 {
@@ -408,6 +614,13 @@ static inline uint64_t pletohu56(const void *p)
            (uint64_t)*((const uint8_t *)(p)+0)<<0;
 }
 
+ /**
+  * @brief Convert a 32-bit unsigned integer to network byte order and store it in a buffer.
+  *
+  * @param p Pointer to the buffer where the converted value will be stored.
+  * @param v The 32-bit unsigned integer value to convert.
+  */
+
 static inline void phtonu24(uint8_t *p, uint32_t v)
 {
     p[0] = (uint8_t)((v) >> 16);
@@ -415,6 +628,12 @@ static inline void phtonu24(uint8_t *p, uint32_t v)
     p[2] = (uint8_t)((v) >> 0);
 }
 
+/**
+ * @brief Converts a 40-bit unsigned integer to network byte order (big-endian) and stores it in a buffer.
+ *
+ * @param p Pointer to the buffer where the 40-bit value will be stored.
+ * @param v The 40-bit unsigned integer value to convert.
+ */
 static inline void phtonu40(uint8_t *p, uint64_t v)
 {
     p[0] = (uint8_t)((v) >> 32);
@@ -424,6 +643,12 @@ static inline void phtonu40(uint8_t *p, uint64_t v)
     p[4] = (uint8_t)((v) >> 0);
 }
 
+/**
+ * @brief Converts a 48-bit unsigned integer to network byte order and stores it in a buffer.
+ *
+ * @param p Pointer to the buffer where the 48-bit value will be stored.
+ * @param v The 48-bit unsigned integer value to convert.
+ */
 static inline void phtonu48(uint8_t *p, uint64_t v)
 {
     p[0] = (uint8_t)((v) >> 40);
@@ -433,6 +658,13 @@ static inline void phtonu48(uint8_t *p, uint64_t v)
     p[4] = (uint8_t)((v) >> 8);
     p[5] = (uint8_t)((v) >> 0);
 }
+
+ /**
+  * @brief Convert a 64-bit unsigned integer to network byte order and store it in a buffer.
+  *
+  * @param p Pointer to the buffer where the result will be stored.
+  * @param v The 64-bit unsigned integer value to convert.
+  */
 
 static inline void phtonu56(uint8_t *p, uint64_t v)
 {
@@ -445,6 +677,12 @@ static inline void phtonu56(uint8_t *p, uint64_t v)
     p[6] = (uint8_t)((v) >> 0);
 }
 
+/**
+ * @brief Convert a 24-bit unsigned integer from host byte order to little-endian format.
+ *
+ * @param p Pointer to the buffer where the converted value will be stored.
+ * @param v The 32-bit unsigned integer value to convert.
+ */
 static inline void phtoleu24(uint8_t *p, uint32_t v)
 {
     p[0] = (uint8_t)((v) >> 0);
@@ -452,6 +690,12 @@ static inline void phtoleu24(uint8_t *p, uint32_t v)
     p[2] = (uint8_t)((v) >> 16);
 }
 
+/**
+ * @brief Convert a 64-bit unsigned integer to little-endian format and store it in a buffer.
+ *
+ * @param p Pointer to the buffer where the little-endian value will be stored.
+ * @param v The 64-bit unsigned integer value to convert.
+ */
 static inline void phtoleu40(uint8_t *p, uint64_t v)
 {
     p[0] = (uint8_t)((v) >> 0);
@@ -461,6 +705,12 @@ static inline void phtoleu40(uint8_t *p, uint64_t v)
     p[4] = (uint8_t)((v) >> 32);
 }
 
+/**
+ * @brief Convert a 64-bit unsigned integer from host byte order to little-endian and store it in a buffer.
+ *
+ * @param p Pointer to the buffer where the converted value will be stored.
+ * @param v The 64-bit unsigned integer value to convert.
+ */
 static inline void phtoleu48(uint8_t *p, uint64_t v)
 {
     p[0] = (uint8_t)((v) >> 0);
@@ -471,6 +721,12 @@ static inline void phtoleu48(uint8_t *p, uint64_t v)
     p[5] = (uint8_t)((v) >> 40);
 }
 
+/**
+ * @brief Convert a 64-bit unsigned integer from host byte order to little-endian byte order and store it in a buffer.
+ *
+ * @param p Pointer to the buffer where the converted bytes will be stored.
+ * @param v The 64-bit unsigned integer value to convert.
+ */
 static inline void phtoleu56(uint8_t *p, uint64_t v)
 {
     p[0] = (uint8_t)((v) >> 0);

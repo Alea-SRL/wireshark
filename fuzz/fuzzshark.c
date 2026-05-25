@@ -24,7 +24,7 @@
 #include <wsutil/cmdarg_err.h>
 #include <ui/failure_message.h>
 #include <wsutil/filesystem.h>
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>
 #include <wsutil/privileges.h>
 #include <wsutil/clopts_common.h>
 #include <wsutil/ws_getopt.h>
@@ -154,6 +154,9 @@ fuzz_init(int argc, char **argv)
 	unsigned num_extensions;
 	epan_app_data_t app_data;
 
+	/* Future proof by zeroing out all data */
+	memset(&app_data, 0, sizeof(app_data));
+
 	const char *fuzz_target =
 #if defined(FUZZ_DISSECTOR_TARGET)
 		FUZZ_DISSECTOR_TARGET;
@@ -172,11 +175,8 @@ fuzz_init(int argc, char **argv)
 #if !defined(FUZZ_DISSECTOR_TABLE) && !defined(FUZZ_DISSECTOR_TARGET)
 	const char *fuzz_table = getenv("FUZZSHARK_TABLE");
 
-	/* Future proof by zeroing out all data */
-	memset(&app_data, 0, sizeof(app_data));
-
 	/*
-	 * Set the pogram name.
+	 * Set the program name.
 	 *
 	 * XXX - yes, this isn't main(), but it still needs to be
 	 * set, as many Wireshark library routines depend on it
@@ -260,7 +260,7 @@ fuzz_init(int argc, char **argv)
 	}
 
 	/* Initialize the version information. */
-	ws_init_version_info("OSS Fuzzshark", NULL, get_ws_vcs_version_info,
+	ws_init_version_info("OSS Fuzzshark", NULL, application_get_vcs_version_info,
 	    epan_gather_compile_info, epan_gather_runtime_info);
 
 	init_report_failure_message("fuzzshark");
@@ -286,7 +286,6 @@ fuzz_init(int argc, char **argv)
 	app_data.num_cols = application_num_columns();
 	app_data.register_func = register_all_protocols;
 	app_data.handoff_func = register_all_protocol_handoffs;
-	app_data.supports_packets = application_flavor_is_wireshark();
 	if (!epan_init(NULL, NULL, false, &app_data))
 	{
 		ret = EPAN_INIT_FAIL;

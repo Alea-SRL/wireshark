@@ -7,10 +7,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-
-#ifndef __CONVERSATION_H__
-#define __CONVERSATION_H__
-
+#pragma once
 #include "ws_symbol_export.h"
 
 #include <epan/packet.h>			/* for conversation dissector type */
@@ -278,23 +275,54 @@ typedef struct conversation {
 struct conversation_addr_port_endpoints;
 typedef struct conversation_addr_port_endpoints* conversation_addr_port_endpoints_t;
 
+/**
+ * @brief Retrieve the first address from a conversation key.
+ *
+ * @param key The conversation element key.
+ * @return Pointer to the first address in the key.
+ */
 WS_DLL_PUBLIC const address* conversation_key_addr1(const conversation_element_t *key);
+
+/**
+ * @brief Retrieve the first port from a conversation key.
+ *
+ * @param key The conversation element key.
+ * @return The first port in the key, or 0 if not present.
+ */
 WS_DLL_PUBLIC uint32_t conversation_key_port1(const conversation_element_t *key);
+
+/**
+ * @brief Retrieve the second address from a conversation key.
+ *
+ * @param key The conversation element key.
+ * @return Pointer to the second address in the key.
+ */
 WS_DLL_PUBLIC const address* conversation_key_addr2(const conversation_element_t *key);
+
+/**
+ * @brief Retrieve the second port from a conversation key.
+ *
+ * @param key The conversation element key.
+ * @return The second port in the key, or 0 if not present.
+ */
 WS_DLL_PUBLIC uint32_t conversation_key_port2(const conversation_element_t *key);
 
 /**
- * Create a new hash tables for conversations.
+ * @brief Create a new hash tables for conversations.
  */
 extern void conversation_init(void);
 
 /**
- * Initialize some variables every time a file is loaded or re-loaded.
+ * @brief Initialize some variables every time a file is loaded or re-loaded.
+ *
+ * This function initializes necessary variables for handling conversations in Wireshark.
+ * It prepares data structures and sets up default values to ensure proper operation when
+ * new files are loaded or existing ones are reloaded.
  */
 extern void conversation_epan_reset(void);
 
 /**
- * Create a new conversation identified by a list of elements.
+ * @brief Create a new conversation identified by a list of elements.
  * @param setup_frame The first frame in the conversation.
  * @param elements An array of element types and values. Must not be NULL. Must be terminated with a CE_CONVERSATION_TYPE element.
  * @return The new conversation.
@@ -302,7 +330,7 @@ extern void conversation_epan_reset(void);
 WS_DLL_PUBLIC WS_RETNONNULL conversation_t *conversation_new_full(const uint32_t setup_frame, conversation_element_t *elements);
 
 /**
- * Given two address/port pairs for a packet, create a new conversation
+ * @brief Given two address/port pairs for a packet, create a new conversation
  * identified by address/port pairs.
  *
  * The options field is used to specify whether the address 2 value
@@ -323,10 +351,17 @@ WS_DLL_PUBLIC WS_RETNONNULL conversation_t *conversation_new_full(const uint32_t
 WS_DLL_PUBLIC WS_RETNONNULL conversation_t *conversation_new(const uint32_t setup_frame, const address *addr1, const address *addr2,
     const conversation_type ctype, const uint32_t port1, const uint32_t port2, const unsigned options);
 
+/**
+ * @brief Create a new conversation identified by a conversation index.
+ * @param setup_frame The first frame in the conversation.
+ * @param ctype The conversation type.
+ * @param id The conversation index.
+ * @return The new conversation.
+ */
 WS_DLL_PUBLIC WS_RETNONNULL conversation_t *conversation_new_by_id(const uint32_t setup_frame, const conversation_type ctype, const uint32_t id);
 
 /**
- * Create a new conversation in the err_pkts table.
+ * @brief Create a new conversation in the err_pkts table.
  *
  * @param setup_frame The first frame in the conversation.
  * @param ctype The conversation type.
@@ -337,7 +372,7 @@ WS_DLL_PUBLIC WS_RETNONNULL conversation_t *conversation_new_by_id(const uint32_
 WS_DLL_PUBLIC WS_RETNONNULL conversation_t *conversation_new_err_pkts(const uint32_t setup_frame, const conversation_type ctype, const uint32_t id, const uint32_t rid);
 
 /**
- * Returns the Deinterlacing support status
+ * @brief Returns the Deinterlacing support status
  *
  * @param pinfo Packet info.
  * @return true if deinterlacing is supported and enabled by the user pref, false otherwise
@@ -345,13 +380,25 @@ WS_DLL_PUBLIC WS_RETNONNULL conversation_t *conversation_new_err_pkts(const uint
 WS_DLL_PUBLIC bool is_deinterlacing_supported(const packet_info *pinfo);
 
 /**
+ * @brief Create a deinterlaced conversation, based on two addresses,
+ * a type, and several keys (VLAN, Mac, Interface).
  *
+ * @param setup_frame The first frame in the conversation.
+ * @param addr1 The first address in the identifying tuple.
+ * @param addr2 The second address in the identifying tuple.
+ * @param ctype The conversation type.
+ * @param port1 The first port in the identifying tuple.
+ * @param port2 The second port in the identifying tuple.
+ * @param anchor The frame number to anchor the conversation to, which is used to determine the initial frame number of the conversation and to find the other key values (VLAN, Mac, Interface) for the conversation.
+ * @param options NO_ADDR2, NO_PORT2, NO_PORT2_FORCE, or CONVERSATION_TEMPLATE.
+ *        Options except for NO_PORT2 and NO_PORT2_FORCE can be ORed.
+ * @return The new conversation.
  */
 WS_DLL_PUBLIC WS_RETNONNULL conversation_t *conversation_new_deinterlaced(const uint32_t setup_frame, const address *addr1, const address *addr2,
     const conversation_type ctype, const uint32_t port1, const uint32_t port2, const uint32_t anchor, const unsigned options);
 
 /**
- * Create a deinterlacer conversation, based on two addresses,
+ * @brief Create a deinterlacer conversation, based on two addresses,
  * a type, and several keys (VLAN, Mac, Interface).
  *
  * @param setup_frame The first frame in the conversation.
@@ -367,7 +414,7 @@ WS_DLL_PUBLIC WS_RETNONNULL conversation_t *conversation_new_deinterlacer(const 
     const conversation_type ctype, const uint32_t key1, const uint32_t key2, const uint32_t key3);
 
 /**
- * A helper function for creating conversations according to the runtime deinterlacing strategy,
+ * @brief A helper function for creating conversations according to the runtime deinterlacing strategy,
  * which means the returned conversation is either a classic (historical) object, or a deinterlaced one.
  *
  * @param pinfo Packet info.
@@ -378,11 +425,26 @@ WS_DLL_PUBLIC WS_RETNONNULL conversation_t *conversation_new_deinterlacer(const 
  */
 WS_DLL_PUBLIC WS_RETNONNULL conversation_t *conversation_new_strat(const packet_info *pinfo, const conversation_type ctype, const unsigned options);
 
+/**
+ * @brief A helper function for creating conversations according to the runtime deinterlacing strategy,
+ * which means the returned conversation is either a classic (historical) object, or a deinterlaced one.
+ *
+ * @param pinfo Packet info.
+ * @param setup_frame The first frame in the conversation.
+ * @param addr1 The first address in the identifying tuple.
+ * @param addr2 The second address in the identifying tuple.
+ * @param ctype The conversation type.
+ * @param port1 The first port in the identifying tuple.
+ * @param port2 The second port in the identifying tuple.
+ * @param options NO_ADDR2, NO_PORT2, NO_PORT2_FORCE, or CONVERSATION_TEMPLATE.
+ *        Options except for NO_PORT2 and NO_PORT2_FORCE can be ORed.
+ * @return The new conversation.
+ */
 WS_DLL_PUBLIC WS_RETNONNULL conversation_t *conversation_new_strat_xtd(const packet_info *pinfo, const uint32_t setup_frame, const address *addr1, const address *addr2,
     const conversation_type ctype, const uint32_t port1, const uint32_t port2, const unsigned options);
 
 /**
- * Search for a conversation based on the structure and values of an element list.
+ * @brief Search for a conversation based on the structure and values of an element list.
  * @param frame_num Frame number. Must be greater than or equal to the conversation's initial frame number.
  * @param elements An array of element types and values. Must not be NULL. Must be terminated with a CE_CONVERSATION_TYPE element.
  * @return The matching conversation if found, otherwise NULL.
@@ -439,48 +501,142 @@ WS_DLL_PUBLIC conversation_t *find_conversation_full(const uint32_t frame_num, c
 WS_DLL_PUBLIC conversation_t *find_conversation(const uint32_t frame_num, const address *addr_a, const address *addr_b,
     const conversation_type ctype, const uint32_t port_a, const uint32_t port_b, const unsigned options);
 
+ /**
+  * @brief Finds a conversation using deinterlacing based on frame number, addresses, ports, and type.
+  *
+  * @param frame_num The frame number associated with the conversation.
+  * @param addr_a The first address of the conversation.
+  * @param addr_b The second address of the conversation.
+  * @param ctype The type of the conversation.
+  * @param port_a The port number for the first address.
+  * @param port_b The port number for the second address.
+  * @param anchor The anchor value for the conversation.
+  * @param options Options to control the search behavior.
+  * @return conversation_t* A pointer to the found conversation, or NULL if not found.
+  */
 WS_DLL_PUBLIC conversation_t *find_conversation_deinterlaced(const uint32_t frame_num, const address *addr_a, const address *addr_b,
     const conversation_type ctype, const uint32_t port_a, const uint32_t port_b, const uint32_t anchor, const unsigned options);
 
+/**
+ * @brief Finds a conversation using deinterlacing based on frame number and addresses.
+ *
+ * @param frame_num The frame number of the packet.
+ * @param addr_a The first address of the conversation.
+ * @param addr_b The second address of the conversation.
+ * @param ctype The type of conversation.
+ * @param key_a Additional key for the conversation (port A).
+ * @param key_b Additional key for the conversation (port B).
+ * @param key_c Additional key for the conversation (anchor).
+ * @return conversation_t* Pointer to the found conversation, or NULL if not found.
+ */
 WS_DLL_PUBLIC conversation_t *find_conversation_deinterlacer(const uint32_t frame_num, const address *addr_a, const address *addr_b,
     const conversation_type ctype, const uint32_t key_a, const uint32_t key_b, const uint32_t key_c);
 
-/**  A wrapper function of find_conversation_deinterlacer() using data from pinfo,
+/**
+ * @brief A wrapper function of find_conversation_deinterlacer().
+ *
+ *  A wrapper function of find_conversation_deinterlacer() using data from pinfo,
  *  which evaluates the execution context first (user preference, VLAN, interface,..),
  *  and then calls find_conversation_deinterlacer().
  *  The frame number and addresses are taken from pinfo.
+ * @param pinfo Packet info.
+ * @return Pointer to the found conversation, or NULL if not found.
  */
 WS_DLL_PUBLIC conversation_t *find_conversation_deinterlacer_pinfo(const packet_info *pinfo);
 
+/**
+ * @brief Finds a conversation by its ID.
+ *
+ * @param frame The frame number associated with the conversation.
+ * @param ctype The type of conversation.
+ * @param id The unique identifier for the conversation.
+ * @return conversation_t* A pointer to the conversation if found, otherwise NULL.
+ */
 WS_DLL_PUBLIC conversation_t *find_conversation_by_id(const uint32_t frame, const conversation_type ctype, const uint32_t id);
 
+ /**
+  * @brief Finds a conversation using error packets.
+  *
+  * @param frame The frame number.
+  * @param ctype The conversation type.
+  * @param id The ID of the conversation element.
+  * @param rid The remote ID of the conversation element.
+  * @return conversation_t* A pointer to the found conversation, or NULL if not found.
+  */
 WS_DLL_PUBLIC conversation_t *find_conversation_err_pkts(const uint32_t frame, const conversation_type ctype, const uint32_t id, const uint32_t rid);
 
-/**  A helper function that calls find_conversation() using data from pinfo,
+/**
+ * @brief A helper function that calls find_conversation() using data from pinfo,
  *  and returns a conversation according to the runtime deinterlacing strategy.
  *  The frame number and addresses are taken from pinfo, and direction.
+ *
+ * @param pinfo Packet info.
+ * @param ctype The conversation type.
+ * @param options Options to control the search behavior.
+ * @param direction The direction of the conversation to find, true for forward and false for reverse.
+ * @return Pointer to the found conversation, or NULL if not found.
  */
 WS_DLL_PUBLIC conversation_t *find_conversation_strat(const packet_info *pinfo, const conversation_type ctype, const unsigned options, const bool direction);
+
+/**
+ * @brief Finds a conversation using extended parameters.
+ *
+ * This function searches for an existing conversation based on the provided
+ * packet information, frame number, addresses, conversation type, ports,
+ * and options. If deinterlacing is supported, it uses the underlying conversation
+ * to find the target conversation.
+ *
+ * @param pinfo Packet information containing necessary details.
+ * @param setup_frame Frame number of the setup packet.
+ * @param addr1 First address in the conversation.
+ * @param addr2 Second address in the conversation.
+ * @param ctype Type of the conversation.
+ * @param port1 Port number for the first address.
+ * @param port2 Port number for the second address.
+ * @param options Additional options for conversation search.
+ * @return Pointer to the found conversation, or NULL if not found.
+ */
 WS_DLL_PUBLIC conversation_t *find_conversation_strat_xtd(const packet_info *pinfo, const uint32_t setup_frame, const address *addr1, const address *addr2,
     const conversation_type ctype, const uint32_t port1, const uint32_t port2, const unsigned options);
 
 
-/**  A helper function that calls find_conversation() using data from pinfo
+/**
+ * @brief A helper function that calls find_conversation() using data from pinfo
  *  The frame number and addresses are taken from pinfo.
+ * @param pinfo Packet info.
+ * @param options Options to control the search behavior.
+ * @return Pointer to the found conversation, or NULL if not found.
  */
 WS_DLL_PUBLIC conversation_t *find_conversation_pinfo(const packet_info *pinfo, const unsigned options);
 
+/**
+ * @brief A helper function that calls find_conversation() using data from pinfo.
+ *        It's a simplified version of find_conversation_pinfo() to avoid unnecessary checks and be limited to read-only, which is the minimal need for displaying packets in packet_list.
+ *        The frame number and addresses are taken from pinfo.
+ *
+ * @param pinfo Pointer to the packet_info structure containing the necessary data.
+ * @param options Options for finding the conversation.
+ * @return Pointer to the found conversation or NULL if not found.
+ */
 WS_DLL_PUBLIC conversation_t *find_conversation_pinfo_strat(const packet_info *pinfo, const unsigned options);
 
-/**  A helper function that calls find_conversation() using data from pinfo.
+/**
+ * @brief A helper function that calls find_conversation() using data from pinfo.
+ *
  *  It's a simplified version of find_conversation_pinfo() to avoid
  *  unnecessary checks and be limited to read-only, which is the minimal
  *  need for displaying packets in packet_list.
  *  The frame number and addresses are taken from pinfo.
+ *
+ * @param pinfo Pointer to the packet_info structure containing the necessary data.
+ * @param options Options for finding the conversation.
+ * @return Pointer to the found conversation or NULL if not found.
  */
 WS_DLL_PUBLIC conversation_t *find_conversation_pinfo_ro(const packet_info *pinfo, const unsigned options);
 
 /**
+ * @brief A helper function that calls find_conversation() and, if a conversation is not found, calls conversation_new().
+ *
  * A helper function that calls find_conversation() and, if a conversation is
  * not found, calls conversation_new().
  * The frame number and addresses are taken from pinfo.
@@ -491,42 +647,84 @@ WS_DLL_PUBLIC conversation_t *find_conversation_pinfo_ro(const packet_info *pinf
  * @return The existing or new conversation.
  */
 WS_DLL_PUBLIC WS_RETNONNULL conversation_t *find_or_create_conversation(const packet_info *pinfo);
+
+/**
+ * @brief Finds or creates a conversation based on the provided packet information.
+ *
+ * This function attempts to find an existing conversation using the packet's source and destination addresses,
+ * protocol type, destination port, and source port. If no conversation is found, it creates a new one.
+ *
+ * @param pinfo The packet information structure containing the necessary details for finding or creating a conversation.
+ * @return A pointer to the conversation_t structure representing the found or created conversation.
+ */
 WS_DLL_PUBLIC WS_RETNONNULL conversation_t *find_or_create_conversation_strat(const packet_info *pinfo);
 
-/**  A helper function that calls find_conversation_by_id() and, if a
+/**
+ * @brief A helper function that calls find_conversation_by_id() and, if a
  *  conversation is not found, calls conversation_new_by_id().
  *  The frame number is taken from pinfo.
+ *
+ * @param pinfo Packet info.
+ * @param ctype The conversation type.
+ * @param id The conversation index.
+ * @return The existing or new conversation.
  */
 WS_DLL_PUBLIC WS_RETNONNULL conversation_t *find_or_create_conversation_by_id(packet_info *pinfo, const conversation_type ctype, const uint32_t id);
 
-/** Associate data with a conversation.
+/**
+ * @brief Associate data with a conversation.
  * @param conv Conversation. Must not be NULL.
  * @param proto Protocol ID.
  * @param proto_data Pointer to the data to associate.
  */
 WS_DLL_PUBLIC void conversation_add_proto_data(conversation_t *conv, const int proto, void *proto_data);
 
-/** Fetch data associated with a conversation.
+/**
+ * @brief Fetch data associated with a conversation.
  * @param conv Conversation. Must not be NULL.
  * @param proto Protocol ID.
  * @return The data previously set with conversation_add_proto_data, otherwise NULL.
  */
 WS_DLL_PUBLIC void *conversation_get_proto_data(const conversation_t *conv, const int proto);
 
-/** Remove data associated with a conversation.
+/**
+ * @brief Remove data associated with a conversation.
  * @param conv Conversation. Must not be NULL.
  * @param proto Protocol ID.
  */
 WS_DLL_PUBLIC void conversation_delete_proto_data(conversation_t *conv, const int proto);
 
+/**
+ * @brief Set the dissector for a conversation.
+ *
+ * @param conversation The conversation to set the dissector for.
+ * @param handle The dissector handle to use.
+ */
 WS_DLL_PUBLIC void conversation_set_dissector(conversation_t *conversation, const dissector_handle_t handle);
+
+ /**
+  * @brief Set a dissector for a conversation starting from a specific frame number.
+  *
+  * @param conversation The conversation to set the dissector for.
+  * @param starting_frame_num The frame number from which to start setting the dissector.
+  * @param handle The dissector handle to set.
+  */
 
 WS_DLL_PUBLIC void conversation_set_dissector_from_frame_number(conversation_t *conversation,
     const uint32_t starting_frame_num, const dissector_handle_t handle);
 
+/**
+ * @brief Retrieves the dissector associated with a conversation at a specific frame number.
+ *
+ * @param conversation The conversation to query.
+ * @param frame_num The frame number within the conversation.
+ * @return A dissector handle if found, otherwise NULL.
+ */
 WS_DLL_PUBLIC dissector_handle_t conversation_get_dissector(conversation_t *conversation, const uint32_t frame_num);
 
 /**
+ * @brief Set the address and port endpoints for a conversation in the packet info.
+ *
  * Save address+port information in the current packet info; it can be matched
  * by find_conversation_pinfo or find_conversation.
  * Supports wildcarding.
@@ -541,6 +739,8 @@ WS_DLL_PUBLIC void conversation_set_conv_addr_port_endpoints(struct _packet_info
     conversation_type ctype, uint32_t port1, uint32_t port2);
 
 /**
+ * @brief Set the conversation elements for a conversation in the packet info.
+ *
  * Save conversation elements including ID information in the current
  * packet info which can be matched by conversation_get_id_from_elements.
  * Does not support wildcarding.
@@ -563,7 +763,7 @@ WS_DLL_PUBLIC uint32_t conversation_get_id_from_elements(struct _packet_info *pi
     conversation_type ctype, const unsigned options);
 
 /**
- * Given two address/port pairs for a packet, search for a matching
+ * @brief Given two address/port pairs for a packet, search for a matching
  * conversation and, if found and it has a conversation dissector,
  * call that dissector and return true, otherwise return false.
  *
@@ -571,28 +771,67 @@ WS_DLL_PUBLIC uint32_t conversation_get_id_from_elements(struct _packet_info *pi
  * "data" dissector if the packet was rejected.
  * Our caller is responsible to call the data dissector explicitly in case
  * this function returns false.
+ *
+ * @param addr_a The first address in the identifying tuple.
+ * @param addr_b The second address in the identifying tuple.
+ * @param ctype The conversation type.
+ * @param port_a The first port in the identifying tuple.
+ * @param port_b The second port in the identifying tuple.
+ * @param tvb The current data buffer containing the packet.
+ * @param pinfo Packet information structure.
+ * @param tree Protocol tree for displaying dissected information.
+ * @param data User-specific data passed to the dissector.
+ * @param options Wildcard options as described in find_conversation().
+ * @return True if a matching conversation with a dissector was found and called, false otherwise
  */
 WS_DLL_PUBLIC bool try_conversation_dissector(const address *addr_a, const address *addr_b, const conversation_type ctype,
     const uint32_t port_a, const uint32_t port_b, tvbuff_t *tvb, packet_info *pinfo,
     proto_tree *tree, void* data, const unsigned options);
 
+/**
+ * @brief Attempts to dissect a packet using a conversation-based strategy.
+ *
+ * This function tries to find an existing conversation that matches the given parameters and
+ * uses it to dissect the packet. If no matching conversation is found, it attempts to create
+ * one with specific options.
+ *
+ * @param pinfo Pointer to the packet information structure.
+ * @param ctype The type of conversation.
+ * @param tvb Pointer to the TVBuffer containing the packet data.
+ * @param tree Pointer to the protocol tree for displaying dissected information.
+ * @param data User-specific data passed to the dissector.
+ * @param options Options for conversation creation, such as NO_ADDR_B or NO_PORT_B.
+ * @param direction Direction of the conversation (e.g., client-server).
+ * @return True if the packet was successfully dissected, false otherwise.
+ */
 WS_DLL_PUBLIC bool try_conversation_dissector_strat(packet_info *pinfo, const conversation_type ctype,
     tvbuff_t *tvb, proto_tree *tree, void* data, const unsigned options, const bool direction);
 
+ /**
+  * @brief Tries to use an existing dissector for a given conversation type and ID.
+  * Attempt to dissect a packet using a specific conversation ID.
+  * @param ctype The type of conversation.
+  * @param id The unique identifier of the conversation.
+  * @param tvb The current data buffer containing the packet.
+  * @param pinfo Packet information structure.
+  * @param tree Protocol tree for displaying dissected information.
+  * @param data User-specific data passed to the dissector.
+  * @return True if the packet was successfully dissected, false otherwise.
+  */
 WS_DLL_PUBLIC bool try_conversation_dissector_by_id(const conversation_type ctype, const uint32_t id, tvbuff_t *tvb,
     packet_info *pinfo, proto_tree *tree, void* data);
 
 /* These routines are used to set undefined values for a conversation */
 
 /**
- * Set the second port in a conversation created with conversation_new.
+ * @brief Set the second port in a conversation created with conversation_new.
  * @param conv Conversation. Must be created with conversation_new.
  * @param port The second port to set.
  */
 WS_DLL_PUBLIC void conversation_set_port2(conversation_t *conv, const uint32_t port);
 
 /**
- * Set the second address in a conversation created with conversation_new.
+ * @brief Set the second address in a conversation created with conversation_new.
  * @param conv Conversation. Must be created with conversation_new.
  * @param addr The second address to set.
  */
@@ -610,16 +849,31 @@ WS_DLL_PUBLIC wmem_map_t *get_conversation_hashtables(void);
    For now it's a 1-1 mapping, but the intention is to remove
    many of the port_type instances in favor of conversation_type
  */
+
+/**
+ * @brief Converts a port_type to an endpoint_type.
+ *
+ * This function is used to convert a port_type enumeration value to its corresponding
+ * endpoint_type enumeration value. The conversion is currently a 1-1 mapping, but the intention
+ * is to remove many of the port_type instances in favor of endpoint_type.
+ *
+ * @param pt The port_type to be converted.
+ * @return The corresponding endpoint_type.
+ */
 WS_DLL_PUBLIC conversation_type conversation_pt_to_conversation_type(port_type pt);
 
-/* Temporary function to handle port_type to endpoint_type conversion
-   For now it's a 1-1 mapping, but the intention is to remove
-   many of the port_type instances in favor of endpoint_type
+/**
+ * @brief Converts a port_type to an endpoint_type.
+ *
+ * This function maps a given port_type to its corresponding endpoint_type.
+ * For now, it's a 1-1 mapping, but the intention is to remove many of the
+ * port_type instances in favor of endpoint_type.
+ *
+ * @param pt The port_type to convert.
+ * @return The corresponding endpoint_type.
  */
 WS_DLL_PUBLIC endpoint_type conversation_pt_to_endpoint_type(port_type pt);
 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* conversation.h */

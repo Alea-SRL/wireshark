@@ -3427,7 +3427,7 @@ dissect_isup_transmission_medium_requirement_parameter(tvbuff_t *parameter_tvb, 
 }
 
 static char *
-dissect_isup_digits_common(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, proto_item *item,
+dissect_isup_digits_common(tvbuff_t *tvb, unsigned offset, packet_info *pinfo, proto_tree *tree, proto_item *item,
                            int hf_number, int hf_odd_digit, int hf_even_digit,
                            bool even_indicator, e164_number_type_t number_type, unsigned nature_of_address)
 {
@@ -4006,7 +4006,7 @@ dissect_ansi_isup_cause_indicators_parameter(tvbuff_t *parameter_tvb, proto_tree
 {
   uint8_t coding_standard;
   uint8_t cause_value;
-  int offset = 0;
+  unsigned offset = 0;
   unsigned length = tvb_reported_length(parameter_tvb);
 
   coding_standard = (tvb_get_uint8(parameter_tvb, offset)&0x60)>>5;
@@ -4111,7 +4111,7 @@ static const value_string ansi_isup_nw_id_plan_vals[] = {
 static void
 dissect_ansi_isup_param_carrier_id(tvbuff_t *parameter_tvb, packet_info *pinfo _U_, proto_tree *parameter_tree, proto_item *parameter_item _U_)
 {
-  int offset = 0;
+  unsigned offset = 0;
 
   static int * const flags[] = {
     &hf_ansi_isup_spare_b7,
@@ -4147,7 +4147,7 @@ static void
 dissect_isup_range_and_status_parameter(tvbuff_t *parameter_tvb, packet_info *pinfo, proto_tree *parameter_tree, proto_item *parameter_item)
 {
   proto_tree *range_tree;
-  int offset = 0;
+  unsigned offset = 0;
   uint8_t range, actual_status_length;
 
   range = tvb_get_uint8(parameter_tvb, 0) + 1;
@@ -4365,7 +4365,7 @@ static const value_string iana_icp_values[] = {
  * "print_nsap_net()" in epan/osi_utils.c.
  */
 void
-dissect_nsap(tvbuff_t *parameter_tvb, packet_info* pinfo, int offset, int len, proto_tree *parameter_tree)
+dissect_nsap(tvbuff_t *parameter_tvb, packet_info* pinfo, unsigned offset, unsigned len, proto_tree *parameter_tree)
 {
   uint8_t afi;
   unsigned  icp;
@@ -4752,7 +4752,7 @@ static const value_string BAT_ASE_Report_Reason_vals[] = {
 /* This routine should be called with offset at Organization_Identifier not the lengh indicator
  * because of use from other dissectors.
  */
-extern int dissect_codec_mode(proto_tree *tree, tvbuff_t *tvb, int offset, int len) {
+extern int dissect_codec_mode(proto_tree *tree, tvbuff_t *tvb, unsigned offset, unsigned len) {
   uint8_t tempdata;
   static int * const active_code_sets[] = {
     &hf_active_code_set_12_2,
@@ -4853,7 +4853,7 @@ extern int dissect_codec_mode(proto_tree *tree, tvbuff_t *tvb, int offset, int l
 }
 
 static int
-dissect_codec(tvbuff_t *parameter_tvb, proto_tree *bat_ase_element_tree, int length_indicator, int offset, int identifier)
+dissect_codec(tvbuff_t *parameter_tvb, proto_tree *bat_ase_element_tree, int length_indicator, unsigned offset, int identifier)
 {
 /* offset is at length indicator e.g 1 step past identifier */
   static int * const compatibility_info[] = {
@@ -4889,9 +4889,9 @@ dissect_codec(tvbuff_t *parameter_tvb, proto_tree *bat_ase_element_tree, int len
  */
 
 static void
-dissect_bat_ase_Encapsulated_Application_Information(tvbuff_t *parameter_tvb, packet_info *pinfo, proto_tree *parameter_tree, int offset)
+dissect_bat_ase_Encapsulated_Application_Information(tvbuff_t *parameter_tvb, packet_info *pinfo, proto_tree *parameter_tree, unsigned offset)
 {
-  int         list_end;
+  unsigned    list_end;
   tvbuff_t   *next_tvb;
   proto_tree *bat_ase_tree, *bat_ase_element_tree, *bat_ase_iwfa_tree;
   proto_item *bat_ase_element_item, *bat_ase_iwfa_item;
@@ -5528,11 +5528,9 @@ dissect_isup_connection_request_parameter(tvbuff_t *parameter_tvb, proto_tree *p
   spc = tvb_get_letohs(parameter_tvb, offset) & 0x3FFF; /*since 1st 2 bits spare */
   proto_tree_add_item(parameter_tree, hf_isup_signalling_point_code, parameter_tvb, offset, SPC_LENGTH, ENC_BIG_ENDIAN);
   offset += SPC_LENGTH;
-  protocol_class = tvb_get_uint8(parameter_tvb, offset);
-  proto_tree_add_item(parameter_tree, hf_isup_protocol_class, parameter_tvb, offset, PROTOCOL_CLASS_LENGTH, ENC_BIG_ENDIAN);
+  proto_tree_add_item_ret_uint8(parameter_tree, hf_isup_protocol_class, parameter_tvb, offset, PROTOCOL_CLASS_LENGTH, ENC_BIG_ENDIAN, &protocol_class);
   offset += PROTOCOL_CLASS_LENGTH;
-  credit = tvb_get_uint8(parameter_tvb, offset);
-  proto_tree_add_item(parameter_tree, hf_isup_credit, parameter_tvb, offset, CREDIT_LENGTH, ENC_BIG_ENDIAN);
+  proto_tree_add_item_ret_uint8(parameter_tree, hf_isup_credit, parameter_tvb, offset, CREDIT_LENGTH, ENC_BIG_ENDIAN, &credit);
 
   proto_item_append_text(parameter_item,
                       " : Local Reference = %u, SPC = %u, Protocol Class = %u, Credit = %u",
@@ -6241,8 +6239,8 @@ static void
 dissect_isup_hop_counter_parameter(tvbuff_t *parameter_tvb, proto_tree *parameter_tree, proto_item *parameter_item)
 { uint8_t counter;
 
-  counter = tvb_get_uint8(parameter_tvb, 0) & EDCBA_8BIT_MASK; /* since bits H,G and F are spare */
-  proto_tree_add_item(parameter_tree, hf_isup_hop_counter, parameter_tvb, 0, HOP_COUNTER_LENGTH, ENC_NA);
+  /* N.B., bits H,G and F are spare */
+  proto_tree_add_item_ret_uint8(parameter_tree, hf_isup_hop_counter, parameter_tvb, 0, HOP_COUNTER_LENGTH, ENC_NA, &counter);
   proto_item_append_text(parameter_item, " : %u", counter);
 }
 /* ------------------------------------------------------------------
@@ -6252,8 +6250,7 @@ static void
 dissect_isup_orig_line_info_parameter(tvbuff_t *parameter_tvb, proto_tree *parameter_tree, proto_item *parameter_item)
 { uint8_t info;
 
-  info = tvb_get_uint8(parameter_tvb, 0);
-  proto_tree_add_item(parameter_tree, hf_isup_originating_line_info, parameter_tvb, 0, ORIG_LINE_INFO_LENGTH, ENC_NA);
+  proto_tree_add_item_ret_uint8(parameter_tree, hf_isup_originating_line_info, parameter_tvb, 0, ORIG_LINE_INFO_LENGTH, ENC_NA, &info);
   proto_item_append_text(parameter_item,  " : %u (ANI II if < 51, reserved otherwise)", info);
 }
 /* ------------------------------------------------------------------
@@ -6336,8 +6333,7 @@ dissect_isup_redirection_number_restriction_parameter(tvbuff_t *parameter_tvb, p
 {
   uint8_t indicator;
 
-  indicator = tvb_get_uint8(parameter_tvb, 0);
-  proto_tree_add_item(parameter_tree, hf_isup_presentation_indicator, parameter_tvb, 0, REDIRECTION_NUMBER_RESTRICTION_LENGTH, ENC_NA);
+  proto_tree_add_item_ret_uint8(parameter_tree, hf_isup_presentation_indicator, parameter_tvb, 0, REDIRECTION_NUMBER_RESTRICTION_LENGTH, ENC_NA, &indicator);
   proto_item_append_text(parameter_item, " : 0x%x ", indicator);
 }
 /* ------------------------------------------------------------------
@@ -6848,7 +6844,7 @@ dissect_isup_unknown_parameter(tvbuff_t *parameter_tvb, proto_tree *parameter_tr
 static void
 dissect_japan_isup_called_dir_num(tvbuff_t *parameter_tvb, packet_info *pinfo, proto_tree *parameter_tree, proto_item *parameter_item _U_)
 {
-  int offset = 0;
+  unsigned offset = 0;
   int parameter_length;
 
   parameter_length = tvb_reported_length_remaining(parameter_tvb, offset);
@@ -7079,12 +7075,10 @@ dissect_japan_isup_redirect_backw_inf(tvbuff_t *parameter_tvb, packet_info *pinf
 
   while (offset < parameter_length) {
     /* Information Type Tag */
-    tag = tvb_get_uint8(parameter_tvb, offset);
-    proto_tree_add_item(parameter_tree, hf_japan_isup_bwd_info_type, parameter_tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(parameter_tree, hf_japan_isup_bwd_info_type, parameter_tvb, offset, 1, ENC_BIG_ENDIAN, &tag);
     offset += 1;
     /* Information Type Length */
-    tag_len = tvb_get_uint8(parameter_tvb, offset);
-    proto_tree_add_item(parameter_tree, hf_japan_isup_tag_len, parameter_tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(parameter_tree, hf_japan_isup_tag_len, parameter_tvb, offset, 1, ENC_BIG_ENDIAN, &tag_len);
     offset += 1;
     switch (tag) {
       case 3: /* invoking redirect reason */
@@ -7117,7 +7111,7 @@ static const value_string japan_isup_emerg_call_type_vals[] = {
 static void
 dissect_japan_isup_emergency_call_ind(tvbuff_t *parameter_tvb, proto_tree *parameter_tree, proto_item *parameter_item _U_)
 {
-  int offset = 0;
+  unsigned offset = 0;
 
   proto_tree_add_item(parameter_tree, hf_japan_isup_emerg_call_type, parameter_tvb, offset, 1, ENC_BIG_ENDIAN);
 }
@@ -7133,7 +7127,7 @@ static const value_string hold_at_emerg_call_disc_ind_vals[] = {
 static void
 dissect_japan_isup_emergency_call_inf_ind(tvbuff_t *parameter_tvb, proto_tree *parameter_tree, proto_item *parameter_item _U_)
 {
-  int offset = 0;
+  unsigned offset = 0;
 
 
   proto_tree_add_item(parameter_tree, hf_japan_isup_hold_at_emerg_call_disc_ind, parameter_tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -7168,8 +7162,7 @@ dissect_japan_isup_network_poi_cad(tvbuff_t *parameter_tvb, packet_info *pinfo, 
   offset += 1;
 
   /* length of CA information (in octets) */
-  carrier_info_length = tvb_get_uint8(parameter_tvb, offset);
-  proto_tree_add_item(parameter_tree, hf_japan_isup_carrier_info_length, parameter_tvb, offset, 1, ENC_BIG_ENDIAN);
+  proto_tree_add_item_ret_uint8(parameter_tree, hf_japan_isup_carrier_info_length, parameter_tvb, offset, 1, ENC_BIG_ENDIAN, &carrier_info_length);
   offset += 1;
 
   /* POI|CA information (Charge Area)
@@ -7294,8 +7287,7 @@ dissect_japan_isup_additonal_user_cat(tvbuff_t *parameter_tvb, packet_info *pinf
 
   while (offset < parameter_length) {
     /* Type of Additional User/Service Information */
-    type = tvb_get_uint8(parameter_tvb, offset);
-    proto_tree_add_item(parameter_tree, hf_japan_isup_add_user_cat_type, parameter_tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(parameter_tree, hf_japan_isup_add_user_cat_type, parameter_tvb, offset, 1, ENC_BIG_ENDIAN, &type);
     offset += 1;
     /* Additional User/Service Information  */
     switch (type) {
@@ -7336,7 +7328,7 @@ static const value_string jpn_isup_reason_for_clip_fail_vals[] = {
 static void
 dissect_japan_isup_reason_for_clip_fail(tvbuff_t *parameter_tvb, proto_tree *parameter_tree, proto_item *parameter_item _U_)
 {
-  int offset = 0;
+  unsigned offset = 0;
 
 
   proto_tree_add_item(parameter_tree, hf_isup_extension_ind, parameter_tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -7409,7 +7401,7 @@ dissect_japan_isup_carrier_information(tvbuff_t *parameter_tvb, packet_info *pin
   uint8_t carrier_info_length;
   uint8_t carrierX_end_index;
 
-  int offset = 0;
+  unsigned offset = 0;
   int length = 0;
 
   int num_octets_with_digits = 0;
@@ -7642,8 +7634,8 @@ static void
 dissect_japan_isup_charge_inf_delay(tvbuff_t *parameter_tvb, proto_tree *parameter_tree, proto_item *parameter_item _U_)
 {
 
-  int offset = 0;
-  int parameter_length;
+  unsigned offset = 0;
+  unsigned parameter_length;
 
   parameter_length = tvb_reported_length_remaining(parameter_tvb, offset);
 
@@ -7713,7 +7705,7 @@ dissect_japan_isup_charge_area_info(tvbuff_t *parameter_tvb, packet_info *pinfo,
 
   int nat_of_info_indic;
   int length;
-  int offset;
+  unsigned offset;
   int odd_even;
   int digit_index = 0;
 
@@ -7934,8 +7926,7 @@ dissect_japan_chg_inf_type_crt(tvbuff_t *parameter_tvb, proto_tree *parameter_tr
   proto_tree_add_item(parameter_tree, hf_japan_isup_crci1, parameter_tvb, offset, 1, ENC_BIG_ENDIAN);
   offset += 1;
   if (!ext_ind) {
-    len = tvb_get_uint8(parameter_tvb, offset);
-    proto_tree_add_item(parameter_tree, hf_japan_isup_crci1_len, parameter_tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(parameter_tree, hf_japan_isup_crci1_len, parameter_tvb, offset, 1, ENC_BIG_ENDIAN, &len);
     offset += 1;
     /* Initial units (IU) IA5 coded in two octets */
     proto_tree_add_item(parameter_tree, hf_japan_isup_iu, parameter_tvb, offset, 2, ENC_ASCII);
@@ -7966,8 +7957,7 @@ dissect_japan_chg_inf_type_crt(tvbuff_t *parameter_tvb, proto_tree *parameter_tr
     proto_tree_add_item(parameter_tree, hf_japan_isup_crci2, parameter_tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
     if (!ext_ind) {
-      len = tvb_get_uint8(parameter_tvb, offset);
-      proto_tree_add_item(parameter_tree, hf_japan_isup_crci1_len, parameter_tvb, offset, 1, ENC_BIG_ENDIAN);
+      proto_tree_add_item_ret_uint8(parameter_tree, hf_japan_isup_crci1_len, parameter_tvb, offset, 1, ENC_BIG_ENDIAN, &len);
       offset += 1;
       /* Initial units (IU) IA5 coded in two octets */
       proto_tree_add_item(parameter_tree, hf_japan_isup_iu, parameter_tvb, offset, 2, ENC_ASCII);
@@ -8009,7 +7999,7 @@ dissect_japan_chg_inf_param(tvbuff_t *parameter_tvb, packet_info *pinfo, proto_t
       dissect_japan_chg_inf_type_crt(parameter_tvb, parameter_tree, parameter_item);
       break;
     default:
-      proto_tree_add_expert_format(parameter_tree, pinfo, &ei_isup_not_dissected_yet, parameter_tvb, 0, -1, "Charge information data, not dissected yet");
+      proto_tree_add_expert_format_remaining(parameter_tree, pinfo, &ei_isup_not_dissected_yet, parameter_tvb, 0, "Charge information data, not dissected yet");
       break;
   }
 }
@@ -8039,7 +8029,7 @@ dissect_isup_optional_parameter(tvbuff_t *optional_parameters_tvb, packet_info *
     if (parameter_type != PARAM_TYPE_END_OF_OPT_PARAMS) {
       parameter_length = tvb_get_uint8(optional_parameters_tvb, offset + PARAMETER_TYPE_LENGTH);
       if (parameter_length + PARAMETER_TYPE_LENGTH + PARAMETER_LENGTH_IND_LENGTH > (unsigned)(tvb_reported_length_remaining(optional_parameters_tvb, offset))) {
-        proto_tree_add_expert_format(isup_tree, pinfo, &ei_isup_opt_par_length_err, optional_parameters_tvb, offset, -1,
+        proto_tree_add_expert_format_remaining(isup_tree, pinfo, &ei_isup_opt_par_length_err, optional_parameters_tvb, offset,
           "Wrong parameter length %u, should be %u",
           parameter_length,
           tvb_reported_length_remaining(optional_parameters_tvb, offset)- (PARAMETER_TYPE_LENGTH + PARAMETER_LENGTH_IND_LENGTH));
@@ -9530,7 +9520,7 @@ dissect_isup_confusion_message(tvbuff_t *message_tvb, packet_info* pinfo, proto_
 static int
 dissect_french_isup_charging_pulse_message(tvbuff_t *message_tvb, proto_tree *isup_tree)
 {
-  int offset = 0;
+  unsigned offset = 0;
 
   proto_tree_add_item(isup_tree, hf_isup_french_coll_field, message_tvb, offset, 1, ENC_BIG_ENDIAN);
   offset += 1;
@@ -9611,7 +9601,7 @@ static value_string_ext israeli_time_indicators_ext = VALUE_STRING_EXT_INIT(isra
 static int
 dissect_israeli_backward_charging_message(tvbuff_t *message_tvb, proto_tree *isup_tree)
 {
-  int offset = 0;
+  unsigned offset = 0;
 
   proto_tree_add_item(isup_tree, hf_isup_israeli_charging_message_indicators_current, message_tvb, offset, 1, ENC_LITTLE_ENDIAN);
   proto_tree_add_item(isup_tree, hf_isup_israeli_charging_message_indicators_next, message_tvb, offset, 1, ENC_LITTLE_ENDIAN);
@@ -9629,7 +9619,7 @@ dissect_israeli_backward_charging_message(tvbuff_t *message_tvb, proto_tree *isu
 static int
 dissect_israeli_traffic_change_message(tvbuff_t *message_tvb, proto_tree *isup_tree)
 {
-  int offset = 0;
+  unsigned offset = 0;
 
   proto_tree_add_item(isup_tree, hf_isup_israeli_charging_message_indicators_current, message_tvb, offset, 1, ENC_LITTLE_ENDIAN);
   proto_tree_add_item(isup_tree, hf_isup_israeli_charging_message_indicators_next, message_tvb, offset, 1, ENC_LITTLE_ENDIAN);
@@ -9700,7 +9690,7 @@ dissect_japan_chg_inf(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *isu
       dissect_japan_chg_inf_type_crt(parameter_tvb, parameter_tree, parameter_item);
       break;
     default:
-      proto_tree_add_expert_format(parameter_tree, pinfo, &ei_isup_not_dissected_yet, parameter_tvb, 0, -1, "Charge information data, not dissected yet");
+      proto_tree_add_expert_format_remaining(parameter_tree, pinfo, &ei_isup_not_dissected_yet, parameter_tvb, 0, "Charge information data, not dissected yet");
       break;
   }
 

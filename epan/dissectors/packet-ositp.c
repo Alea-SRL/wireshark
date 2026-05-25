@@ -18,10 +18,10 @@
 #include <epan/prefs.h>
 #include <epan/reassemble.h>
 #include <epan/conversation.h>
-#include <epan/ipproto.h>
 #include <epan/expert.h>
 #include <epan/proto_data.h>
 #include <epan/tfs.h>
+#include <epan/iana-info.h>
 #include <wsutil/array.h>
 
 #include <wsutil/str_util.h>
@@ -426,15 +426,13 @@ static bool ositp_decode_var_part(tvbuff_t *tvb, int offset, int vp_length,
   proto_item     *hidden_item;
 
   while (vp_length != 0) {
-    code = tvb_get_uint8(tvb, offset);
-    proto_tree_add_item(tree, hf_cotp_parameter_code, tvb, offset, 1, ENC_NA);
+    proto_tree_add_item_ret_uint8(tree, hf_cotp_parameter_code, tvb, offset, 1, ENC_NA, &code);
     offset += 1;
     vp_length -= 1;
 
     if (vp_length == 0)
       break;
-    length = tvb_get_uint8(tvb, offset);
-    proto_tree_add_item(tree, hf_cotp_parameter_length, tvb, offset, 1, ENC_NA);
+    proto_tree_add_item_ret_uint8(tree, hf_cotp_parameter_length, tvb, offset, 1, ENC_NA, &length);
     offset += 1;
     vp_length -= 1;
 

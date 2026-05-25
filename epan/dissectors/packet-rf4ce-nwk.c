@@ -31,6 +31,7 @@
 #define RF4CE_PROTOABBREV_PROFILE   "rf4ce_profile"
 
 static int proto_rf4ce_nwk;
+static dissector_handle_t rf4ce_nwk_handle;
 static dissector_handle_t rf4ce_gdp_handle;
 
 /* UAT vars */
@@ -742,7 +743,6 @@ static int dissect_rf4ce_nwk_common(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 {
     unsigned offset = 0;
     bool success;
-    uint8_t *decrypted = (uint8_t *)wmem_alloc(pinfo->pool, 512);
     uint8_t src_addr[RF4CE_IEEE_ADDR_LEN] = {0};
     uint8_t dst_addr[RF4CE_IEEE_ADDR_LEN] = {0};
 
@@ -773,8 +773,7 @@ static int dissect_rf4ce_nwk_common(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 
     if (frame_type == RF4CE_NWK_FCF_FRAME_TYPE_DATA || frame_type == RF4CE_NWK_FCF_FRAME_TYPE_VENDOR_SPECIFIC)
     {
-        proto_tree_add_item(rf4ce_nwk_tree, hf_rf4ce_nwk_profile_id, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-        profile_id = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint8(rf4ce_nwk_tree, hf_rf4ce_nwk_profile_id, tvb, offset, 1, ENC_LITTLE_ENDIAN, &profile_id);
         offset += 1;
     }
 
@@ -791,6 +790,8 @@ static int dissect_rf4ce_nwk_common(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 
     if (fcf & RF4CE_NWK_FCF_SECURITY_MASK)
     {
+        uint8_t *decrypted = (uint8_t *)wmem_alloc(pinfo->pool, 512);
+
         success = decrypt_data(
             tvb_get_ptr(tvb, 0, size),
             decrypted,
@@ -798,11 +799,15 @@ static int dissect_rf4ce_nwk_common(tvbuff_t *tvb, packet_info *pinfo, proto_tre
             &size,
             src_addr,
             dst_addr);
+
+        if (success) {
+            tvb = tvb_new_child_real_data(tvb, decrypted, size, size);
+            add_new_data_source(pinfo, tvb, "CCM* decrypted payload");
+        }
     }
     else if (size > offset)
     {
-        size -= offset;
-        tvb_memcpy(tvb, decrypted, offset, size);
+        tvb = tvb_new_subset_remaining(tvb, offset);
         success = true;
     }
     else
@@ -815,12 +820,10 @@ static int dissect_rf4ce_nwk_common(tvbuff_t *tvb, packet_info *pinfo, proto_tre
         int decrypted_offset = 0;
 
         /* On decryption success: replace the tvb, make offset point to its beginning */
-        tvb = tvb_new_child_real_data(tvb, decrypted, size, size);
-        add_new_data_source(pinfo, tvb, "CCM* decrypted payload");
 
         if (frame_type == RF4CE_NWK_FCF_FRAME_TYPE_CMD)
         {
-            proto_tree *nwk_payload_tree = proto_tree_add_subtree(rf4ce_nwk_tree, tvb, decrypted_offset, tvb_captured_length(tvb) - decrypted_offset, ett_rf4ce_nwk_payload, NULL, "NWK Payload");
+            proto_tree *nwk_payload_tree = proto_tree_add_subtree(rf4ce_nwk_tree, tvb, decrypted_offset, tvb_captured_length_remaining(tvb, decrypted_offset), ett_rf4ce_nwk_payload, NULL, "NWK Payload");
             dissect_rf4ce_nwk_cmd(tvb, pinfo, nwk_payload_tree, &decrypted_offset);
         }
         else if (frame_type == RF4CE_NWK_FCF_FRAME_TYPE_DATA)
@@ -1071,12 +1074,10 @@ static void dissect_rf4ce_nwk_cmd_pair_rsp(tvbuff_t *tvb, packet_info *pinfo, pr
     proto_tree_add_item(tree, hf_rf4ce_nwk_pair_rsp_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
     *offset += 1;
 
-    proto_tree_add_item(tree, hf_rf4ce_nwk_pair_rsp_allocated_nwk_addr, tvb, *offset, 2, ENC_LITTLE_ENDIAN);
-    allocated_nwk_addr = tvb_get_uint16(tvb, *offset, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint16(tree, hf_rf4ce_nwk_pair_rsp_allocated_nwk_addr, tvb, *offset, 2, ENC_LITTLE_ENDIAN, &allocated_nwk_addr);
     *offset += 2;
 
-    proto_tree_add_item(tree, hf_rf4ce_nwk_pair_rsp_nwk_addr, tvb, *offset, 2, ENC_LITTLE_ENDIAN);
-    nwk_addr = tvb_get_uint16(tvb, *offset, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint16(tree, hf_rf4ce_nwk_pair_rsp_nwk_addr, tvb, *offset, 2, ENC_LITTLE_ENDIAN, &nwk_addr);
     *offset += 2;
 
     dissect_rf4ce_nwk_common_node_capabilities(tvb, tree, offset);
@@ -1092,8 +1093,7 @@ static void dissect_rf4ce_nwk_cmd_key_seed(tvbuff_t *tvb, proto_tree *tree, int 
     uint8_t seed_data[RF4CE_NWK_KEY_SEED_DATA_LENGTH] = {0};
     uint8_t seed_seq_num = 0;
 
-    proto_tree_add_item(tree, hf_rf4ce_nwk_seed_seq_num, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
-    seed_seq_num = tvb_get_uint8(tvb, *offset);
+    proto_tree_add_item_ret_uint8(tree, hf_rf4ce_nwk_seed_seq_num, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &seed_seq_num);
     *offset += 1;
 
     proto_tree_add_item(tree, hf_rf4ce_nwk_seed_data, tvb, *offset, RF4CE_NWK_KEY_SEED_DATA_LENGTH, ENC_NA);
@@ -1342,7 +1342,7 @@ void proto_register_rf4ce_nwk(void)
           NULL, HFILL}},
         {&hf_rf4ce_nwk_seed_seq_num,
          {"Seed Sequence Number", "rf4ce-nwk.key_seed.seed_seq_num",
-          FT_INT8, BASE_DEC,
+          FT_UINT8, BASE_DEC,
           NULL, 0x0,
           NULL, HFILL}},
         {&hf_rf4ce_nwk_seed_data,
@@ -1391,7 +1391,7 @@ void proto_register_rf4ce_nwk(void)
 
     register_cleanup_routine(rf4ce_cleanup);
 
-    register_dissector(RF4CE_PROTOABBREV_NWK, dissect_rf4ce_nwk_common, proto_rf4ce_nwk);
+    rf4ce_nwk_handle = register_dissector(RF4CE_PROTOABBREV_NWK, dissect_rf4ce_nwk_common, proto_rf4ce_nwk);
 
     static uat_field_t key_uat_fields[] =
         {
@@ -1436,6 +1436,6 @@ void proto_reg_handoff_rf4ce_nwk(void)
     rf4ce_gdp_handle = find_dissector_add_dependency(RF4CE_PROTOABBREV_PROFILE, proto_rf4ce_nwk);
 
     /* create_dissector_handle(dissect_rf4ce_nwk_common, proto_rf4ce_nwk); */
-    dissector_add_for_decode_as(IEEE802154_PROTOABBREV_WPAN_PANID, find_dissector(RF4CE_PROTOABBREV_NWK));
+    dissector_add_for_decode_as(IEEE802154_PROTOABBREV_WPAN_PANID, rf4ce_nwk_handle);
     heur_dissector_add(IEEE802154_PROTOABBREV_WPAN, dissect_rf4ce_nwk_heur, "Radio Frequency for Consumer Electronics over IEEE 802.15.4", RF4CE_PROTOABBREV_NWK, proto_rf4ce_nwk, HEURISTIC_ENABLE);
 }

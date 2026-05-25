@@ -14,7 +14,6 @@
 #include <epan/capture_dissectors.h>
 #include <epan/exceptions.h>
 #include <epan/addr_resolv.h>
-#include <epan/ipproto.h>
 #include <epan/expert.h>
 #include <epan/ip_opts.h>
 #include <epan/follow.h>
@@ -30,6 +29,7 @@
 #include <epan/proto_data.h>
 #include <epan/tfs.h>
 #include <epan/unit_strings.h>
+#include <epan/iana-info.h>
 
 #include <wsutil/array.h>
 #include <wsutil/utf8_entities.h>
@@ -39,6 +39,7 @@
 #include <wsutil/ws_assert.h>
 
 #include "packet-tcp.h"
+
 
 void proto_register_tcp(void);
 void proto_reg_handoff_tcp(void);
@@ -133,6 +134,36 @@ static const value_string mp_tcprst_reasons[] = {
         { 0x4, "Too much outstanding data" },
         { 0x5, "Unacceptable performance" },
         { 0x6, "Middlebox interference" },
+        { 0, NULL },
+};
+
+/*
+ * RST Diagnostic Payload:
+ * https://datatracker.ietf.org/doc/html/draft-boucadair-tcpm-rst-diagnostic-payload-17
+ */
+#define TCP_RST_DIAGNOSTIC_MAGIC 0x33AA
+#define TCP_RST_DIAGNOSTIC_LEN   8  /* magic(2) + reason_code(2) + pen(4) */
+
+/* IANA "TCP Failure Causes" registry */
+static const value_string tcp_failure_cause_vals[] = {
+        { 0,  "Reserved" },
+        { 1,  "Illegal Option" },
+        { 2,  "Desynchronized state" },
+        { 3,  "New data is received after CLOSE is called" },
+        { 4,  "ABORT Process" },
+        { 5,  "Unexpected ACK received by non-synchronized state connection" },
+        { 6,  "Unexpected SYN in the window" },
+        { 7,  "Unexpected security compartment" },
+        { 8,  "Malformed Message" },
+        { 9,  "Not Authorized" },
+        { 10, "Resource Exceeded" },
+        { 11, "Network Failure" },
+        { 12, "Reset received from the peer" },
+        { 13, "Destination Unreachable" },
+        { 14, "Connection Timeout" },
+        { 15, "Too much outstanding data" },
+        { 16, "Unacceptable performance" },
+        { 17, "Middlebox interference" },
         { 0, NULL },
 };
 
@@ -390,6 +421,10 @@ static int hf_tcp_proc_dst_cmd;
 static int hf_tcp_segment_data;
 static int hf_tcp_payload;
 static int hf_tcp_reset_cause;
+static int hf_tcp_rst_diagnostic_magic;
+static int hf_tcp_rst_diagnostic_reason_code;
+static int hf_tcp_rst_diagnostic_vendor_reason_code;
+static int hf_tcp_rst_diagnostic_pen;
 static int hf_tcp_fin_retransmission;
 static int hf_tcp_option_rvbd_probe_reserved;
 static int hf_tcp_option_scps_binding_data;
@@ -441,6 +476,7 @@ static int ett_tcp_unknown_opt;
 static int ett_tcp_option_other;
 static int ett_tcp_syncookie;
 static int ett_tcp_syncookie_option;
+static int ett_tcp_rst_diagnostic;
 static int ett_mptcp_analysis;
 static int ett_mptcp_analysis_subflows;
 
@@ -1090,7 +1126,7 @@ tcp_flags_to_str_first_letter(wmem_allocator_t *scope, const struct tcpheader *t
     wmem_strbuf_t *buf = wmem_strbuf_new(scope, "");
     unsigned i;
     const unsigned flags_count = 12;
-    static const char first_letters[] = "RRRACEUAPRSF";
+    static const char first_letters[] = "RRRAWEUAPRSF";
     static const char digits[] = "01234567";
 
     /* upper three bytes are marked as reserved ('R'). */
@@ -1394,28 +1430,13 @@ tcp_seq_analysis_packet( void *ptr, packet_info *pinfo, epan_dissect_t *edt _U_,
 
 char *tcp_follow_conv_filter(epan_dissect_t *edt _U_, packet_info *pinfo, unsigned *stream, unsigned *sub_stream _U_)
 {
-    conversation_t *conv;
-    struct tcp_analysis *tcpd;
+    uint8_t max_layer_num = proto_get_layer_num(pinfo, proto_tcp);
 
-    /* XXX: Since TCP doesn't use the endpoint API, we can only look
-     * up using the current pinfo addresses and ports. We don't want
-     * to create a new conversation or new TCP stream.
-     * Eventually the endpoint API should support storing multiple
-     * endpoints and TCP should be changed to use the endpoint API.
-     */
-    conv = find_conversation_strat(pinfo, CONVERSATION_TCP, 0, false);
-    if (((pinfo->net_src.type == AT_IPv4 && pinfo->net_dst.type == AT_IPv4) ||
-        (pinfo->net_src.type == AT_IPv6 && pinfo->net_dst.type == AT_IPv6))
-        && (pinfo->ptype == PT_TCP) &&
-        conv != NULL)
-    {
-        /* TCP over IPv4/6 */
-        tcpd=get_tcp_conversation_data(conv, pinfo);
-        if (tcpd == NULL)
-            return NULL;
-
-        *stream = tcpd->stream;
-        return ws_strdup_printf("tcp.stream eq %u", tcpd->stream);
+    for (uint8_t curr_layer_num = max_layer_num; curr_layer_num; --curr_layer_num) {
+        *stream = GPOINTER_TO_UINT(p_get_proto_data(pinfo->pool, pinfo, hf_tcp_stream, curr_layer_num));
+        if (*stream) {
+            return ws_strdup_printf("tcp.stream eq %u", --*stream);
+        }
     }
 
     return NULL;
@@ -1452,6 +1473,7 @@ typedef struct tcp_follow_tap_data
     tvbuff_t *tvb;
     struct tcpheader* tcph;
     struct tcp_analysis *tcpd;
+    unsigned stream_id;
 
 } tcp_follow_tap_data_t;
 
@@ -1579,6 +1601,10 @@ follow_tcp_tap_listener(void *tapdata, packet_info *pinfo,
     follow_record_t *follow_record;
     follow_info_t *follow_info = (follow_info_t *)tapdata;
     const tcp_follow_tap_data_t *follow_data = (const tcp_follow_tap_data_t *)data;
+
+    if (follow_info->stream_id != follow_data->stream_id)
+        return TAP_PACKET_DONT_REDRAW;
+
     bool is_server;
     uint32_t sequence = follow_data->tcph->th_seq;
     uint32_t length = follow_data->tcph->th_have_seglen
@@ -2004,6 +2030,53 @@ process_tcp_payload(tvbuff_t *tvb, volatile int offset, packet_info *pinfo,
     uint32_t seq, uint32_t nxtseq, bool is_tcp_segment,
     struct tcp_analysis *tcpd, struct tcpinfo *tcpinfo);
 
+typedef struct _ooo_segment_item {
+    uint32_t frame;
+    uint32_t seq;
+    uint32_t len;
+    uint8_t *data;
+} ooo_segment_item;
+
+static int
+compare_ooo_segment_item(const void *a, const void *b)
+{
+    const ooo_segment_item *fd_a = a;
+    const ooo_segment_item *fd_b = b;
+
+    /* We only insert segments into this list that satisfy
+     * LT_SEQ(tcpd->fwd->maxnextseq, seq), for the current value
+     * of maxnextseq (removing segments when maxnextseq is advanced)
+     * so these rollover-aware comparisons are transitive over the
+     * domain (never greater than 2^31).
+     */
+    if (LT_SEQ(fd_a->seq, fd_b->seq))
+        return -1;
+
+    if (GT_SEQ(fd_a->seq, fd_b->seq))
+        return 1;
+
+    if (fd_a->frame < fd_b->frame)
+        return -1;
+
+    if (fd_a->frame > fd_b->frame)
+        return 1;
+
+    return 0;
+}
+
+static unsigned
+ooo_segment_hash(const void *a)
+{
+    const ooo_segment_item *fd_a = a;
+
+    return g_int_hash(&fd_a->seq);
+}
+
+static gboolean
+ooo_segment_equal(const void *a, const void *b)
+{
+    return compare_ooo_segment_item(a, b) == 0;
+}
 
 static struct tcp_analysis *
 init_tcp_conversation_data(packet_info *pinfo, int direction)
@@ -2023,6 +2096,8 @@ init_tcp_conversation_data(packet_info *pinfo, int direction)
     if (tcp_reassemble_out_of_order) {
         tcpd->flow1.ooo_segments=wmem_list_new(wmem_file_scope());
         tcpd->flow2.ooo_segments=wmem_list_new(wmem_file_scope());
+        tcpd->flow1.ooo_segments_map=wmem_map_new(wmem_file_scope(), ooo_segment_hash, ooo_segment_equal);
+        tcpd->flow2.ooo_segments_map=wmem_map_new(wmem_file_scope(), ooo_segment_hash, ooo_segment_equal);
     }
 
     /* Only allocate the data if its actually going to be analyzed */
@@ -4520,40 +4595,6 @@ split_msp(packet_info *pinfo, struct tcp_multisegment_pdu *msp, struct tcp_analy
     return newmsp;
 }
 
-typedef struct _ooo_segment_item {
-    uint32_t frame;
-    uint32_t seq;
-    uint32_t len;
-    uint8_t *data;
-} ooo_segment_item;
-
-static int
-compare_ooo_segment_item(const void *a, const void *b)
-{
-    const ooo_segment_item *fd_a = a;
-    const ooo_segment_item *fd_b = b;
-
-    /* We only insert segments into this list that satisfy
-     * LT_SEQ(tcpd->fwd->maxnextseq, seq), for the current value
-     * of maxnextseq (removing segments when maxnextseq is advanced)
-     * so these rollover-aware comparisons are transitive over the
-     * domain (never greater than 2^31).
-     */
-    if (LT_SEQ(fd_a->seq, fd_b->seq))
-        return -1;
-
-    if (GT_SEQ(fd_a->seq, fd_b->seq))
-        return 1;
-
-    if (fd_a->frame < fd_b->frame)
-        return -1;
-
-    if (fd_a->frame > fd_b->frame)
-        return 1;
-
-    return 0;
-}
-
 /* Search through our list of out of order segments and add the ones that are
  * now contiguous onto a MSP until we use them all or reach another gap.
  *
@@ -4634,6 +4675,7 @@ msp_add_out_of_order(packet_info *pinfo, struct tcp_multisegment_pdu *msp, struc
         }
         updated_maxnextseq = false;
         tvb_free(tvb_data);
+        wmem_map_remove(tcpd->fwd->ooo_segments_map, fd);
         wmem_list_remove_frame(tcpd->fwd->ooo_segments, curr_entry);
         curr_entry = wmem_list_head(tcpd->fwd->ooo_segments);
 
@@ -4658,7 +4700,7 @@ desegment_tcp(tvbuff_t *tvb, packet_info *pinfo, int offset,
     bool must_desegment;
     bool called_dissector;
     bool has_gap;
-    int another_pdu_follows;
+    unsigned another_pdu_follows;
     int deseg_offset;
     uint32_t deseg_seq;
     int nbytes;
@@ -5023,8 +5065,12 @@ again:
 
             if (!has_gap) {
                 /* Update the maximum expected seqno if no SYN packet was seen
-                 * before, or if the new segment succeeds previous segments. */
-                tcpd->fwd->maxnextseq = nxtseq;
+                 * before, or if the new segment succeeds previous segments.
+                 * Ignore if nxtseq is lower than the current maxnextseq,
+                 * which might happen if we are dealing with an OOO or retransmission.*/
+                if (LT_SEQ(tcpd->fwd->maxnextseq, nxtseq) || tcpd->fwd->maxnextseq == 0) {
+                    tcpd->fwd->maxnextseq = nxtseq;
+                }
 
                 /* If there is no gap, look for any OOO packets that are now
                  * contiguous. */
@@ -5032,7 +5078,7 @@ again:
             }
         } else {
             /* If we have visited this frame before, look for the frame in the
-             * list of unused out of order segments. Since we know the gap will
+             * map of unused out of order segments. Since we know the gap will
              * never be filled, we could pass it to the subdissector, but
              * we want to be consistent between passes.
              */
@@ -5041,9 +5087,14 @@ again:
             fd->frame = pinfo->num;
             fd->seq = seq;
             fd->len = nxtseq - seq;
-            if (wmem_list_find_custom(tcpd->fwd->ooo_segments, fd, compare_ooo_segment_item)) {
+            if (wmem_map_contains(tcpd->fwd->ooo_segments_map, fd)) {
                 has_gap = true;
             }
+#if 0
+            DISSECTOR_ASSERT_CMPINT(wmem_map_size(tcpd->fwd->ooo_segments_map), ==, wmem_list_count(tcpd->fwd->ooo_segments));
+            wmem_list_frame_t *head = wmem_list_head(tcpd->fwd->ooo_segments);
+            DISSECTOR_ASSERT(has_gap == (head && (compare_ooo_segment_item(fd, wmem_list_frame_data(head)) >= 0)));
+#endif
         }
     }
 
@@ -5159,6 +5210,7 @@ again:
              * which means that these bytes exist. */
             fd->data = tvb_memdup(wmem_file_scope(), tvb, offset, fd->len);
             wmem_list_append_sorted(tcpd->fwd->ooo_segments, fd, compare_ooo_segment_item);
+            wmem_map_insert(tcpd->fwd->ooo_segments_map, fd, fd);
         }
         ipfd_head = NULL;
     } else {
@@ -5729,8 +5781,8 @@ tcp_dissect_pdus(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 proto_item_set_generated(item);
 #if 0
         } else {
-                item = proto_tree_add_expert_format((proto_tree *)p_get_proto_data(pinfo->pool, pinfo, proto_tcp, curr_layer_num),
-                                        tvb, offset, -1,
+                item = proto_tree_add_expert_format_remaining((proto_tree *)p_get_proto_data(pinfo->pool, pinfo, proto_tcp, curr_layer_num),
+                                        tvb, offset,
                     "PDU Size: %u cut short at %u",plen,captured_length_remaining);
                 proto_item_set_generated(item);
         }
@@ -5939,8 +5991,7 @@ dissect_tcpopt_tarr_data(tvbuff_t *tvb, int data_offset, unsigned data_len,
         col_append_str(pinfo->cinfo, COL_INFO, " TARR");
         break;
     case 1:
-        rate = (tvb_get_uint8(tvb, data_offset) & TCPOPT_TARR_RATE_MASK) >> TCPOPT_TARR_RATE_SHIFT;
-        proto_tree_add_item(tree, hf_tcp_option_tarr_rate, tvb, data_offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item_ret_uint8(tree, hf_tcp_option_tarr_rate, tvb, data_offset, 1, ENC_BIG_ENDIAN, &rate);
         proto_tree_add_item(tree, hf_tcp_option_tarr_reserved, tvb, data_offset, 1, ENC_BIG_ENDIAN);
         tcp_info_append_uint(pinfo, "TARR", rate);
         proto_item_append_text(item, " %u", rate);
@@ -6034,11 +6085,9 @@ dissect_tcpopt_acc_ecn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
     offset = 0;
     item = proto_tree_add_item(tree, proto_tcp_option_acc_ecn, tvb, offset, -1, ENC_NA);
     acc_ecn_tree = proto_item_add_subtree(item, ett_tcp_option_acc_ecn);
-    kind = tvb_get_uint8(tvb, offset);
-    proto_tree_add_item(acc_ecn_tree, hf_tcp_option_kind, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(acc_ecn_tree, hf_tcp_option_kind, tvb, offset, 1, ENC_BIG_ENDIAN, &kind);
     offset += 1;
-    length = tvb_get_uint8(tvb, offset);
-    length_item = proto_tree_add_item(acc_ecn_tree, hf_tcp_option_len, tvb, offset, 1, ENC_BIG_ENDIAN);
+    length_item = proto_tree_add_item_ret_uint8(acc_ecn_tree, hf_tcp_option_len, tvb, offset, 1, ENC_BIG_ENDIAN, &length);
     offset += 1;
     if (length != 2 && length != 5 && length != 8 && length != 11) {
         expert_add_info_format(pinfo, length_item, &ei_tcp_opt_len_invalid,
@@ -6060,8 +6109,7 @@ dissect_tcpopt_exp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
 
     item = proto_tree_add_item(tree, proto_tcp_option_exp, tvb, offset, -1, ENC_NA);
     exp_tree = proto_item_add_subtree(item, ett_tcp_option_exp);
-    proto_tree_add_item(exp_tree, hf_tcp_option_kind, tvb, offset, 1, ENC_BIG_ENDIAN);
-    kind = tvb_get_uint8(tvb, offset);
+    proto_tree_add_item_ret_uint8(exp_tree, hf_tcp_option_kind, tvb, offset, 1, ENC_BIG_ENDIAN, &kind);
     length_item = proto_tree_add_item(exp_tree, hf_tcp_option_len, tvb, offset + 1, 1, ENC_BIG_ENDIAN);
     if (tcp_exp_options_rfc6994) {
         if (optlen >= TCPOLEN_EXP_MIN) {
@@ -8458,6 +8506,86 @@ static void tcp_tap_cleanup(void *data)
     tap_queue_packet(tcp_tap, cleanup->pinfo, cleanup->tcph);
 }
 
+/*
+ * RFC1122 says:
+ *
+ *  4.2.2.12  RST Segment: RFC-793 Section 3.4
+ *
+ *    A TCP SHOULD allow a received RST segment to include data.
+ *
+ *    DISCUSSION
+ *         It has been suggested that a RST segment could contain
+ *         ASCII text that encoded and explained the cause of the
+ *         RST.  No standard has yet been established for such
+ *         data.
+ *
+ * If the payload matches the structured diagnostic format, parse it;
+ * otherwise display the data as text.
+ */
+static void
+dissect_tcp_rst_payload(tvbuff_t *tvb, proto_tree *tree, int offset, int length)
+{
+    if (length < 2) {
+        proto_tree_add_item(tree, hf_tcp_reset_cause, tvb, offset, length, ENC_ASCII);
+        return;
+    }
+
+    uint16_t magic = tvb_get_ntohs(tvb, offset);
+
+    /* structured diagnostic payload (Section 4.1) */
+    if (magic == TCP_RST_DIAGNOSTIC_MAGIC &&
+        length == TCP_RST_DIAGNOSTIC_LEN) {
+        uint16_t reason_code;
+        uint32_t pen_value;
+        int diag_offset = offset;
+        proto_tree *rst_diag_tree;
+        proto_item *rst_diag_ti;
+
+        rst_diag_tree = proto_tree_add_subtree(tree, tvb, offset,
+            length, ett_tcp_rst_diagnostic, &rst_diag_ti,
+            "RST Diagnostic Payload");
+
+        proto_tree_add_item(rst_diag_tree, hf_tcp_rst_diagnostic_magic,
+            tvb, diag_offset, 2, ENC_BIG_ENDIAN);
+        diag_offset += 2;
+
+        reason_code = tvb_get_ntohs(tvb, diag_offset);
+        pen_value = tvb_get_ntohl(tvb, diag_offset + 2);
+
+        if (pen_value != 0) {
+            proto_tree_add_item(rst_diag_tree, hf_tcp_rst_diagnostic_vendor_reason_code,
+                tvb, diag_offset, 2, ENC_BIG_ENDIAN);
+            diag_offset += 2;
+
+            proto_tree_add_uint_format_value(rst_diag_tree, hf_tcp_rst_diagnostic_pen,
+                tvb, diag_offset, 4, pen_value,
+                "%s (%u)", enterprises_lookup(pen_value, "Unknown"), pen_value);
+
+            proto_item_append_text(rst_diag_ti,
+                ": Vendor-Specific reason %u (PEN: %s [%u])",
+                reason_code,
+                enterprises_lookup(pen_value, "Unknown"),
+                pen_value);
+        } else {
+            const char *cause_str;
+
+            proto_tree_add_item(rst_diag_tree, hf_tcp_rst_diagnostic_reason_code,
+                tvb, diag_offset, 2, ENC_BIG_ENDIAN);
+            diag_offset += 2;
+
+            proto_tree_add_uint_format_value(rst_diag_tree, hf_tcp_rst_diagnostic_pen,
+                tvb, diag_offset, 4, pen_value,
+                "IANA (%u)", pen_value);
+
+            cause_str = try_val_to_str(reason_code, tcp_failure_cause_vals);
+            proto_item_append_text(rst_diag_ti, ": %s (%u)",
+                cause_str ? cause_str : "Unknown", reason_code);
+        }
+    } else {
+        proto_tree_add_item(tree, hf_tcp_reset_cause, tvb, offset, length, ENC_ASCII);
+    }
+}
+
 static int
 dissect_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
@@ -8698,6 +8826,7 @@ dissect_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
     if (tcpd) {
         item = proto_tree_add_uint(tcp_tree, hf_tcp_stream, tvb, offset, 0, tcpd->stream);
         proto_item_set_generated(item);
+        p_add_proto_data(pinfo->pool, pinfo, hf_tcp_stream, pinfo->curr_proto_layer_num, GUINT_TO_POINTER(tcpd->stream + 1)); // Add 1 to distinguish stream 0 from NULL
         tcpinfo.stream = tcpd->stream;
 
         if (tcp_calculate_ts) {
@@ -8993,13 +9122,36 @@ dissect_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
           conversation_completeness |= TCP_COMPLETENESS_SYNACK;
       }
 
-      /* ACKs */
-      if((tcph->th_flags&(TH_SYN|TH_ACK))==(TH_ACK)) {
+      /* ACKs
+       * if the segment length > 0, it's a DATA flag unless it matches SYN or RST (FIN allowed).
+       * Although RST may carry some data, but for diagnostic (or.. evasion), not for real transfer.
+       */
+      if((tcph->th_flags&(TH_SYN|TH_ACK|TH_RST))==(TH_ACK)) {
           if(tcph->th_seglen>0) { /* transporting some data */
               conversation_completeness |= TCP_COMPLETENESS_DATA;
           }
-          else { /* pure ACK */
-              conversation_completeness |= TCP_COMPLETENESS_ACK;
+
+          /* pure ACK belonging to the 3WHS, others are ignored */
+          else if( !(tcph->th_flags&TH_FIN) &&
+                   (
+                       ((conversation_completeness&(TCP_COMPLETENESS_SYNSENT |
+                                                    TCP_COMPLETENESS_SYNACK |
+                                                    TCP_COMPLETENESS_DATA )) == TCP_COMPLETENESS_SYNSENT
+                       && (tcph->th_rawseq==tcpd->fwd->base_seq+1))
+
+                       ||
+                       ((conversation_completeness&(TCP_COMPLETENESS_SYNSENT |
+                                                    TCP_COMPLETENESS_SYNACK |
+                                                    TCP_COMPLETENESS_DATA)) == TCP_COMPLETENESS_SYNACK
+                       && (tcph->th_rawack==tcpd->rev->base_seq+1))
+
+                       ||
+                       ((conversation_completeness&(TCP_COMPLETENESS_SYNSENT |
+                                                    TCP_COMPLETENESS_SYNACK |
+                                                    TCP_COMPLETENESS_DATA )) == (TCP_COMPLETENESS_SYNSENT|TCP_COMPLETENESS_SYNACK)
+                       && (tcph->th_rawseq==tcpd->fwd->base_seq+1)
+                       && (tcph->th_rawack==tcpd->rev->base_seq+1))) ) {
+               conversation_completeness |= TCP_COMPLETENESS_ACK;
           }
       }
 
@@ -9601,6 +9753,7 @@ dissect_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
             follow_data->tvb = tvb_new_subset_remaining(tvb, offset);
             follow_data->tcph = tcph;
             follow_data->tcpd = tcpd;
+            follow_data->stream_id = tcph->th_stream;
 
             tap_queue_packet(tcp_follow_tap, pinfo, follow_data);
         }
@@ -9704,22 +9857,7 @@ dissect_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
      */
     if (captured_length_remaining != 0) {
         if (tcph->th_flags & TH_RST) {
-            /*
-             * RFC1122 says:
-             *
-             *  4.2.2.12  RST Segment: RFC-793 Section 3.4
-             *
-             *    A TCP SHOULD allow a received RST segment to include data.
-             *
-             *    DISCUSSION
-             *         It has been suggested that a RST segment could contain
-             *         ASCII text that encoded and explained the cause of the
-             *         RST.  No standard has yet been established for such
-             *         data.
-             *
-             * so for segments with RST we just display the data as text.
-             */
-            proto_tree_add_item(tcp_tree, hf_tcp_reset_cause, tvb, offset, captured_length_remaining, ENC_ASCII);
+            dissect_tcp_rst_payload(tvb, tcp_tree, offset, captured_length_remaining);
         } else {
         /* When we have a frame with TCP SYN bit set and segmented TCP payload we need
          * to increment seq and nxtseq to detect the overlapping byte(s). This is to fix Bug 9882.
@@ -10592,6 +10730,22 @@ proto_register_tcp(void)
           { "Reset cause", "tcp.reset_cause", FT_STRING, BASE_NONE, NULL, 0x0,
             NULL, HFILL }},
 
+        { &hf_tcp_rst_diagnostic_magic,
+          { "Magic Number", "tcp.rst_diagnostic.magic", FT_UINT16, BASE_HEX, NULL, 0x0,
+            "RST diagnostic payload magic number (0x33AA)", HFILL }},
+
+        { &hf_tcp_rst_diagnostic_reason_code,
+          { "Reason Code", "tcp.rst_diagnostic.reason_code", FT_UINT16, BASE_DEC, VALS(tcp_failure_cause_vals), 0x0,
+            "IANA TCP Failure Cause code", HFILL }},
+
+        { &hf_tcp_rst_diagnostic_vendor_reason_code,
+          { "Vendor-Specific Reason Code", "tcp.rst_diagnostic.vendor_reason_code", FT_UINT16, BASE_DEC, NULL, 0x0,
+            "Vendor-specific reason code (scoped to the PEN)", HFILL }},
+
+        { &hf_tcp_rst_diagnostic_pen,
+          { "Private Enterprise Number", "tcp.rst_diagnostic.pen", FT_UINT32, BASE_DEC, NULL, 0x0,
+            "IANA Private Enterprise Number identifying the vendor", HFILL }},
+
         { &hf_tcp_syncookie_time,
           { "SYN Cookie Time", "tcp.syncookie.time", FT_UINT8, BASE_DEC, NULL, 0x0,
             NULL, HFILL }},
@@ -10672,7 +10826,8 @@ proto_register_tcp(void)
         &ett_tcp_opt_scpscor,
         &ett_tcp_option_other,
         &ett_tcp_syncookie,
-        &ett_tcp_syncookie_option
+        &ett_tcp_syncookie_option,
+        &ett_tcp_rst_diagnostic
     };
 
     static int *mptcp_ett[] = {

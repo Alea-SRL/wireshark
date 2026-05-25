@@ -23,11 +23,7 @@
 #include <epan/expert.h>
 #include <epan/conversation.h>
 
-#include <wsutil/strtoi.h>
-
-#define PNAME  "Erlang Port Mapper Daemon"
-#define PSNAME "EPMD"
-#define PFNAME "epmd"
+#include "packet-epmd.h"
 
 void proto_register_epmd(void);
 void proto_reg_handoff_epmd(void);
@@ -120,15 +116,14 @@ const value_string epmd_version_vals[] = {
 };
 
 static void
-dissect_epmd_request(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree *tree) {
+dissect_epmd_request(packet_info *pinfo, tvbuff_t *tvb, unsigned offset, proto_tree *tree) {
     uint8_t       type;
     uint16_t      name_length = 0;
     const uint8_t *name        = NULL;
 
     proto_tree_add_item(tree, hf_epmd_len, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
-    type = tvb_get_uint8(tvb, offset);
-    proto_tree_add_item(tree, hf_epmd_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_epmd_type, tvb, offset, 1, ENC_BIG_ENDIAN, &type);
     offset++;
     col_add_str(pinfo->cinfo, COL_INFO, val_to_str(pinfo->pool, type, VALS(message_types), "unknown (0x%02X)"));
 
@@ -144,14 +139,12 @@ dissect_epmd_request(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree *
             offset += 2;
             proto_tree_add_item(tree, hf_epmd_dist_low, tvb, offset, 2, ENC_BIG_ENDIAN);
             offset += 2;
-            name_length = tvb_get_ntohs(tvb, offset);
-            proto_tree_add_item(tree, hf_epmd_name_len, tvb, offset, 2, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint16(tree, hf_epmd_name_len, tvb, offset, 2, ENC_BIG_ENDIAN, &name_length);
             proto_tree_add_item_ret_string(tree, hf_epmd_name, tvb, offset + 2, name_length, ENC_ASCII|ENC_NA, pinfo->pool, &name);
             offset += 2 + name_length;
             if (tvb_reported_length_remaining(tvb, offset) >= 2) {
                 uint16_t elen=0;
-                elen = tvb_get_ntohs(tvb, offset);
-                proto_tree_add_item(tree, hf_epmd_elen, tvb, offset, 2, ENC_BIG_ENDIAN);
+                proto_tree_add_item_ret_uint16(tree, hf_epmd_elen, tvb, offset, 2, ENC_BIG_ENDIAN, &elen);
                 if (elen > 0)
                     proto_tree_add_item(tree, hf_epmd_edata, tvb, offset + 2, elen, ENC_NA);
                 /*offset += 2 + elen;*/
@@ -183,14 +176,14 @@ dissect_epmd_request(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree *
 }
 
 static void
-dissect_epmd_response_names(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, proto_tree *tree)
+dissect_epmd_response_names(packet_info *pinfo _U_, tvbuff_t *tvb, unsigned offset, proto_tree *tree)
 {
-    int reported_len = tvb_reported_length(tvb);
-    int off = offset;
+    unsigned off = offset;
 
-    int next_off;
-    while (off < reported_len) {
-        int linelen = tvb_find_line_end(tvb, off, -1, &next_off, FALSE);
+    unsigned next_off;
+    while (tvb_captured_length_remaining(tvb, off)) {
+        unsigned linelen;
+        tvb_find_line_end_remaining(tvb, off, &linelen, &next_off);
         proto_item *node_ti = proto_tree_add_item(tree,hf_epmd_node_container, tvb, off, linelen, ENC_NA);
         proto_tree *node_tree = proto_item_add_subtree(node_ti, ett_epmd_node);
 
@@ -199,10 +192,10 @@ dissect_epmd_response_names(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, p
             expert_add_info_format(pinfo, node_tree, &ei_epmd_malformed_names_line, "Malformed line: expected 'name ' at start");
             continue;
         }
-        int name_start = off + 5;
+        unsigned name_start = off + 5;
 
-        int name_end = tvb_find_uint8(tvb, name_start, linelen - (name_start - off), ' ');
-        if (name_end == -1){
+        unsigned name_end;
+        if (!tvb_find_uint8_length(tvb, name_start, linelen - (name_start - off), ' ', &name_end)){
             off = next_off;
             expert_add_info_format(pinfo, node_tree, &ei_epmd_malformed_names_line, "Malformed line: missing space after node name");
             continue;
@@ -223,8 +216,7 @@ dissect_epmd_response_names(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, p
             continue;
         }
         uint16_t portnum;
-        char *port_str = (char*)tvb_get_string_enc(pinfo->pool, tvb, pos_port, port_len, ENC_ASCII);
-        if (!ws_strtou16(port_str, NULL, &portnum)){
+        if (!tvb_get_string_uint16(tvb, pos_port, port_len, ENC_STR_DEC, &portnum, NULL)){
             expert_add_info_format(pinfo, node_tree, &ei_epmd_malformed_names_line, "Invalid or missing port number");
             continue;
         }
@@ -233,7 +225,7 @@ dissect_epmd_response_names(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, p
 }
 
 static int
-dissect_epmd_response(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree *tree) {
+dissect_epmd_response(packet_info *pinfo, tvbuff_t *tvb, unsigned offset, proto_tree *tree) {
     uint8_t         type, result;
     uint32_t        port;
     uint16_t        name_length = 0;
@@ -246,15 +238,13 @@ dissect_epmd_response(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree 
         return 0;
     }
 
-    type = tvb_get_uint8(tvb, offset);
-    proto_tree_add_item(tree, hf_epmd_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_epmd_type, tvb, offset, 1, ENC_BIG_ENDIAN, &type);
     offset++;
     col_add_str(pinfo->cinfo, COL_INFO, val_to_str(pinfo->pool, type, VALS(message_types), "unknown (0x%02X)"));
 
     switch (type) {
         case EPMD_ALIVE_OK_RESP:
-            result = tvb_get_uint8(tvb, offset);
-            proto_tree_add_item(tree, hf_epmd_result, tvb, offset, 1, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint8(tree, hf_epmd_result, tvb, offset, 1, ENC_BIG_ENDIAN, &result);
             offset++;
             proto_tree_add_item(tree, hf_epmd_creation, tvb, offset, 2, ENC_BIG_ENDIAN);
             offset += 2;
@@ -266,8 +256,7 @@ dissect_epmd_response(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree 
             break;
 
         case EPMD_ALIVE2_RESP:
-            result = tvb_get_uint8(tvb, offset);
-            proto_tree_add_item(tree, hf_epmd_result, tvb, offset, 1, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint8(tree, hf_epmd_result, tvb, offset, 1, ENC_BIG_ENDIAN, &result);
             offset++;
             if (!result) {
                 proto_tree_add_item(tree, hf_epmd_creation, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -279,8 +268,7 @@ dissect_epmd_response(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree 
             break;
 
         case EPMD_ALIVE2_X_RESP:
-            result = tvb_get_uint8(tvb, offset);
-            proto_tree_add_item(tree, hf_epmd_result, tvb, offset, 1, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint8(tree, hf_epmd_result, tvb, offset, 1, ENC_BIG_ENDIAN, &result);
             offset++;
             if (!result) {
                 /* Check remaining length to determine creation field size */
@@ -299,8 +287,7 @@ dissect_epmd_response(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree 
             break;
 
         case EPMD_PORT2_RESP:
-            result = tvb_get_uint8(tvb, offset);
-            proto_tree_add_item(tree, hf_epmd_result, tvb, offset, 1, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint8(tree, hf_epmd_result, tvb, offset, 1, ENC_BIG_ENDIAN, &result);
             offset++;
             if (!result) {
                 col_append_str(pinfo->cinfo, COL_INFO, " OK");
@@ -308,8 +295,7 @@ dissect_epmd_response(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree 
                 col_append_fstr(pinfo->cinfo, COL_INFO, " ERROR 0x%02X", result);
                 break;
             }
-            port = tvb_get_ntohs(tvb, offset);
-            proto_tree_add_item(tree, hf_epmd_port_no, tvb, offset, 2, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint(tree, hf_epmd_port_no, tvb, offset, 2, ENC_BIG_ENDIAN, &port);
             offset += 2;
             proto_tree_add_item(tree, hf_epmd_node_type, tvb, offset, 1, ENC_BIG_ENDIAN);
             offset++;
@@ -319,14 +305,12 @@ dissect_epmd_response(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree 
             offset += 2;
             proto_tree_add_item(tree, hf_epmd_dist_low, tvb, offset, 2, ENC_BIG_ENDIAN);
             offset += 2;
-            name_length = tvb_get_ntohs(tvb, offset);
-            proto_tree_add_item(tree, hf_epmd_name_len, tvb, offset, 2, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint16(tree, hf_epmd_name_len, tvb, offset, 2, ENC_BIG_ENDIAN, &name_length);
             proto_tree_add_item_ret_string(tree, hf_epmd_name, tvb, offset + 2, name_length, ENC_ASCII|ENC_NA, pinfo->pool, &name);
             offset += 2 + name_length;
             if (tvb_reported_length_remaining(tvb, offset) >= 2) {
-                uint16_t elen=0;
-                elen = tvb_get_ntohs(tvb, offset);
-                proto_tree_add_item(tree, hf_epmd_elen, tvb, offset, 2, ENC_BIG_ENDIAN);
+                uint16_t elen;
+                proto_tree_add_item_ret_uint16(tree, hf_epmd_elen, tvb, offset, 2, ENC_BIG_ENDIAN, &elen);
                 if (elen > 0)
                     proto_tree_add_item(tree, hf_epmd_edata, tvb, offset + 2, elen, ENC_NA);
                 offset += 2 + elen;
@@ -397,7 +381,7 @@ dissect_epmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
     if (!check_epmd(tvb))
         return 0;
 
-    col_set_str(pinfo->cinfo, COL_PROTOCOL, PSNAME);
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "EPMD");
 
     ti = proto_tree_add_item(tree, proto_epmd, tvb, 0, -1, ENC_NA);
     epmd_tree = proto_item_add_subtree(ti, ett_epmd);
@@ -512,10 +496,10 @@ proto_register_epmd(void)
         &ett_epmd_node,
     };
 
-    proto_epmd = proto_register_protocol(PNAME, PSNAME, PFNAME);
+    proto_epmd = proto_register_protocol("Erlang Port Mapper Daemon", "EPMD", "epmd");
     proto_register_field_array(proto_epmd, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-    epmd_handle = register_dissector(PFNAME, dissect_epmd, proto_epmd);
+    epmd_handle = register_dissector("epmd", dissect_epmd, proto_epmd);
 
     expert_epmd = expert_register_protocol(proto_epmd);
     expert_register_field_array(expert_epmd, ei, array_length(ei));

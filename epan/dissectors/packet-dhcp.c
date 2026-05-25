@@ -43,12 +43,14 @@
  * RFC 3825: Dynamic Host Configuration Protocol Option for Coordinate-based Location Configuration Information
  * RFC 3925: Vendor-Identifying Vendor Options for Dynamic Host Configuration Protocol version 4 (DHCPv4)
  * RFC 3942: Reclassifying DHCPv4 Options
+ * RFC 4014: Remote Authentication Dial-In User Service (RADIUS) Attributes Suboption for the Dynamic Host Configuration Protocol (DHCP) Relay Agent Information Option
  * RFC 4174: The IPv4 Dynamic Host Configuration Protocol (DHCP) Option for the Internet Storage Name Service
  * RFC 4243: Vendor-Specific Information Suboption for the Dynamic Host Configuration Protocol (DHCP) Relay Agent Option
  * RFC 4361: Node-specific Client Identifiers for Dynamic Host Configuration Protocol Version Four (DHCPv4)
  * RFC 4388: Dynamic Host Configuration Protocol (DHCP) Leasequery
  * RFC 4578: Dynamic Host Configuration Protocol (DHCP) Options for PXE
  * RFC 4776: Dynamic Host Configuration Protocol (DHCPv4 and DHCPv6) Option for Civic Addresses Configuration Information
+ * RFC 5010: The Dynamic Host Configuration Protocol Version 4 (DHCPv4) Relay Agent Flags Suboption
  * RFC 5192: DHCP Options for Protocol for Carrying Authentication for Network Access (PANA) Authentication Agent
  * RFC 5223: Discovering Location-to-Service Translation (LoST) Servers Using the Dynamic Host Configuration Protocol (DHCP)
  * RFC 5417: CAPWAP Access Controller DHCP Option
@@ -132,6 +134,7 @@
 #include <epan/packet.h>
 #include "packet-arp.h"
 #include "packet-dns.h"				/* for get_dns_name() */
+#include "packet-radius.h"
 #include <epan/addr_resolv.h>
 #include <epan/prefs.h>
 #include <epan/tap.h>
@@ -485,6 +488,8 @@ static int hf_dhcp_option82_vi_cl_mso_defined_text;		/* 82:9:4491:6 */
 static int hf_dhcp_option82_vi_cl_secure_file_transfer_uri;	/* 82:9:4491:7 */
 									/* 82:9 suboptions end */
 static int hf_dhcp_option82_flags;					/* 82:10 */
+static int hf_dhcp_option82_flags_unicast;			/* 82:10 */
+static int hf_dhcp_option82_flags_reserved;			/* 82:10 */
 static int hf_dhcp_option82_server_id_override;			/* 82:11 */
 static int hf_dhcp_option82_relay_agent_id;			/* 82:12 */
 static int hf_dhcp_option82_option_ani_att;			/* 82:13 */
@@ -704,6 +709,7 @@ static int ett_dhcp_option63_suboption;
 static int ett_dhcp_option77_instance;
 static int ett_dhcp_option82_suboption;
 static int ett_dhcp_option82_suboption9;
+static int ett_dhcp_option82_suboption10;
 static int ett_dhcp_option124_vendor_class_data_item;
 static int ett_dhcp_option125_suboption;
 static int ett_dhcp_option125_tr111_suboption;
@@ -871,7 +877,7 @@ enum {
 };
 
 static void dissect_vendor_avaya_param(proto_tree *tree, packet_info *pinfo, proto_item *vti,
-		tvbuff_t *tvb, int optoff, wmem_strbuf_t *avaya_param_buf);
+		tvbuff_t *tvb, unsigned optoff, wmem_strbuf_t *avaya_param_buf);
 
 /* converts fixpoint presentation into decimal presentation
    also converts values which are out of range to allow decoding of received data */
@@ -1165,6 +1171,11 @@ static const true_false_string flag_set_broadcast = {
 	"Unicast"
 };
 
+static const true_false_string flag_set_unicast = {
+	"Unicast",
+	"Broadcast"
+};
+
 #define BOOTP_MAX_NO_CHAR 64
 
 /* PacketCable/DOCSIS definitions */
@@ -1259,7 +1270,7 @@ static const value_string dhcp_nbnt_vals[] = {
 /*
  * There is confusion around some Client Architecture IDs: RFC 4578 section 2.1
  * lists *requested* architecture IDs, however the actual assigned IDs
- * (https://www.ietf.org/assignments/dhcpv6-parameters/dhcpv6-parameters.xml#processor-architecture)
+ * (https://www.iana.org/assignments/dhcpv6-parameters/dhcpv6-parameters.xhtml#processor-architecture)
  * differ.  Specifically,
  *
  *    EFI Byte Code (EFI BC, EBC) was 7 in RFC 4578, but is assigned 9 by IETF.
@@ -1302,6 +1313,15 @@ static const value_string dhcp_client_arch[] = {
 	{ 0x001e, "RISC-V 128-bit UEFI HTTP" },
 	{ 0x001f, "s390 Basic" },
 	{ 0x0020, "s390 Extended" },
+	{ 0x0021, "MIPS 32-bit UEFI" },
+	{ 0x0022, "MIPS 64-bit UEFI" },
+	{ 0x0023, "Sunway 32-bit UEFI" },
+	{ 0x0024, "Sunway 64-bit UEFI" },
+	{ 0x0025, "LoongArch 32-bit UEFI" },
+	{ 0x0026, "LoongArch 32-bit UEFI HTTP" },
+	{ 0x0027, "LoongArch 64-bit UEFI" },
+	{ 0x0028, "LoongArch 64-bit UEFI HTTP" },
+	{ 0x0029, "ARM rpiboot" },
 	{ 0,	  NULL }
 };
 
@@ -1803,7 +1823,7 @@ struct basic_types_hfs {
 /* Handle "basic" datatypes adding to a tree */
 static int
 dhcp_handle_basic_types(packet_info *pinfo, proto_tree *tree, proto_item *item, tvbuff_t *tvb,
-			 enum field_type ftype, int offset, int total_len,
+			 enum field_type ftype, unsigned offset, int total_len,
 			 int *hf, const struct basic_types_hfs* hf_default)
 {
 	int	i, left;
@@ -2211,7 +2231,7 @@ dhcp_option(tvbuff_t *tvb, packet_info *pinfo, proto_tree *bp_tree, int voff,
 static int
 dissect_dhcpopt_policy_filter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	while (tvb_reported_length_remaining(tvb, offset) >= 8) {
 		proto_tree_add_item(tree, hf_dhcp_option_policy_filter_ip, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -2230,7 +2250,7 @@ dissect_dhcpopt_policy_filter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 static int
 dissect_dhcpopt_static_route(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	while (tvb_reported_length_remaining(tvb, offset) >= 8) {
 		proto_tree_add_item(tree, hf_dhcp_option_static_route_ip, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -2250,7 +2270,7 @@ typedef unsigned(*test_option_len_t)(unsigned);
 
 /* Look for 'encapsulated vendor-specific options' */
 static bool
-test_encapsulated_vendor_options(tvbuff_t *tvb, int optoff, int optend, test_option_len_t test_len)
+test_encapsulated_vendor_options(tvbuff_t *tvb, unsigned optoff, unsigned optend, test_option_len_t test_len)
 {
 	uint8_t	subopt;
 	uint8_t	subopt_len;
@@ -2346,7 +2366,7 @@ dissect_dhcpopt_vendor_specific_info(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 	heur_dtbl_entry_t *hdtbl_entry;
 
 	if (!dissector_try_heuristic(dhcp_vendor_info_subdissector, tvb, pinfo, tree, &hdtbl_entry, data)) {
-		int offset = 0;
+		unsigned offset = 0;
 		if (test_encapsulated_vendor_options(tvb, offset, tvb_reported_length(tvb), NULL)) {
 			/* Generic encapsulated options per RFC 2132 8.4 */
 			while (tvb_reported_length_remaining(tvb, offset)) {
@@ -2364,7 +2384,7 @@ dissect_dhcpopt_vendor_specific_info(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 static int
 dissect_dhcpopt_option_overload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	dhcp_option_data_t *option_data = (dhcp_option_data_t*)data;
 
 	if (tvb_reported_length(tvb) < 1) {
@@ -2399,7 +2419,7 @@ dissect_dhcpopt_dhcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 static int
 dissect_dhcpopt_param_request_list(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t byte;
 
 	while (tvb_reported_length_remaining(tvb, offset) > 0) {
@@ -2422,7 +2442,7 @@ dissect_dhcpopt_vendor_class_identifier(tvbuff_t *tvb, packet_info *pinfo, proto
 	 * should we check for non-printables?
 	 */
 	proto_tree_add_item(tree, hf_dhcp_option_vendor_class_id, tvb, 0, tvb_reported_length(tvb), ENC_ASCII);
-	dissector_try_heuristic(dhcp_vendor_id_subdissector, tvb, pinfo, tree, &hdtbl_entry, data);
+	(void) dissector_try_heuristic(dhcp_vendor_id_subdissector, tvb, pinfo, tree, &hdtbl_entry, data);
 
 	return tvb_captured_length(tvb);
 }
@@ -2430,7 +2450,7 @@ dissect_dhcpopt_vendor_class_identifier(tvbuff_t *tvb, packet_info *pinfo, proto
 static int
 dissect_dhcpopt_client_identifier(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	int length = tvb_reported_length(tvb);
 	unsigned char byte;
 
@@ -2540,7 +2560,7 @@ static int
 dissect_dhcpopt_user_class_information(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	unsigned char user_class_instance_index = 0;
-	int offset = 0;
+	unsigned offset = 0;
 	proto_item *vtix, *len_item;
 	proto_tree *o77_v_tree;
 	unsigned class_length, uci_len = tvb_reported_length(tvb);
@@ -2553,28 +2573,36 @@ dissect_dhcpopt_user_class_information(tvbuff_t *tvb, packet_info *pinfo, proto_
 	 * is a Microsoft variant that has the two-byte length field with most-significant byte
 	 * as zero.
 	 */
-	uint16_t ms_data_length = tvb_get_uint16(tvb, offset, ENC_BIG_ENDIAN);
+	uint32_t ms_data_length = tvb_get_uint16(tvb, offset, ENC_BIG_ENDIAN);
 	if (ms_data_length <= 0xff) {
 		/* MSB is zero, this is Microsoft */
-		proto_tree_add_uint(tree, hf_dhcp_option77_user_class_binary_data_length, tvb, offset, 2, ms_data_length);
-		offset += 2;
-		proto_tree_add_item(tree, hf_dhcp_option77_user_class_binary_data, tvb, offset, ms_data_length, ENC_STRING);
-		offset += ms_data_length;
-		/* User Class Binary Data is padded to 4-byte boundary */
-		uint16_t padding_length = WS_PADDING_TO_4(ms_data_length);
-		if (padding_length > 0) {
-			proto_tree_add_item(tree, hf_dhcp_option77_user_class_padding, tvb, offset, padding_length, ENC_NA);
-			offset += padding_length;
+		while (tvb_reported_length_remaining(tvb, offset) > 0) {
+			/* Create subtree for instance of User Class. */
+			vtix = proto_tree_add_uint_format_value(tree, hf_dhcp_option77_user_class,
+					tvb, offset, 1, user_class_instance_index, "[%d]", user_class_instance_index);
+			o77_v_tree = proto_item_add_subtree(vtix, ett_dhcp_option77_instance);
+			proto_tree_add_item_ret_uint(o77_v_tree, hf_dhcp_option77_user_class_binary_data_length, tvb, offset, 2, ENC_BIG_ENDIAN, &ms_data_length);
+			offset += 2;
+			proto_tree_add_item(o77_v_tree, hf_dhcp_option77_user_class_binary_data, tvb, offset, ms_data_length, ENC_NA);
+			offset += ms_data_length;
+			/* User Class Binary Data is padded to 4-byte boundary */
+			uint16_t padding_length = WS_PADDING_TO_4(ms_data_length);
+			if (padding_length > 0) {
+				proto_tree_add_item(o77_v_tree, hf_dhcp_option77_user_class_padding, tvb, offset, padding_length, ENC_NA);
+				offset += padding_length;
+			}
+			uint32_t len;
+			proto_tree_add_item_ret_uint(o77_v_tree, hf_dhcp_option77_user_class_name_length, tvb, offset, 2, ENC_BIG_ENDIAN, &len);
+			offset += 2;
+			proto_tree_add_item(o77_v_tree, hf_dhcp_option77_user_class_name, tvb, offset, len, ENC_UTF_16);
+			offset += len;
+			proto_tree_add_item_ret_uint(o77_v_tree, hf_dhcp_option77_user_class_description_length, tvb, offset, 2, ENC_BIG_ENDIAN, &len);
+			offset += 2;
+			proto_tree_add_item(o77_v_tree, hf_dhcp_option77_user_class_description, tvb, offset, len, ENC_UTF_16);
+			offset += len;
+			proto_item_set_end(vtix, tvb, offset);
+			user_class_instance_index++;
 		}
-		uint32_t len;
-		proto_tree_add_item_ret_uint(tree, hf_dhcp_option77_user_class_name_length, tvb, offset, 2, ENC_BIG_ENDIAN, &len);
-		offset += 2;
-		proto_tree_add_item(tree, hf_dhcp_option77_user_class_name, tvb, offset, len, ENC_UTF_16);
-		offset += len;
-		proto_tree_add_item_ret_uint(tree, hf_dhcp_option77_user_class_description_length, tvb, offset, 2, ENC_BIG_ENDIAN, &len);
-		offset += 2;
-		proto_tree_add_item(tree, hf_dhcp_option77_user_class_description, tvb, offset, len, ENC_UTF_16);
-
 		return tvb_captured_length(tvb);
 	}
 
@@ -2624,7 +2652,7 @@ dissect_dhcpopt_user_class_information(tvbuff_t *tvb, packet_info *pinfo, proto_
 static int
 dissect_dhcpopt_slp_directory_agent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint32_t byte;
 
 	if (tvb_reported_length(tvb) < 1) {
@@ -2657,7 +2685,7 @@ dissect_dhcpopt_slp_directory_agent(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 static int
 dissect_dhcpopt_slp_service_scope(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	proto_tree_add_item(tree, hf_dhcp_option_slp_service_scope_value, tvb, offset, 1, ENC_BIG_ENDIAN);
 
@@ -2679,7 +2707,7 @@ dissect_dhcpopt_client_full_domain_name(tvbuff_t *tvb, packet_info *pinfo, proto
 		NULL
 	};
 	uint8_t fqdn_flags;
-	int offset = 0, length = tvb_reported_length(tvb);
+	unsigned offset = 0, length = tvb_reported_length(tvb);
 	const char	*dns_name;
 	int		dns_name_len;
 
@@ -2713,7 +2741,7 @@ dissect_dhcpopt_client_full_domain_name(tvbuff_t *tvb, packet_info *pinfo, proto
 static int
 dissect_dhcpopt_novell_servers(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	/* Option 85 can be sent as a string */
 	/* Added by Greg Morris (gmorris[AT]novell.com) */
@@ -2738,7 +2766,7 @@ dissect_dhcpopt_novell_servers(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 static int
 dissect_dhcpopt_dhcp_authentication(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	dhcp_option_data_t *option_data = (dhcp_option_data_t*)data;
 	uint32_t protocol, rdm;
 	uint8_t algorithm;
@@ -2823,7 +2851,7 @@ dissect_dhcpopt_dhcp_authentication(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 static int
 dissect_dhcpopt_client_architecture(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	while (tvb_reported_length_remaining(tvb, offset) > 1) {
 		uint32_t architecture_id;
@@ -2864,7 +2892,7 @@ dissect_dhcpopt_client_architecture(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 static int
 dissect_dhcpopt_client_network_interface_id(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t id_type;
 
 	id_type = tvb_get_uint8(tvb, offset);
@@ -2884,7 +2912,7 @@ dissect_dhcpopt_client_network_interface_id(tvbuff_t *tvb, packet_info *pinfo _U
 static int
 dissect_dhcpopt_client_identifier_uuid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0, length = tvb_reported_length(tvb);
+	unsigned offset = 0, length = tvb_reported_length(tvb);
 	uint8_t byte;
 
 	if (length > 0)
@@ -2921,7 +2949,7 @@ dissect_dhcpopt_client_identifier_uuid(tvbuff_t *tvb, packet_info *pinfo, proto_
 static int
 dissect_dhcpopt_civic_location(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	if (tvb_reported_length(tvb) >= 3)
 	{
@@ -2941,7 +2969,7 @@ dissect_dhcpopt_civic_location(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 			if (calength == 0)
 				continue;
 
-			if (tvb_reported_length_remaining(tvb, offset) >= (int)calength)
+			if (tvb_reported_length_remaining(tvb, offset) >= calength)
 			{
 				proto_tree_add_item(tree, hf_dhcp_option_civic_location_ca_value, tvb, offset, calength, ENC_ASCII);
 				offset += calength;
@@ -2960,7 +2988,7 @@ dissect_dhcpopt_civic_location(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 static int
 dissect_dhcpopt_name_server_search(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0, length = tvb_reported_length(tvb);
+	unsigned offset = 0, length = tvb_reported_length(tvb);
 	uint16_t ns;
 
 	if (length < 2) {
@@ -3005,7 +3033,7 @@ static int
 dissect_dhcpopt_dhcp_domain_search(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	int length = tvb_reported_length(tvb);
-	int offset = 0;
+	unsigned offset = 0;
 	char		*name_out;
 	const char	*dns_name;
 	int		dns_name_len;
@@ -3031,7 +3059,7 @@ static int
 dissect_dhcpopt_sip_servers(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	int length = tvb_reported_length(tvb);
-	int offset = 0;
+	unsigned offset = 0;
 	const char	*dns_name;
 	int		dns_name_len;
 	char		*name_out;
@@ -3088,8 +3116,8 @@ dissect_dhcpopt_sip_servers(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 static int
 dissect_dhcpopt_classless_static_route(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
-	int i, mask_width, significant_octets;
+	unsigned offset = 0;
+	unsigned i, mask_width, significant_octets;
 	proto_item* route_item;
 
 	/* minimum length is 5 bytes */
@@ -3109,7 +3137,7 @@ dissect_dhcpopt_classless_static_route(tvbuff_t *tvb, packet_info *pinfo, proto_
 			1 + significant_octets + 4, NULL, " ");
 		offset++;
 		/* significant octets + router(4) */
-		if (tvb_reported_length_remaining(tvb, offset + significant_octets + 4) < 0) {
+		if (tvb_reported_length_remaining(tvb, offset) < significant_octets + 4) {
 			expert_add_info_format(pinfo, route_item, &ei_dhcp_bad_length, "Remaining length (%d) < %d bytes", tvb_reported_length_remaining(tvb, offset), significant_octets + 4);
 			break;
 		}
@@ -3135,7 +3163,7 @@ dissect_dhcpopt_classless_static_route(tvbuff_t *tvb, packet_info *pinfo, proto_
 static int
 dissect_dhcpopt_coordinate_based_location(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0, length = tvb_reported_length(tvb);
+	unsigned offset = 0, length = tvb_reported_length(tvb);
 	proto_item* ti;
 
 	if (length == 16) {
@@ -3166,7 +3194,7 @@ dissect_dhcpopt_coordinate_based_location(tvbuff_t *tvb, packet_info *pinfo, pro
 			proto_tree_add_uint(tree, hf_dhcp_option_rfc3825_map_datum, tvb, offset+15, 1, location.datum_type);
 		}
 	} else if (length < 69) { /* CableLabs DSS_ID */
-		int s_len;
+		unsigned s_len;
 
 		proto_tree_add_item(tree, hf_dhcp_option_cl_dss_id_option, tvb, offset, 1, ENC_BIG_ENDIAN);
 		proto_tree_add_item(tree, hf_dhcp_option_cl_dss_id_len, tvb, offset+1, 1, ENC_BIG_ENDIAN);
@@ -3190,11 +3218,11 @@ dissect_dhcpopt_coordinate_based_location(tvbuff_t *tvb, packet_info *pinfo, pro
 static int
 dissect_dhcpopt_vi_vendor_class(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint32_t enterprise = 0;
 	uint32_t option_data_len = 0;
-	int data_len = 0;
-	int s_end;
+	unsigned data_len = 0;
+	unsigned s_end;
 	proto_item *eti, *expert_ti;
 	proto_tree *e_tree;
 	proto_tree *vcdi_tree;
@@ -3214,7 +3242,7 @@ dissect_dhcpopt_vi_vendor_class(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
 		offset += 1;
 
 		s_end = offset + option_data_len;
-		if ( tvb_reported_length_remaining(tvb, s_end) < 0) {
+		if ( tvb_reported_length_remaining(tvb, offset) < option_data_len) {
 			break;
 		}
 
@@ -3264,7 +3292,7 @@ dissect_dhcpopt_vi_vendor_class(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
 static int
 dissect_dhcpopt_forcerenew_nonce(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	while ( tvb_reported_length_remaining(tvb, offset) > 0) {
 		proto_tree_add_item(tree, hf_dhcp_option_forcerenew_nonce_algo, tvb, offset, 1, ENC_BIG_ENDIAN);
 		offset += 1;
@@ -3276,7 +3304,7 @@ dissect_dhcpopt_forcerenew_nonce(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tr
 static int
 dissect_dhcpopt_rdnss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	const char *dns_name;
 	int dns_name_len;
 
@@ -3312,8 +3340,8 @@ dissect_dhcpopt_dhcp_captive_portal(tvbuff_t *tvb, packet_info *pinfo _U_, proto
 static int
 dissect_dhcpopt_dnr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
-	int offset_end = tvb_captured_length(tvb);
+	unsigned offset = 0;
+	unsigned offset_end = tvb_captured_length(tvb);
 	int instance_id = 0;
 	uint32_t instance_offset = 0;
 	uint32_t instance_len;
@@ -3468,7 +3496,7 @@ static int
 dissect_dhcpopt_pcp_server(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_tree *tree_pcp;
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t list_length;
 	uint8_t ip_list_length;
 	proto_item *ti_pcp;
@@ -3512,7 +3540,7 @@ dissect_dhcpopt_portparams(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 static int
 dissect_dhcpopt_6RD_option(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	if (tvb_reported_length(tvb) < 22) {
 		expert_add_info(pinfo, tree, &ei_dhcp_option_6RD_malformed);
@@ -3542,7 +3570,7 @@ dissect_dhcpopt_6RD_option(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 static int
 dissect_dhcpopt_avaya_ip_telephone(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	proto_tree *o242avaya_v_tree;
 	proto_item *avaya_ti;
 	const char *avaya_option = NULL;
@@ -3628,17 +3656,17 @@ static const value_string option82_cl_tag_vals[] = {
 };
 
 static int
-dhcp_dhcp_decode_agent_info(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree, tvbuff_t *tvb, int optoff,
-			     int optend)
+dhcp_dhcp_decode_agent_info(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree, tvbuff_t *tvb, unsigned optoff,
+			     unsigned optend)
 {
-	int	    suboptoff = optoff;
+	unsigned    suboptoff = optoff;
 	uint8_t	    subopt, vs_opt, vs_len;
 	size_t      idx;
-	int	    subopt_len, subopt_end, datalen;
-	uint32_t	    enterprise;
+	unsigned    subopt_len, subopt_end, datalen;
+	uint32_t    enterprise;
 	proto_item *vti, *ti;
 	proto_tree *o82_v_tree, *o82_sub_tree;
-	int 	clsuboptoff, clsubopt_end;
+	unsigned    clsuboptoff, clsubopt_end;
 
 	static const struct basic_types_hfs default_hfs = {
 		&hf_dhcp_option82_value,
@@ -3666,10 +3694,10 @@ dhcp_dhcp_decode_agent_info(packet_info *pinfo, proto_item *v_ti, proto_tree *v_
 		{4, {"DOCSIS Device Class", val_u_long, &hf_dhcp_option82_docsis_device_class}}, /* [RFC3256] */
 		{5, {"Link selection", ipv4, &hf_dhcp_option82_link_selection}}, /* [RFC3527] */
 		{6, {"Subscriber ID", string, &hf_dhcp_option82_subscriber_id}},  /* [RFC3993] */ /***** CHECK STRING TYPE */
-		{7, {"RADIUS Attributes", bytes, &hf_dhcp_option82_radius_attributes}}, /* [RFC4014] */
+		{7, {"RADIUS Attributes", special, &hf_dhcp_option82_radius_attributes}}, /* [RFC4014] */
 		{8, {"Authentication", bytes, &hf_dhcp_option82_authentication}}, /* [RFC4030] */
 		{9, {"Vendor-Specific Information", special, &hf_dhcp_option82_vi}}, /* [RFC 4243] */
-		{10, {"Flags", val_u_byte, &hf_dhcp_option82_flags}}, /* [RFC5010] */
+		{10, {"Flags", special, &hf_dhcp_option82_flags}}, /* [RFC5010] */
 		{11, {"Server ID Override", ipv4, &hf_dhcp_option82_server_id_override}}, /* [RFC 5107] */
 		{12, {"Relay Agent Identifier", bytes, &hf_dhcp_option82_relay_agent_id}}, /* [RFC 6925] */
 		{13, {"Access Technology Type", bytes, &hf_dhcp_option82_option_ani_att}}, /* [RFC7839] */
@@ -3721,10 +3749,12 @@ dhcp_dhcp_decode_agent_info(packet_info *pinfo, proto_item *v_ti, proto_tree *v_
 		if (o82_opt[idx].info.ftype == special) {
 			switch(subopt)
 			{
+			case 7:
+				dissect_attribute_value_pairs(o82_v_tree, pinfo, tvb, suboptoff, subopt_len, NULL);
+				break;
 			case 9:
 				while (suboptoff < subopt_end) {
-					enterprise = tvb_get_ntohl(tvb, suboptoff);
-					vti = proto_tree_add_item(o82_v_tree, hf_dhcp_option82_vi_enterprise, tvb, suboptoff, 4, ENC_BIG_ENDIAN);
+					vti = proto_tree_add_item_ret_uint(o82_v_tree, hf_dhcp_option82_vi_enterprise, tvb, suboptoff, 4, ENC_BIG_ENDIAN, &enterprise);
 					suboptoff += 4;
 
 					o82_sub_tree = proto_item_add_subtree(vti, ett_dhcp_option82_suboption9);
@@ -3800,6 +3830,18 @@ dhcp_dhcp_decode_agent_info(packet_info *pinfo, proto_item *v_ti, proto_tree *v_
 					}
 				}
 				break;
+			case 10: /* Relay Agent Flags Suboption */
+				{
+					static int * const dhcp_option82_flags[] = {
+						&hf_dhcp_option82_flags_unicast,
+						&hf_dhcp_option82_flags_reserved,
+						NULL
+					};
+
+					proto_tree_add_bitmask_with_flags(o82_v_tree, tvb, suboptoff, hf_dhcp_option82_flags,
+						ett_dhcp_option82_suboption10, dhcp_option82_flags, ENC_BIG_ENDIAN, BMT_NO_INT);
+				}
+				break;
 			case 13: /* Access Technology Type */
 				if (subopt_len != 2) {
 					expert_add_info_format(pinfo, vti, &ei_dhcp_bad_length, "length isn't 2");
@@ -3808,7 +3850,6 @@ dhcp_dhcp_decode_agent_info(packet_info *pinfo, proto_item *v_ti, proto_tree *v_
 				proto_tree_add_item(o82_v_tree, hf_dhcp_option82_option_ani_att_res, tvb, suboptoff, 1, ENC_NA);
 				proto_tree_add_item(o82_v_tree, hf_dhcp_option82_option_ani_att_att, tvb, suboptoff+1, 1, ENC_NA);
 				break;
-			break;
 			case 151:
 				if (subopt_len == 1) {
 					proto_tree_add_item(o82_v_tree, hf_dhcp_option82_vrf_name_global, tvb, suboptoff, 1, ENC_NA);
@@ -3841,7 +3882,7 @@ dhcp_dhcp_decode_agent_info(packet_info *pinfo, proto_item *v_ti, proto_tree *v_
 static int
 dissect_dhcpopt_relay_agent_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	while (tvb_reported_length_remaining(tvb, offset) > 0) {
 		offset = dhcp_dhcp_decode_agent_info(pinfo, tree, tree, tvb, offset, tvb_reported_length(tvb));
@@ -3885,16 +3926,16 @@ static const value_string option43_pxeclient_suboption_vals[] = {
 
 static int
 dissect_vendor_pxeclient_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
-				   tvbuff_t *tvb, int optoff, int optend)
+				   tvbuff_t *tvb, unsigned optoff, unsigned optend)
 {
-	int	    suboptoff = optoff;
-	int	    suboptoff_start;
+	unsigned    suboptoff = optoff;
+	unsigned    suboptoff_start;
 	uint8_t	    subopt;
 	uint8_t	    subopt_len;
 	proto_tree *o43pxeclient_v_tree, *o43pxeclient_suboption_tree;
 	proto_item *vti, *ti;
-	uint32_t	    boot_server_ip_count;
-	uint32_t	    boot_menu_length;
+	uint32_t    boot_server_ip_count;
+	uint32_t    boot_menu_length;
 
 	static const struct basic_types_hfs default_hfs = {
 		NULL,
@@ -4164,7 +4205,7 @@ dissect_vendor_pxeclient_suboption(packet_info *pinfo, proto_item *v_ti, proto_t
 				suboptoff_start = suboptoff;
 				ti = proto_tree_add_item(o43pxeclient_v_tree, hf_dhcp_option43_pxeclient_boot_servers, tvb, suboptoff, subopt_len, ENC_NA);
 				o43pxeclient_suboption_tree = proto_item_add_subtree(ti, ett_dhcp_option43_suboption_tree);
-				while((suboptoff - suboptoff_start) < (subopt_len - 1)) {
+				while((suboptoff - suboptoff_start) < (unsigned)(subopt_len - 1)) {
 					proto_tree_add_item(o43pxeclient_suboption_tree, hf_dhcp_option43_pxeclient_boot_server_type, tvb, suboptoff, 2, ENC_BIG_ENDIAN);
 					suboptoff += 2;
 					proto_tree_add_item_ret_uint(o43pxeclient_suboption_tree, hf_dhcp_option43_pxeclient_boot_server_count, tvb, suboptoff, 1, ENC_BIG_ENDIAN, &boot_server_ip_count);
@@ -4180,7 +4221,7 @@ dissect_vendor_pxeclient_suboption(packet_info *pinfo, proto_item *v_ti, proto_t
 				suboptoff_start = suboptoff;
 				ti = proto_tree_add_item(o43pxeclient_v_tree, hf_dhcp_option43_pxeclient_boot_menu, tvb, suboptoff, subopt_len, ENC_NA);
 				o43pxeclient_suboption_tree = proto_item_add_subtree(ti, ett_dhcp_option43_suboption_tree);
-				while((suboptoff - suboptoff_start) < (subopt_len - 1)) {
+				while((suboptoff - suboptoff_start) < (unsigned)(subopt_len - 1)) {
 					proto_tree_add_item(o43pxeclient_suboption_tree, hf_dhcp_option43_pxeclient_boot_menu_type, tvb, suboptoff, 2, ENC_BIG_ENDIAN);
 					suboptoff += 2;
 					proto_tree_add_item_ret_uint(o43pxeclient_suboption_tree, hf_dhcp_option43_pxeclient_boot_menu_length, tvb, suboptoff, 1, ENC_BIG_ENDIAN, &boot_menu_length);
@@ -4223,7 +4264,7 @@ dissect_vendor_pxeclient_suboption(packet_info *pinfo, proto_item *v_ti, proto_t
 static bool
 dissect_pxeclient_vendor_info_heur( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	dhcp_option_data_t *option_data = (dhcp_option_data_t*)data;
 	proto_tree* vendor_tree;
 
@@ -4245,7 +4286,7 @@ dissect_pxeclient_vendor_info_heur( tvbuff_t *tvb, packet_info *pinfo, proto_tre
 
 static void
 dissect_vendor_avaya_param(proto_tree *tree, packet_info *pinfo, proto_item *vti,
-		tvbuff_t *tvb, int optoff, wmem_strbuf_t *avaya_param_buf)
+		tvbuff_t *tvb, unsigned optoff, wmem_strbuf_t *avaya_param_buf)
 {
 	const char *field;
 	int len;
@@ -4509,7 +4550,7 @@ dissect_dhcpopt_isns(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 	proto_tree *server_tree;
 	proto_item *item;
 	int length = tvb_reported_length(tvb);
-	int offset = 0, heartbeat_set = 0;
+	unsigned offset = 0, heartbeat_set = 0;
 
 	if (length < 14) {
 		expert_add_info_format(pinfo, tree, &ei_dhcp_bad_length, "length must be >= 14");
@@ -4621,9 +4662,9 @@ static const value_string cablehome_subopt11_vals[] = {
 
 static int
 dissect_vendor_cablelabs_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
-				   tvbuff_t *tvb, int optoff, int optend)
+				   tvbuff_t *tvb, unsigned optoff, unsigned optend)
 {
-	int	    suboptoff = optoff;
+	unsigned    suboptoff = optoff;
 	uint8_t	    subopt;
 	uint8_t	    subopt_len;
 	proto_tree *o43cl_v_tree;
@@ -4787,7 +4828,7 @@ dissect_vendor_cablelabs_suboption(packet_info *pinfo, proto_item *v_ti, proto_t
 static bool
 dissect_cablelabs_vendor_info_heur( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	dhcp_option_data_t *option_data = (dhcp_option_data_t*)data;
 	proto_tree* vendor_tree;
 
@@ -4832,7 +4873,7 @@ dissect_cablelabs_vendor_info_heur( tvbuff_t *tvb, packet_info *pinfo, proto_tre
 static bool
 dissect_aruba_ap_vendor_info_heur( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	dhcp_option_data_t *option_data = (dhcp_option_data_t*)data;
 	proto_tree* vendor_tree;
 
@@ -4850,12 +4891,12 @@ dissect_aruba_ap_vendor_info_heur( tvbuff_t *tvb, packet_info *pinfo _U_, proto_
 static bool
 dissect_aruba_instant_ap_vendor_info_heur( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
-	int offset = 0;
-	int reported_len = tvb_reported_length(tvb);
+	unsigned offset = 0;
+	unsigned reported_len = tvb_reported_length(tvb);
 	dhcp_option_data_t *option_data = (dhcp_option_data_t*)data;
 	proto_tree* vendor_tree;
 	proto_item* vendor_item;
-	int32_t nameorglen, ampiplen;
+	uint32_t nameorglen, ampiplen;
 
 	/* Aruba  Instant AP */
 	if ((option_data->vendor_class_id == NULL) ||
@@ -4866,10 +4907,11 @@ dissect_aruba_instant_ap_vendor_info_heur( tvbuff_t *tvb, packet_info *pinfo _U_
 
 	vendor_item = proto_tree_add_item(tree, hf_dhcp_option43_arubaiap, tvb, offset, reported_len, ENC_ASCII);
 	vendor_tree = proto_item_add_subtree(vendor_item, ett_dhcp_option43_suboption);
-	nameorglen = tvb_find_uint8(tvb, offset, tvb_reported_length(tvb), ',');
+	tvb_find_uint8_length(tvb, offset, tvb_reported_length(tvb), ',', &nameorglen);
 	proto_tree_add_item(vendor_tree, hf_dhcp_option43_arubaiap_nameorg, tvb, offset, nameorglen, ENC_ASCII);
 	offset += (nameorglen+1);
-	ampiplen = tvb_find_uint8(tvb, offset, reported_len-nameorglen-1, ',') - offset;
+	tvb_find_uint8_length(tvb, offset, reported_len - nameorglen - 1, ',', &ampiplen);
+	ampiplen = ampiplen -offset;
 	proto_tree_add_item(vendor_tree, hf_dhcp_option43_arubaiap_ampip, tvb, offset, ampiplen, ENC_ASCII);
 	offset += (ampiplen+1);
 	proto_tree_add_item(vendor_tree, hf_dhcp_option43_arubaiap_password, tvb, offset, tvb_reported_length_remaining(tvb, offset), ENC_ASCII);
@@ -4896,7 +4938,7 @@ static const value_string option43_bsdp_suboption_vals[] = {
 };
 
 static void
-dissect_vendor_bsdp_boot_image(proto_tree *v_tree, tvbuff_t *tvb, int optoff)
+dissect_vendor_bsdp_boot_image(proto_tree *v_tree, tvbuff_t *tvb, unsigned optoff)
 {
 	static int * const dhcp_o43_bsdp_attributes_flags[] = {
 		&hf_dhcp_option43_bsdp_boot_image_attribute_install,
@@ -4908,12 +4950,12 @@ dissect_vendor_bsdp_boot_image(proto_tree *v_tree, tvbuff_t *tvb, int optoff)
 	proto_tree_add_bitmask(v_tree, tvb, optoff, hf_dhcp_option43_bsdp_boot_image_attribute, ett_dhcp_o43_bsdp_attributes_flags, dhcp_o43_bsdp_attributes_flags, ENC_BIG_ENDIAN);
 }
 
-static int
+static unsigned
 dissect_vendor_bsdp_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
-				   tvbuff_t *tvb, int optoff, int optend)
+				   tvbuff_t *tvb, unsigned optoff, unsigned optend)
 {
-	int	 suboptoff = optoff;
-	int	    attributes_off;
+	unsigned    suboptoff = optoff;
+	unsigned    attributes_off;
 	uint8_t     subopt, string_len;
 	uint8_t     subopt_len, attributes_len;
 	unsigned    item_len;
@@ -5029,7 +5071,7 @@ dissect_vendor_bsdp_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *
 static bool
 dissect_apple_bsdp_vendor_info_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	dhcp_option_data_t *option_data = (dhcp_option_data_t*)data;
 	proto_tree* vendor_tree;
 
@@ -5082,11 +5124,11 @@ static const value_string option43_cisco_suboption_vals[] = {
 	{ 0, NULL}
 };
 
-static int
+static unsigned
 dissect_vendor_cisco_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
-				   tvbuff_t *tvb, int optoff, int optend)
+				   tvbuff_t *tvb, unsigned optoff, unsigned optend)
 {
-	int	    suboptoff = optoff;
+	unsigned    suboptoff = optoff;
 	uint8_t     subopt;
 	uint8_t     subopt_len;
 	unsigned    item_len;
@@ -5168,7 +5210,7 @@ dissect_vendor_cisco_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree 
 static bool
 dissect_cisco_vendor_info_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	dhcp_option_data_t *option_data = (dhcp_option_data_t*)data;
 	proto_tree* vendor_tree;
 
@@ -5197,11 +5239,11 @@ static const value_string option43_aerohive_suboption_vals[] = {
 	{ 0, NULL}
 };
 
-static int
+static unsigned
 dissect_vendor_aerohive_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
-				   tvbuff_t *tvb, int optoff, int optend)
+				   tvbuff_t *tvb, unsigned optoff, unsigned optend)
 {
-	int	    suboptoff = optoff;
+	unsigned    suboptoff = optoff;
 	uint8_t     subopt;
 	uint8_t     subopt_len;
 	unsigned    item_len;
@@ -5253,7 +5295,7 @@ dissect_vendor_aerohive_suboption(packet_info *pinfo, proto_item *v_ti, proto_tr
 static bool
 dissect_aerohive_vendor_info_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	dhcp_option_data_t *option_data = (dhcp_option_data_t*)data;
 	proto_tree* vendor_tree;
 
@@ -5273,13 +5315,13 @@ dissect_aerohive_vendor_info_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 	return true;
 }
 
-static int
+static unsigned
 dissect_vendor_generic_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
 				 tvbuff_t *tvb, uint32_t optoff, uint32_t optend)
 {
-	uint32_t	    suboptoff = optoff;
+	uint32_t    suboptoff = optoff;
 	uint8_t	    subopt;
-	uint32_t	    subopt_len;
+	uint32_t    subopt_len;
 	proto_item *item;
 	proto_tree *sub_tree;
 
@@ -5331,7 +5373,7 @@ dissect_dhcpopt_vi_vendor_specific_info(tvbuff_t *tvb, packet_info *pinfo, proto
 		offset += 1;
 
 		s_end = offset + option_data_len;
-		if ( tvb_reported_length_remaining(tvb, s_end) < 0 ) {
+		if ( tvb_reported_length_remaining(tvb, offset) < option_data_len ) {
 			expert_add_info_format(pinfo, vti, &ei_dhcp_option125_enterprise_malformed, "no room left in option for enterprise %u data", enterprise);
 			break;
 		}
@@ -5395,11 +5437,11 @@ get_alcatel_suboption_len(unsigned subopt)
 	}
 }
 
-static int
+static unsigned
 dissect_vendor_alcatel_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
-				 tvbuff_t *tvb, int optoff, int optend)
+				 tvbuff_t *tvb, unsigned optoff, unsigned optend)
 {
-	int	    suboptoff = optoff;
+	unsigned    suboptoff = optoff;
 	uint8_t	    subopt;
 	uint8_t	    subopt_len;
 	proto_item *vti;
@@ -5472,7 +5514,7 @@ dissect_vendor_alcatel_suboption(packet_info *pinfo, proto_item *v_ti, proto_tre
 static bool
 dissect_alcatel_lucent_vendor_info_heur( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t s_option;
 	proto_tree* vendor_tree;
 
@@ -5513,11 +5555,11 @@ static const value_string option63_suboption_vals[] = {
 	{ 0, NULL }
 };
 
-static int
+static unsigned
 dissect_netware_ip_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
-			     tvbuff_t *tvb, int optoff, int optend)
+			     tvbuff_t *tvb, unsigned optoff, unsigned optend)
 {
-	int	    suboptoff = optoff;
+	unsigned    suboptoff = optoff;
 	uint8_t	    subopt, subopt_len;
 	proto_tree *o63_v_tree;
 	proto_item *vti, *ti;
@@ -5596,7 +5638,7 @@ dissect_netware_ip_suboption(packet_info *pinfo, proto_item *v_ti, proto_tree *v
 static int
 dissect_dhcpopt_netware_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	while (tvb_reported_length_remaining(tvb, offset) > 0) {
 		offset = dissect_netware_ip_suboption(pinfo, tree, tree, tvb, offset, tvb_reported_length(tvb));
@@ -5618,7 +5660,7 @@ static const value_string option125_tr111_suboption_vals[] = {
 static int
 dissect_vendor_tr111_suboption(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	proto_tree *o125_v_tree;
 	proto_item *vti, *ti;
 	uint8_t subopt, subopt_len;
@@ -5687,10 +5729,9 @@ dissect_vendor_tr111_suboption(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 				   proto_tree_add_item(o125_v_tree, hf_dhcp_option125_value, tvb, offset, subopt_len, ENC_NA);
 			}
 			else if (o125_tr111_opt[subopt].ftype == oui) {
-				/* Get hex string.  Expecting 6 characters. */
-				const char    *oui_string =  (char *)tvb_get_string_enc(pinfo->pool, tvb, offset, subopt_len, ENC_ASCII);
-				/* Convert to OUI number.  Only 3 bytes so no data lost in downcast. */
-				uint32_t oui_number = (uint32_t)strtol(oui_string, NULL, 16);
+				/* Get hex OUI number.  Expecting 6 characters. */
+				uint32_t oui_number;
+				tvb_get_string_uint(tvb, offset, subopt_len, ENC_STR_HEX, &oui_number, NULL);
 				/* Add item using oui_vals */
 				proto_tree_add_uint(o125_v_tree, *o125_tr111_opt[subopt].phf, tvb, offset, subopt_len, oui_number);
 			} else if (o125_tr111_opt[subopt].phf == NULL)
@@ -5721,7 +5762,7 @@ static const value_string pkt_mib_env_ind_opt_vals[] = {
 static int
 dissect_vendor_cl_suboption(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t subopt, subopt_len;
 	proto_tree *o125_v_tree;
 	proto_item *vti;
@@ -5974,14 +6015,13 @@ static int hf_dhcp_pkt_mdc_mib_euro_reserved;
 
 
 static void
-dissect_packetcable_mta_cap(proto_tree *v_tree, packet_info *pinfo, tvbuff_t *tvb, int voff, int len)
+dissect_packetcable_mta_cap(proto_tree *v_tree, packet_info *pinfo, tvbuff_t *tvb, unsigned voff, unsigned len)
 {
-	uint16_t	       raw_val;
+	uint16_t	raw_val;
 	uint32_t	flow_val	  = 0;
-	int		   off	  = PKT_MDC_TLV_OFF + voff;
-	int		   subopt_off, max_len;
-	unsigned	       tlv_len, i, mib_val;
-	uint8_t	       flow_val_str[5];
+	unsigned	off	  = PKT_MDC_TLV_OFF + voff;
+	unsigned	subopt_off, max_len;
+	unsigned	tlv_len, i, mib_val;
 	const char    *asc_val;
 	proto_item    *ti, *mib_ti;
 	proto_tree    *subtree, *subtree2;
@@ -6076,10 +6116,8 @@ dissect_packetcable_mta_cap(proto_tree *v_tree, packet_info *pinfo, tvbuff_t *tv
 					break;
 
 				case PKT_MDC_PROV_FLOWS:
-					tvb_memcpy(tvb, flow_val_str, off + 4, 4);
-					flow_val_str[4] = '\0';
 					/* We are only reading 4 digits which should fit in 32 bits */
-					flow_val = (uint32_t)strtoul((char*)flow_val_str, NULL, 16);
+					tvb_get_string_uint(tvb, off + 4, 4, ENC_STR_HEX, &flow_val, NULL);
 					proto_item_append_text(ti,
 							       "0x%04x", flow_val);
 					break;
@@ -6476,29 +6514,22 @@ static void get_opt125_tlv(wmem_allocator_t *scope, tvbuff_t *tvb, unsigned off,
 static void get_opt60_tlv(wmem_allocator_t *scope, tvbuff_t *tvb, unsigned off, uint8_t *tlvtype, uint8_t *tlvlen, uint8_t **value)
 {
 	unsigned	i;
-	uint8_t *val_asc;
 
-	val_asc = (uint8_t *)wmem_alloc0(scope, 4);
 	/* Type */
-	tvb_memcpy(tvb, val_asc, off, 2);
-	*tlvtype = (uint8_t)strtoul((char*)val_asc, NULL, 16);
+	tvb_get_string_uint8(tvb, off, 2, ENC_STR_HEX, tlvtype, NULL);
 	/* Length */
-	tvb_memcpy(tvb, val_asc, off + 2, 2);
-	*tlvlen = (uint8_t)strtoul((char*)val_asc, NULL, 16);
+	tvb_get_string_uint8(tvb, off + 2, 2, ENC_STR_HEX, tlvlen, NULL);
 	/* Value */
 	*value = (uint8_t *)wmem_alloc0(scope, *tlvlen);
 	for (i=0; i<*tlvlen; i++)
 	{
-		memset(val_asc, 0, 4);
-		tvb_memcpy(tvb, val_asc, off + ((i*2) + 4), 2);
-		(*value)[i] = (uint8_t)strtoul((char*)val_asc, NULL, 16);
+		tvb_get_string_uint8(tvb, off + ((i*2) + 4), 2, ENC_STR_HEX, &((*value)[i]), NULL);
 	}
 }
 
 static void
 dissect_docsis_cm_cap(packet_info *pinfo, proto_tree *v_tree, tvbuff_t *tvb, int voff, int len, bool opt125)
 {
-	uint8_t	   *asc_val;
 	proto_item *ti;
 	proto_tree *subtree;
 	uint8_t	    tlv_type;
@@ -6507,8 +6538,6 @@ dissect_docsis_cm_cap(packet_info *pinfo, proto_tree *v_tree, tvbuff_t *tvb, int
 	uint16_t	    val_uint16 = 0;
 	uint8_t	   *val_other  = NULL;
 	unsigned	    off	       = voff;
-
-	asc_val = (uint8_t*)wmem_alloc0(pinfo->pool, 4);
 
 	if (opt125)
 	{
@@ -6526,8 +6555,7 @@ dissect_docsis_cm_cap(packet_info *pinfo, proto_tree *v_tree, tvbuff_t *tvb, int
 		   I am converting the Option 60 values from ASCII to
 		   uint8s to allow the same parser to work for both */
 		off += DOCSIS_CM_CAP_TLV_OFF;
-		tvb_memcpy (tvb, asc_val, off, 2);
-		tlv_len = (uint8_t)strtoul((char*)asc_val, NULL, 16);
+		tvb_get_string_uint8(tvb, off, 2, ENC_STR_HEX, &tlv_len, NULL);
 		proto_tree_add_uint(v_tree, hf_dhcp_docsis_cm_cap_len, tvb, off+2, 2, tlv_len);
 	}
 
@@ -6922,11 +6950,11 @@ static const value_string pkt_i05_ccc_ticket_ctl_vals[] = {
 	{ 0, NULL },
 };
 
-static int
+static unsigned
 dissect_packetcable_i05_ccc(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
-			    tvbuff_t *tvb, int optoff, int optend)
+			    tvbuff_t *tvb, unsigned optoff, unsigned optend)
 {
-	int	    suboptoff = optoff;
+	unsigned    suboptoff = optoff;
 	uint8_t	    subopt, subopt_len, fetch_tgt, timer_val, ticket_ctl;
 	proto_tree *pkt_s_tree;
 	proto_item *vti;
@@ -7051,11 +7079,11 @@ dissect_packetcable_i05_ccc(packet_info *pinfo, proto_item *v_ti, proto_tree *v_
 static int hf_dhcp_ccc_ietf_sec_tkt_pc_provision_server;
 static int hf_dhcp_ccc_ietf_sec_tkt_all_pc_call_management;
 
-static int
+static unsigned
 dissect_packetcable_ietf_ccc(packet_info *pinfo, proto_item *v_ti, proto_tree *v_tree,
-			     tvbuff_t *tvb, int optoff, int optend, int revision)
+			     tvbuff_t *tvb, unsigned optoff, unsigned optend, int revision)
 {
-	int	      suboptoff	    = optoff;
+	unsigned      suboptoff	    = optoff;
 	uint8_t	      subopt, subopt_len;
 	uint8_t	      prov_type, fetch_tgt, timer_val;
 	uint16_t	      sec_tcm;
@@ -7227,7 +7255,7 @@ dissect_packetcable_ietf_ccc(packet_info *pinfo, proto_item *v_ti, proto_tree *v
 static int
 dissect_dhcpopt_packetcable_ccc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	while (tvb_reported_length_remaining(tvb, offset) > 0) {
 		switch (pkt_ccc_protocol_version) {
@@ -7265,15 +7293,15 @@ dissect_dhcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 	proto_item   *fi, *hidden_item;
 	uint8_t	      op;
 	uint8_t	      htype, hlen;
-	int	      voff, eoff; /* vendor offset, end offset */
-	int	      tmpvoff, tmpvoff_end;
+	unsigned      voff, eoff; /* vendor offset, end offset */
+	unsigned      tmpvoff, tmpvoff_end;
 	uint32_t	      ip_addr;
 	bool          at_end;
 	bool          isProxyDhcp;
 	const char   *dhcp_type				     = NULL;
 	const uint8_t *vendor_class_id			     = NULL;
 	uint16_t	      flags, secs;
-	int	      offset_delta;
+	unsigned      offset_delta;
 	uint8_t	      overload				     = 0; /* DHCP option overload */
 	static int * const dhcp_flags[] = {
 		&hf_dhcp_flags_broadcast,
@@ -9347,7 +9375,7 @@ proto_register_dhcp(void)
 
 		{ &hf_dhcp_option77_user_class_binary_data,
 		  { "User Class Binary Data", "dhcp.option.user_class_binary_data",
-		    FT_STRING, BASE_NONE, NULL, 0x0,
+		    FT_BYTES, BASE_SHOW_UTF_8_PRINTABLE, NULL, 0x0,
 		    "User Class Binary Data (Microsoft)", HFILL }},
 
 		{ &hf_dhcp_option77_user_class_padding,
@@ -9545,6 +9573,16 @@ proto_register_dhcp(void)
 		  { "Flags", "dhcp.option.agent_information_option.flags",
 		    FT_UINT8, BASE_HEX, NULL, 0x0,
 		    "Option 82:10 Flags", HFILL }},
+
+		{ &hf_dhcp_option82_flags_unicast,
+		  { "Unicast flag", "dhcp.option.agent_information_option.flags.unicast",
+		    FT_BOOLEAN, 8, TFS(&flag_set_unicast), 0x80,
+		    "Option 82:10 Unicast flag", HFILL }},
+
+		{ &hf_dhcp_option82_flags_reserved,
+		  { "Reserved flags", "dhcp.option.agent_information_option.flags.reserved",
+		    FT_UINT8, BASE_HEX, NULL, 0x7F,
+		    "Option 82:10 Reserved flags", HFILL }},
 
 		{ &hf_dhcp_option82_server_id_override,
 		  { "Server ID Override", "dhcp.option.agent_information_option.server_id_override",
@@ -10633,6 +10671,7 @@ proto_register_dhcp(void)
 		&ett_dhcp_option77_instance,
 		&ett_dhcp_option82_suboption,
 		&ett_dhcp_option82_suboption9,
+		&ett_dhcp_option82_suboption10,
 		&ett_dhcp_option124_vendor_class_data_item,
 		&ett_dhcp_option125_suboption,
 		&ett_dhcp_option125_tr111_suboption,

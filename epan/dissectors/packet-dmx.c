@@ -28,7 +28,7 @@
 #include <epan/prefs.h>
 #include <epan/expert.h>
 
-#include "packet-dmx-manfid.h"
+#include "data-dmx-manfid.h"
 
 #define DMX_SC_DMX	0x00
 #define DMX_SC_TEXT	0x17
@@ -150,7 +150,7 @@ dissect_dmx_chan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
 				if (global_disp_chan_val_type == 0) {
 					v = (v * 100) / 255;
 					if (v == 100) {
-						wmem_strbuf_append(chan_str, "FL ");
+						wmem_strbuf_append(chan_str, " FL ");
 					} else {
 						wmem_strbuf_append_printf(chan_str, chan_format[global_disp_chan_val_type], v);
 					}
@@ -379,7 +379,7 @@ dissect_dmx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 
 	next_tvb = tvb_new_subset_remaining(tvb, offset);
 
-	if (!dissector_try_uint_with_data(dmx_dissector_table, start_code, tvb, pinfo,
+	if (!dissector_try_uint_with_data(dmx_dissector_table, start_code, next_tvb, pinfo,
                              tree, true, NULL)) {
 		call_data_dissector(next_tvb, pinfo, tree);
 	}

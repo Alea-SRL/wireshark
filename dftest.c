@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#include <config.h>
+#include "config.h"
 #define WS_LOG_DOMAIN  LOG_DOMAIN_MAIN
 
 #include <stdlib.h>
@@ -37,7 +37,7 @@
 #include <wsutil/wslog.h>
 #include <wsutil/ws_getopt.h>
 #include <wsutil/utf8_entities.h>
-#include <wsutil/application_flavor.h>
+#include <app/application_flavor.h>
 
 #include <wiretap/wtap.h>
 
@@ -389,7 +389,7 @@ main(int argc, char **argv)
         g_free(configuration_init_error);
     }
 
-    ws_init_version_info("DFTest", NULL, get_ws_vcs_version_info, NULL, NULL);
+    ws_init_version_info("DFTest", NULL, application_get_vcs_version_info, NULL, NULL);
 
     for (;;) {
         opt = ws_getopt_long(argc, argv, optstring, long_options, NULL);
@@ -522,7 +522,6 @@ main(int argc, char **argv)
     app_data.num_cols = application_num_columns();
     app_data.register_func = register_all_protocols;
     app_data.handoff_func = register_all_protocol_handoffs;
-    app_data.supports_packets = application_flavor_is_wireshark();
     if (!epan_init(NULL, NULL, true, &app_data))
         goto out;
 

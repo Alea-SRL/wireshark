@@ -16,7 +16,6 @@
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/ipproto.h>
 #include <epan/stat_tap_ui.h>
 #include "packet-sctp.h"
 
@@ -37,15 +36,21 @@ static int hf_round;
 static int hf_checksum_tweak;
 static int hf_seq_number;
 static int hf_send_timestamp;
+static int hf_send_timestamp_raw;
+static int hf_send_timestamp_unixts_s;
+static int hf_send_timestamp_unixts_ns;
 
 /* Setup list of header fields */
 static hf_register_info hf[] = {
-  { &hf_magic_number,   { "Magic Number",    "hipercontracer.magic_number",   FT_UINT32, BASE_HEX, NULL,                 0x0, "An identifier chosen by the sender upon startup",                       HFILL } },
-  { &hf_send_ttl,       { "Send TTL",        "hipercontracer.send_ttl",       FT_UINT8,  BASE_DEC, NULL,                 0x0, "The IP TTL/IPv6 Hop Count used by the sender",                          HFILL } },
-  { &hf_round,          { "Round",           "hipercontracer.round",          FT_UINT8,  BASE_DEC, NULL,                 0x0, "The round number the packet belongs to",                                HFILL } },
-  { &hf_checksum_tweak, { "Checksum Tweak",  "hipercontracer.checksum_tweak", FT_UINT16, BASE_HEX, NULL,                 0x0, "A 16-bit value to ensure a given checksum for the ICMP/ICMPv6 message", HFILL } },
-  { &hf_seq_number,     { "Sequence Number", "hipercontracer.seq_number",     FT_UINT16, BASE_DEC, NULL,                 0x0, "A 16-bit sequence number",                                              HFILL } },
-  { &hf_send_timestamp, { "Send Time Stamp", "hipercontracer.send_timestamp", FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0x0, "The send time stamp (time since September 29, 1976, 00:00:00.000000000)", HFILL } }
+  { &hf_magic_number,             { "Magic Number",                           "hipercontracer.magic_number",             FT_UINT32,        BASE_HEX,          NULL, 0x0, "An identifier chosen by the sender upon startup",                              HFILL } },
+  { &hf_send_ttl,                 { "Send TTL",                               "hipercontracer.send_ttl",                 FT_UINT8,         BASE_DEC,          NULL, 0x0, "The IP TTL/IPv6 Hop Count used by the sender",                                 HFILL } },
+  { &hf_round,                    { "Round",                                  "hipercontracer.round",                    FT_UINT8,         BASE_DEC,          NULL, 0x0, "The round number the packet belongs to",                                       HFILL } },
+  { &hf_checksum_tweak,           { "Checksum Tweak",                         "hipercontracer.checksum_tweak",           FT_UINT16,        BASE_HEX,          NULL, 0x0, "A 16-bit value to ensure a given checksum for the ICMP/ICMPv6 message",        HFILL } },
+  { &hf_seq_number,               { "Sequence Number",                        "hipercontracer.seq_number",               FT_UINT16,        BASE_DEC,          NULL, 0x0, "A 16-bit sequence number",                                                     HFILL } },
+  { &hf_send_timestamp,           { "Send Time Stamp (string)",               "hipercontracer.send_timestamp",           FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0x0, "The send time stamp (string)",                                                 HFILL } },
+  { &hf_send_timestamp_raw,       { "Send Time Stamp (raw)",                  "hipercontracer.send_timestamp_raw",       FT_UINT64,        BASE_DEC,          NULL, 0x0, "The send time stamp (raw, time since September 29, 1976, 00:00:00.000000000)", HFILL } },
+  { &hf_send_timestamp_unixts_s,  { "Send Time Stamp (Unix timestamp in s)",  "hipercontracer.send_timestamp_unixts_s",  FT_DOUBLE,        BASE_NONE,         NULL, 0x0, "The send time stamp (Unix timestamp, in seconds)",                             HFILL } },
+  { &hf_send_timestamp_unixts_ns, { "Send Time Stamp (Unix timestamp in ns)", "hipercontracer.send_timestamp_unixts_ns", FT_UINT64,        BASE_DEC,          NULL, 0x0, "The send time stamp (Unix timestamp, in nanoseconds)",                         HFILL } }
 };
 
 
@@ -129,10 +134,19 @@ heur_dissect_hipercontracer(tvbuff_t *message_tvb, packet_info *pinfo, proto_tre
      proto_tree_add_item(hipercontracer_tree, hf_seq_number, message_tvb, 6, 2, ENC_BIG_ENDIAN);
   }
 
+  // The raw send timestamp value:
+  proto_tree_add_item(hipercontracer_tree, hf_send_timestamp_raw, message_tvb, 8, 8, ENC_BIG_ENDIAN);
+
   // Time stamp is nanoseconds since 29.09.1976 00:00:00.000000000.
   t.secs  = (time_t)(sendTimeStamp / 1000000000);
   t.nsecs = (int)(sendTimeStamp - 1000000000 * t.secs);
   proto_tree_add_time(hipercontracer_tree, hf_send_timestamp, message_tvb, 8, 8, &t);
+
+  // The send timestamp as Unix timestamp in s (double) and ns (uint64):
+  const long double sendTimeStampAsFloat = (long double)sendTimeStamp / (long double)1000000000.0;
+  proto_tree_add_double_format_value(hipercontracer_tree, hf_send_timestamp_unixts_s,  message_tvb, 8, 8,
+                                     sendTimeStampAsFloat, "%1.9Lf", sendTimeStampAsFloat);
+  proto_tree_add_uint64(hipercontracer_tree, hf_send_timestamp_unixts_ns, message_tvb, 8, 8, sendTimeStamp);
 
   col_append_fstr(pinfo->cinfo, COL_INFO, " (SendTTL=%u, Round=%u)",
                   (unsigned int)tvb_get_uint8(message_tvb, 4),

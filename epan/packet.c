@@ -733,14 +733,9 @@ dissect_record(epan_dissect_t *edt, int file_type_subtype, wtap_rec *rec,
 		 * Reported length values will not have been
 		 * filtered out, and should not be filtered out,
 		 * as those lengths are not necessarily invalid.
-		 *
-		 * For now, we clip the reported length at INT_MAX
-		 *
-		 * (XXX, is this still a problem?) There was an exception when we call
-		 * tvb_new_real_data() now there's not.
 		 */
 		edt->tvb = tvb_new_real_data(ws_buffer_start_ptr(&rec->data),
-                    fd->cap_len, fd->pkt_len > INT_MAX ? INT_MAX : fd->pkt_len);
+                    fd->cap_len, fd->pkt_len);
 		/* Add this tvbuffer into the data_src list */
 		add_new_data_source(&edt->pi, edt->tvb, rec->rec_type_name);
 
@@ -1359,25 +1354,28 @@ dissector_add_uint(const char *name, const uint32_t pattern, dissector_handle_t 
 void dissector_add_uint_range(const char *name, range_t *range,
 			      dissector_handle_t handle)
 {
+	if (!range) {
+		return;
+	}
+
 	dissector_table_t  sub_dissectors;
 	uint32_t i, j;
 
-	if (range) {
-		if (!dissector_get_table_checked(name, handle, &sub_dissectors))
-			return;
+	if (!dissector_get_table_checked(name, handle, &sub_dissectors))
+		return;
 
-		for (i = 0; i < range->nranges; i++) {
-			for (j = range->ranges[i].low; j < range->ranges[i].high; j++)
-				dissector_add_uint_real(name, j, handle, sub_dissectors);
-			dissector_add_uint_real(name, range->ranges[i].high, handle, sub_dissectors);
-		}
-		/*
-		 * Even an empty range would want a chance for
-		 * Decode As, if the dissector table supports
-		 * it.
-		 */
-		if (sub_dissectors->supports_decode_as)
-			dissector_add_for_decode_as(name, handle);
+	for (i = 0; i < range->nranges; i++) {
+		for (j = range->ranges[i].low; j < range->ranges[i].high; j++)
+			dissector_add_uint_real(name, j, handle, sub_dissectors);
+		dissector_add_uint_real(name, range->ranges[i].high, handle, sub_dissectors);
+	}
+	/*
+	 * Even an empty range would want a chance for
+	 * Decode As, if the dissector table supports
+	 * it.
+	 */
+	if (sub_dissectors->supports_decode_as) {
+		dissector_add_for_decode_as(name, handle);
 	}
 }
 
@@ -1390,6 +1388,11 @@ dissector_add_range_preference(const char *name, dissector_handle_t handle, cons
 	dissector_table_t  pref_dissector_table = find_dissector_table(name);
 	int proto_id = proto_get_id(handle->protocol);
 	uint32_t max_value = 0;
+
+	if (!pref_dissector_table) {
+		ws_warning("Unable to find dissector table for %s", name);
+		return NULL;
+	}
 
 	/* If a dissector is added for Decode As only, it's dissector
 		table value would default to 0.
@@ -4278,15 +4281,26 @@ prime_epan_dissect_with_postdissector_wanted_hfids(epan_dissect_t *edt)
 }
 
 void
+increment_dissection_depth_by_n(packet_info *pinfo, unsigned n) {
+	DISSECTOR_ASSERT_HINT(!ckd_add(&pinfo->dissection_depth, pinfo->dissection_depth, n),
+		"pinfo->dissection_depth overflowed!");
+	DISSECTOR_ASSERT(pinfo->dissection_depth < prefs.gui_max_tree_depth);
+}
+
+void
 increment_dissection_depth(packet_info *pinfo) {
-	pinfo->dissection_depth++;
-	DISSECTOR_ASSERT(pinfo->dissection_depth < (int)prefs.gui_max_tree_depth);
+	increment_dissection_depth_by_n(pinfo, 1);
+}
+
+void
+decrement_dissection_depth_by_n(packet_info *pinfo, unsigned n) {
+	DISSECTOR_ASSERT_HINT(!ckd_sub(&pinfo->dissection_depth, pinfo->dissection_depth, n),
+		"pinfo->dissection_depth underflowed!");
 }
 
 void
 decrement_dissection_depth(packet_info *pinfo) {
-	pinfo->dissection_depth--;
-	DISSECTOR_ASSERT(pinfo->dissection_depth >= 0);
+	decrement_dissection_depth_by_n(pinfo, 1);
 }
 
 /*

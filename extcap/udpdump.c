@@ -36,7 +36,6 @@
 #endif
 
 #include <writecap/pcapio.h>
-#include <wiretap/wtap.h>
 #include <wsutil/strtoi.h>
 #include <wsutil/inet_addr.h>
 #include <wsutil/filesystem.h>
@@ -46,7 +45,8 @@
 #include <wsutil/wslog.h>
 #include <wsutil/pint.h>
 #include <wsutil/exported_pdu_tlvs.h>
-#include <wsutil/application_flavor.h>
+#include <wsutil/nstime.h>
+#include <app/application_flavor.h>
 
 #include <cli_main.h>
 
@@ -269,7 +269,7 @@ static int dump_packet(const char* proto_name, const uint16_t listenport, const 
 	offset += (unsigned)buflen;
 
 	if (!libpcap_write_packet(fp,
-			(uint32_t)(curtime / G_USEC_PER_SEC), (uint32_t)(curtime % G_USEC_PER_SEC),
+			(uint32_t)(curtime / WS_USECS_PER_SEC), (uint32_t)(curtime % WS_USECS_PER_SEC),
 			offset, offset, mbuf, &bytes_written, &err)) {
 		ws_warning("Can't write packet: %s", g_strerror(err));
 		ret = EXIT_FAILURE;

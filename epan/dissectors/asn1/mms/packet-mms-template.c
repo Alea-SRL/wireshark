@@ -23,10 +23,6 @@
 #include "packet-acse.h"
 #include "packet-mms.h"
 
-#define PNAME  "MMS"
-#define PSNAME "MMS"
-#define PFNAME "mms"
-
 void proto_register_mms(void);
 void proto_reg_handoff_mms(void);
 
@@ -463,7 +459,7 @@ dissect_mms(tvbuff_t* tvb, packet_info* pinfo, proto_tree* parent_tree, void* da
             wmem_free(pinfo->pool, asn1_ctx.private_data);
         }
         if (offset == old_offset) {
-            proto_tree_add_expert(tree, pinfo, &ei_mms_zero_pdu, tvb, offset, -1);
+            proto_tree_add_expert_remaining(tree, pinfo, &ei_mms_zero_pdu, tvb, offset);
             break;
         }
     }
@@ -676,7 +672,7 @@ void proto_register_mms(void) {
     expert_module_t* expert_mms;
 
     /* Register protocol */
-    proto_mms = proto_register_protocol(PNAME, PSNAME, PFNAME);
+    proto_mms = proto_register_protocol("MMS", "MMS", "mms");
     register_dissector("mms", dissect_mms, proto_mms);
     /* Register fields and subtrees */
     proto_register_field_array(proto_mms, hf, array_length(hf));

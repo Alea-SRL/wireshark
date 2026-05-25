@@ -22,10 +22,6 @@
 #include <wsutil/array.h>
 #include "packet-ber.h"
 
-#define PNAME  "Glow"
-#define PSNAME "GLOW"
-#define PFNAME "glow"
-
 void proto_register_glow(void);
 
 static dissector_handle_t glow_handle;
@@ -1087,13 +1083,11 @@ dissect_glow_SEQUENCE_OF_Element(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsig
 static unsigned
 dissect_glow_ElementCollection(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // ElementCollection -> ElementCollection/_untag -> Element -> Node -> Node/_untag -> ElementCollection
-  actx->pinfo->dissection_depth += 5;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 5);
   offset = dissect_ber_tagged_type(implicit_tag, actx, tree, tvb, offset,
                                       hf_index, BER_CLASS_APP, 4, true, dissect_glow_SEQUENCE_OF_Element);
 
-  actx->pinfo->dissection_depth -= 5;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 5);
   return offset;
 }
 
@@ -1118,13 +1112,11 @@ dissect_glow_Parameter_U(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offs
 static unsigned
 dissect_glow_Parameter(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // Parameter -> Parameter/_untag -> ElementCollection -> ElementCollection/_untag -> Element -> Parameter
-  actx->pinfo->dissection_depth += 5;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 5);
   offset = dissect_ber_tagged_type(implicit_tag, actx, tree, tvb, offset,
                                       hf_index, BER_CLASS_APP, 1, true, dissect_glow_Parameter_U);
 
-  actx->pinfo->dissection_depth -= 5;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 5);
   return offset;
 }
 
@@ -1175,13 +1167,11 @@ dissect_glow_Template_U(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offse
 static unsigned
 dissect_glow_Template(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
   // Template -> Template/_untag -> TemplateElement -> Parameter -> Parameter/_untag -> ElementCollection -> ElementCollection/_untag -> Element -> Template
-  actx->pinfo->dissection_depth += 8;
-  increment_dissection_depth(actx->pinfo);
+  increment_dissection_depth_by_n(actx->pinfo, 8);
   offset = dissect_ber_tagged_type(implicit_tag, actx, tree, tvb, offset,
                                       hf_index, BER_CLASS_APP, 24, true, dissect_glow_Template_U);
 
-  actx->pinfo->dissection_depth -= 8;
-  decrement_dissection_depth(actx->pinfo);
+  decrement_dissection_depth_by_n(actx->pinfo, 8);
   return offset;
 }
 
@@ -1497,7 +1487,7 @@ dissect_glow(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
     proto_tree      *glow_tree = NULL;
 
     /* make entry in the Protocol column on summary display */
-    col_set_str(pinfo->cinfo, COL_PROTOCOL, PNAME);
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "Glow");
 
     /* create the glow protocol tree */
     glow_item = proto_tree_add_item(tree, proto_glow, tvb, 0, -1, ENC_NA);
@@ -1940,7 +1930,7 @@ void proto_register_glow(void) {
 
 
   /* Register protocol */
-  proto_glow = proto_register_protocol(PNAME, PSNAME, PFNAME);
+  proto_glow = proto_register_protocol("Glow", "GLOW", "glow");
   glow_handle = register_dissector("glow", dissect_glow, proto_glow);
 
   /* Register fields and subtrees */

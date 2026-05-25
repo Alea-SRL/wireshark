@@ -63,10 +63,6 @@
 #include "packet-snmp.h"
 #include <wsutil/wsgcrypt.h>
 
-#define PNAME  "Simple Network Management Protocol"
-#define PSNAME "SNMP"
-#define PFNAME "snmp"
-
 #define UDP_PORT_SNMP		161
 #define UDP_PORT_SNMP_TRAP	162
 #define TCP_PORT_SNMP		161
@@ -193,9 +189,7 @@ static bool snmp_desegment = true;
 
 /* Global variables */
 
-uint32_t MsgSecurityModel;
-tvbuff_t *oid_tvb=NULL;
-tvbuff_t *value_tvb=NULL;
+static uint32_t MsgSecurityModel;
 
 static dissector_handle_t snmp_handle;
 static dissector_handle_t snmp_tcp_handle;
@@ -447,7 +441,7 @@ static const value_string snmp_procedure_names[] = {
 #define SERR_EOM    2
 
 
-dissector_table_t value_sub_dissectors_table;
+static dissector_table_t value_sub_dissectors_table;
 
 /*
  * Data structure attached to a conversation, request/response information
@@ -2794,8 +2788,8 @@ dissect_snmp_T_encryptedPDU(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned o
 		tvbuff_t* cleartext_tvb = usm_p.user_assoc->user.privProtocol(&usm_p, crypt_tvb, actx->pinfo, &error );
 
 		if (! cleartext_tvb) {
-			proto_tree_add_expert_format(encryptedpdu_tree, actx->pinfo, &ei_snmp_failed_decrypted_data_pdu,
-				crypt_tvb, 0, -1, "Failed to decrypt encryptedPDU: %s", error);
+			proto_tree_add_expert_format_remaining(encryptedpdu_tree, actx->pinfo, &ei_snmp_failed_decrypted_data_pdu,
+				crypt_tvb, 0, "Failed to decrypt encryptedPDU: %s", error);
 
 			col_set_str(actx->pinfo->cinfo, COL_INFO, "encryptedPDU: Failed to decrypt");
 
@@ -2805,7 +2799,7 @@ dissect_snmp_T_encryptedPDU(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned o
 			proto_tree* decrypted_tree;
 
 			if (! check_ScopedPdu(cleartext_tvb)) {
-				proto_tree_add_expert(encryptedpdu_tree, actx->pinfo, &ei_snmp_decrypted_data_bad_formatted, cleartext_tvb, 0, -1);
+				proto_tree_add_expert_remaining(encryptedpdu_tree, actx->pinfo, &ei_snmp_decrypted_data_bad_formatted, cleartext_tvb, 0);
 
 				col_set_str(actx->pinfo->cinfo, COL_INFO, "encryptedPDU: Decrypted data not formatted as expected");
 
@@ -4128,7 +4122,7 @@ void proto_register_snmp(void) {
 					    specific_traps_flds);
 
 	/* Register protocol */
-	proto_snmp = proto_register_protocol(PNAME, PSNAME, PFNAME);
+	proto_snmp = proto_register_protocol("Simple Network Management Protocol", "SNMP", "snmp");
 	snmp_handle = register_dissector("snmp", dissect_snmp, proto_snmp);
 
 	/* Register fields and subtrees */

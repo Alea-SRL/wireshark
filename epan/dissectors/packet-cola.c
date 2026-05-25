@@ -567,10 +567,9 @@ static char*
 cola_get_ascii_parameter_string(packet_info *pinfo, tvbuff_t *tvb, int offset, int* new_offset)
 {
 	char* str_parameter;
-	int parameter_end;
+	unsigned parameter_end;
 
-	parameter_end = tvb_find_uint8(tvb, offset, -1, SICK_COLA_DELIMITER);
-	if (parameter_end < 0)
+	if (!tvb_find_uint8_remaining(tvb, offset, SICK_COLA_DELIMITER, &parameter_end))
 	{
 		*new_offset = -1;
 		return NULL;
@@ -752,6 +751,7 @@ diplay_timestamp_field(proto_tree *tree, tvbuff_t *tvb, int offset, int hf_field
 		time_offset += 1;
 		time_info.tm_sec = tvb_get_uint8(tvb, time_offset);
 		time_offset += 1;
+		time_info.tm_isdst = -1;
 
 		time_info_seconds = mktime(&time_info);
 		ns_time_info.secs = time_info_seconds;
@@ -778,12 +778,12 @@ dissect_sick_cola_read(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, bool
 static int
 dissect_sick_cola_write(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, bool binary)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	const char* write_name;
 
 	//find the space character for method name
-	int write_name_end = tvb_find_uint8(tvb, offset, -1, SICK_COLA_DELIMITER);
-	if (write_name_end < 0)
+	unsigned write_name_end;
+	if (!tvb_find_uint8_remaining(tvb, offset, SICK_COLA_DELIMITER, &write_name_end))
 	{
 		expert_add_info(pinfo, tree, &ei_sick_cola_command_name);
 		return tvb_reported_length(tvb);
@@ -1123,13 +1123,13 @@ dissect_sick_cola_write(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, boo
 static int
 dissect_sick_cola_method(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, bool binary)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	const char* method_name;
-	int parameter_end;
+	unsigned parameter_end;
 
 	//find the space character for method name
-	int method_end = tvb_find_uint8(tvb, offset, -1, SICK_COLA_DELIMITER);
-	if (method_end < 0)
+	unsigned method_end;
+	if (!tvb_find_uint8_remaining(tvb, offset, SICK_COLA_DELIMITER, &method_end))
 	{
 		//The command must have no parameters
 		proto_tree_add_item(tree, hf_sick_cola_method_name, tvb, offset, -1, ENC_ASCII);
@@ -1154,8 +1154,7 @@ dissect_sick_cola_method(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, bo
 		}
 		else
 		{
-			parameter_end = tvb_find_uint8(tvb, offset, -1, SICK_COLA_DELIMITER);
-			if (parameter_end < 0)
+			if (!tvb_find_uint8_remaining(tvb, offset, SICK_COLA_DELIMITER, &parameter_end))
 			{
 				expert_add_info_format(pinfo, tree, &ei_sick_cola_command_parameter, "Parse error for SetAccessMode user level");
 				return tvb_reported_length(tvb);
@@ -1250,12 +1249,11 @@ dissect_sick_cola_method(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, bo
 static int
 dissect_sick_cola_event(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, bool binary)
 {
-	int offset = 0;
+	unsigned offset = 0, event_end;
 	const char* event_name;
 
 	//find the space character for method name
-	int event_end = tvb_find_uint8(tvb, offset, -1, SICK_COLA_DELIMITER);
-	if (event_end < 0)
+	if (!tvb_find_uint8_remaining(tvb, offset, SICK_COLA_DELIMITER, &event_end))
 	{
 		//The command must have no parameters
 		proto_tree_add_item(tree, hf_sick_cola_event_name, tvb, offset, -1, ENC_ASCII);
@@ -1287,7 +1285,7 @@ dissect_sick_cola_event(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, boo
 }
 
 static int
-dissect_binary_scan_data(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, int offset)
+dissect_binary_scan_data(proto_tree *tree, packet_info *pinfo _U_, tvbuff_t *tvb, int offset)
 {
 	proto_tree *device_tree, *status_info_tree, *frequency_tree, *output_channel16_tree, *output_channel8_tree,
 				*data_tree, *channel_tree, *position_tree, *time_tree, *event_tree;
@@ -1315,10 +1313,10 @@ dissect_binary_scan_data(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, in
 	offset += 2;
 	proto_tree_add_item(status_info_tree, hf_sick_cola_scan_data_do_status, tvb, offset, 2, ENC_BIG_ENDIAN);
 	offset += 2;
-	uint16_t layer_angle;
-	if (ws_hexstrtou16((char*)tvb_get_string_enc(pinfo->pool, tvb, offset, 4, ENC_ASCII), NULL, &layer_angle))
+	int16_t layer_angle;
+	if (tvb_get_string_int16(tvb, offset, 4, ENC_STR_HEX, &layer_angle, NULL))
 	{
-		proto_tree_add_int(status_info_tree, hf_sick_cola_scan_data_layer_angle, tvb, offset, 2, (int16_t)layer_angle);
+		proto_tree_add_int(status_info_tree, hf_sick_cola_scan_data_layer_angle, tvb, offset, 2, layer_angle);
 	}
 	else
 	{
@@ -1790,12 +1788,11 @@ dissect_output_state(proto_tree *tree, packet_info *pinfo _U_, tvbuff_t *tvb, in
 static int
 dissect_sick_cola_answer_sra(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, bool binary)
 {
-	int offset = 0;
+	unsigned offset = 0, answer_end;
 	const char* answer_name;
 
 	//find the space character for read name
-	int answer_end = tvb_find_uint8(tvb, offset, -1, SICK_COLA_DELIMITER);
-	if (answer_end < 0)
+	if (!tvb_find_uint8_remaining(tvb, offset, SICK_COLA_DELIMITER, &answer_end))
 	{
 		//The command must have no parameters
 		proto_tree_add_item(tree, hf_sick_cola_answer_name, tvb, offset, -1, ENC_ASCII);
@@ -1995,13 +1992,12 @@ dissect_sick_cola_answer_swa(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb
 static int
 dissect_sick_cola_answer_san(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, bool binary)
 {
-	int offset = 0;
+	unsigned offset = 0, answer_end;
 	const char* answer_name;
 	int parameter_length;
 
 	//find the space character for answer name
-	int answer_end = tvb_find_uint8(tvb, offset, -1, SICK_COLA_DELIMITER);
-	if (answer_end < 0)
+	if (!tvb_find_uint8_remaining(tvb, offset, SICK_COLA_DELIMITER, &answer_end))
 	{
 		//The command must have no parameters
 		proto_tree_add_item(tree, hf_sick_cola_answer_name, tvb, offset, -1, ENC_ASCII);
@@ -2091,7 +2087,7 @@ dissect_sick_cola_answer_san(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb
 			}
 			else
 			{
-				proto_tree_add_uint(tree, hf_sick_cola_startmeas_status_code, tvb, offset, parameter_length, status_code);
+				proto_tree_add_uint(tree, hf_sick_cola_startmeas_status_code, tvb, offset, parameter_length, 0xFFFFFFFF);
 			}
 		}
 	}
@@ -2157,12 +2153,11 @@ dissect_sick_cola_answer_san(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb
 static int
 dissect_sick_cola_answer_sea(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, bool binary)
 {
-	int offset = 0;
+	unsigned offset = 0, answer_end;
 	const char* answer_name;
 
 	//find the space character for answer name
-	int answer_end = tvb_find_uint8(tvb, offset, -1, SICK_COLA_DELIMITER);
-	if (answer_end < 0)
+	if (!tvb_find_uint8_remaining(tvb, offset, SICK_COLA_DELIMITER, &answer_end))
 	{
 		//The command must have no parameters
 		proto_tree_add_item(tree, hf_sick_cola_answer_name, tvb, offset, -1, ENC_ASCII);
@@ -2189,12 +2184,11 @@ dissect_sick_cola_answer_sea(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb
 static int
 dissect_sick_cola_answer_ssn(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, bool binary)
 {
-	int offset = 0;
+	unsigned offset = 0, answer_end;
 	const char* answer_name;
 
 	//find the space character for answer name
-	int answer_end = tvb_find_uint8(tvb, offset, -1, SICK_COLA_DELIMITER);
-	if (answer_end < 0)
+	if (!tvb_find_uint8_remaining(tvb, offset, SICK_COLA_DELIMITER, &answer_end))
 	{
 		//The command must have no parameters
 		proto_tree_add_item(tree, hf_sick_cola_answer_name, tvb, offset, -1, ENC_ASCII);
@@ -2377,17 +2371,16 @@ dissect_sick_cola_a(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
 {
 	proto_tree      *cola_a_tree;
 	proto_item      *ti, *command_item;
-	int				offset = 0;
+	unsigned	offset = 0;
 	uint32_t			command;
-	int			etxp = 0; /* ETX position */
+	unsigned        etxp = 0; /* ETX position */
 	tvbuff_t		*command_tvb;
 
 	//Ensure there is a start and end delimiter
 	if (tvb_get_uint8(tvb, offset) != SICK_COLA_A_STX)
 		return 0;
 
-	etxp = tvb_find_uint8(tvb, 1, -1, SICK_COLA_A_ETX);
-	if (etxp == -1)
+	if (!tvb_find_uint8_remaining(tvb, 1, SICK_COLA_A_ETX, &etxp))
 	{
 		//see if the next frame has it
 		pinfo->desegment_len = DESEGMENT_ONE_MORE_SEGMENT;
@@ -2460,7 +2453,7 @@ dissect_sick_cola_a(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
 static bool
 dissect_sick_cola_a_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-	int etxp;
+	unsigned etxp;
 
 	if (tvb_captured_length(tvb) < SICK_COLA_A_MIN_LENGTH)
 		return false;
@@ -2473,8 +2466,7 @@ dissect_sick_cola_a_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
         if (try_val_to_str(command, cola_command_vals) == NULL)
             return false;
 
-	etxp = tvb_find_uint8(tvb, 1, -1, SICK_COLA_A_ETX);
-	if (etxp == -1)
+	if (!tvb_find_uint8_remaining(tvb, 1, SICK_COLA_A_ETX, &etxp))
 		return false;
 
 	/* Ok, looks like a valid packet, go dissect. */

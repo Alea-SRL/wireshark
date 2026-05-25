@@ -18,7 +18,6 @@
  */
 
 #include "config.h"
-
 #define WS_LOG_DOMAIN "jxta"
 
 #include <epan/packet.h>
@@ -792,11 +791,12 @@ static conversation_t *get_peer_conversation(packet_info * pinfo, jxta_stream_co
 *           the packet was not recognized as a JXTA packet and negative if the
 *           dissector needs more bytes in order to process a PDU.
 **/
-static int dissect_jxta_welcome(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, address * found_addr, bool initiator)
+static int
+dissect_jxta_welcome(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, address * found_addr, bool initiator)
 {
     unsigned offset = 0;
-    int afterwelcome;
-    int first_linelen;
+    unsigned afterwelcome;
+    unsigned first_linelen;
     unsigned available = tvb_reported_length_remaining(tvb, offset);
     char **tokens = NULL;
 
@@ -809,9 +809,7 @@ static int dissect_jxta_welcome(tvbuff_t * tvb, packet_info * pinfo, proto_tree 
         return 0;
     }
 
-    first_linelen = tvb_find_line_end(tvb, offset, -1, &afterwelcome, gDESEGMENT && pinfo->can_desegment);
-
-    if (-1 == first_linelen) {
+    if (!tvb_find_line_end_remaining(tvb, offset, &first_linelen, &afterwelcome)) {
         if (available > 4096) {
             /* it's too far too be reasonable */
             return 0;
@@ -1678,8 +1676,7 @@ static int dissect_jxta_message_element_1(tvbuff_t * tvb, packet_info * pinfo, p
     }
 
     /* content */
-    content_len = tvb_get_ntohl(tvb, tree_offset);
-    proto_tree_add_item(jxta_elem_tree, hf_jxta_element_content_len, tvb, tree_offset, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint(jxta_elem_tree, hf_jxta_element_content_len, tvb, tree_offset, 4, ENC_BIG_ENDIAN, &content_len);
     tree_offset += 4;
 
     element_content_tvb = tvb_new_subset_length(tvb, tree_offset, content_len);
@@ -1975,8 +1972,7 @@ static int dissect_jxta_message_element_2(tvbuff_t * tvb, packet_info * pinfo, p
 
 
     if ((flags & JXTAMSG2_ELMFLAG_UINT64_LENS) != 0) {
-        content_len = tvb_get_ntoh64(tvb, tree_offset);
-        proto_tree_add_item(jxta_elem_tree, hf_jxta_element_content_len64, tvb, tree_offset, 8, ENC_BIG_ENDIAN);
+        proto_tree_add_item_ret_uint64(jxta_elem_tree, hf_jxta_element_content_len64, tvb, tree_offset, 8, ENC_BIG_ENDIAN, &content_len);
         tree_offset += 8;
     } else {
         content_len = tvb_get_ntohl(tvb, tree_offset);

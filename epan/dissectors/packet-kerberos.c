@@ -45,8 +45,8 @@
  * information.
  */
 
+#include "config.h"
 #define WS_LOG_DOMAIN "packet-kerberos"
-#include <config.h>
 #include <wireshark.h>
 
 // krb5.h needs to be included before the defines in packet-kerberos.h
@@ -1699,9 +1699,6 @@ static void missing_signing_key(proto_tree *tree, packet_info *pinfo,
 
 #endif /* HAVE_KRB5_PAC_VERIFY */
 
-/* Retrieved from read_keytab_file.h */
-extern krb5_context keytab_krb5_ctx;
-
 #ifdef HAVE_KRB5_C_FX_CF2_SIMPLE
 static void
 krb5_fast_key(asn1_ctx_t *actx, proto_tree *tree, tvbuff_t *tvb,
@@ -3132,7 +3129,7 @@ decrypt_krb5_data(proto_tree *tree _U_, packet_info *pinfo,
 
 	read_keytab_file_from_preferences();
 
-	for(ek=keytab_get_enc_key_list();ek;ek=ek->next){
+	for(ek=(enc_key_t*)keytab_get_enc_key_list();ek;ek=ek->next){
 		krb5_keytab_entry key;
 		krb5_crypto crypto;
 		uint8_t *cryptocopy; /* workaround for pre-0.6.1 heimdal bug */
@@ -3162,7 +3159,7 @@ decrypt_krb5_data(proto_tree *tree _U_, packet_info *pinfo,
 								&data,
 								NULL);
 		if((ret == 0) && (length>0)){
-			char *user_data;
+			uint8_t *user_data;
 
 			used_encryption_key(tree, pinfo, zero_private,
 					    ek, usage, cryptotvb,
@@ -3170,7 +3167,7 @@ decrypt_krb5_data(proto_tree *tree _U_, packet_info *pinfo,
 
 			krb5_crypto_destroy(keytab_krb5_ctx, crypto);
 			/* return a private wmem_alloced blob to the caller */
-			user_data = (char *)wmem_memdup(pinfo->pool, data.data, (unsigned)data.length);
+			user_data = wmem_memdup(pinfo->pool, data.data, (unsigned)data.length);
 			if (datalen) {
 				*datalen = (int)data.length;
 			}
@@ -3183,234 +3180,7 @@ decrypt_krb5_data(proto_tree *tree _U_, packet_info *pinfo,
 
 #define NEED_DECRYPT_KRB5_KRB_CFX_DCE_NOOP 1
 
-#elif defined (HAVE_LIBNETTLE)
-
-#define SERVICE_KEY_SIZE (DES3_KEY_SIZE + 2)
-#define KEYTYPE_DES3_CBC_MD5 5	/* Currently the only one supported */
-
-typedef struct _service_key_t {
-	uint16_t kvno;
-	int     keytype;
-	int     length;
-	uint8_t *contents;
-	char    *origin;
-} service_key_t;
-GSList *service_key_list;
-
-
-static void
-add_encryption_key(packet_info *pinfo, int keytype, int keylength, const char *keyvalue, const char *origin)
-{
-	service_key_t *new_key;
-
-	if(pinfo->fd->visited){
-		return;
-	}
-
-	new_key = g_malloc(sizeof(service_key_t));
-	new_key->kvno = 0;
-	new_key->keytype = keytype;
-	new_key->length = keylength;
-	new_key->contents = g_memdup2(keyvalue, keylength);
-	new_key->origin = g_strdup_printf("%s learnt from frame %u", origin, pinfo->num);
-	service_key_list = g_slist_append(service_key_list, (void *) new_key);
-}
-
-static void
-save_encryption_key(tvbuff_t *tvb _U_, int offset _U_, int length _U_,
-		    asn1_ctx_t *actx _U_, proto_tree *tree _U_,
-		    int parent_hf_index _U_,
-		    int hf_index _U_)
-{
-	kerberos_private_data_t *private_data = kerberos_get_private_data(actx);
-	const char *parent = proto_registrar_get_name(parent_hf_index);
-	const char *element = proto_registrar_get_name(hf_index);
-	char* origin = wmem_strdup_printf(actx->pinfo->pool, "%s_%s", parent, element);
-
-	add_encryption_key(actx->pinfo,
-			   private_data->key.keytype,
-			   private_data->key.keylength,
-			   private_data->key.keyvalue,
-			   origin);
-}
-
-static void
-save_Authenticator_subkey(tvbuff_t *tvb, int offset, int length,
-			  asn1_ctx_t *actx, proto_tree *tree,
-			  int parent_hf_index,
-			  int hf_index)
-{
-	save_encryption_key(tvb, offset, length, actx, tree, parent_hf_index, hf_index);
-}
-
-static void
-save_EncAPRepPart_subkey(tvbuff_t *tvb, int offset, int length,
-			 asn1_ctx_t *actx, proto_tree *tree,
-			 int parent_hf_index,
-			 int hf_index)
-{
-	save_encryption_key(tvb, offset, length, actx, tree, parent_hf_index, hf_index);
-}
-
-static void
-save_EncKDCRepPart_key(tvbuff_t *tvb, int offset, int length,
-		       asn1_ctx_t *actx, proto_tree *tree,
-		       int parent_hf_index,
-		       int hf_index)
-{
-	save_encryption_key(tvb, offset, length, actx, tree, parent_hf_index, hf_index);
-}
-
-static void
-save_EncTicketPart_key(tvbuff_t *tvb, int offset, int length,
-		       asn1_ctx_t *actx, proto_tree *tree,
-		       int parent_hf_index,
-		       int hf_index)
-{
-	save_encryption_key(tvb, offset, length, actx, tree, parent_hf_index, hf_index);
-}
-
-static void
-save_KrbCredInfo_key(tvbuff_t *tvb, int offset, int length,
-		     asn1_ctx_t *actx, proto_tree *tree,
-		     int parent_hf_index,
-		     int hf_index)
-{
-	save_encryption_key(tvb, offset, length, actx, tree, parent_hf_index, hf_index);
-}
-
-static void
-save_KrbFastResponse_strengthen_key(tvbuff_t *tvb _U_, int offset _U_, int length _U_,
-				    asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_)
-{
-	save_encryption_key(tvb, offset, length, actx, tree, hf_index);
-}
-
-static void
-clear_keytab(void) {
-	GSList *ske;
-	service_key_t *sk;
-
-	for(ske = service_key_list; ske != NULL; ske = g_slist_next(ske)){
-		sk = (service_key_t *) ske->data;
-		if (sk) {
-			g_free(sk->contents);
-			g_free(sk->origin);
-			g_free(sk);
-		}
-	}
-	g_slist_free(service_key_list);
-	service_key_list = NULL;
-}
-
-#define CONFOUNDER_PLUS_CHECKSUM 24
-
-uint8_t *
-decrypt_krb5_data(proto_tree *tree, packet_info *pinfo,
-					int _U_ usage,
-					tvbuff_t *cryptotvb,
-					int keytype,
-					int *datalen)
-{
-	tvbuff_t *encr_tvb;
-	uint8_t *decrypted_data = NULL, *plaintext = NULL;
-	uint8_t cls;
-	bool pc;
-	uint32_t tag, item_len, data_len;
-	int id_offset, offset;
-	uint8_t key[DES3_KEY_SIZE];
-	uint8_t initial_vector[DES_BLOCK_SIZE];
-	gcry_md_hd_t md5_handle;
-	uint8_t *digest;
-	uint8_t zero_fill[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-	uint8_t confounder[8];
-	bool ind;
-	GSList *ske;
-	service_key_t *sk;
-	struct des3_ctx ctx;
-	int length = tvb_captured_length(cryptotvb);
-	const uint8_t *cryptotext = tvb_get_ptr(cryptotvb, 0, length);
-
-
-	/* don't do anything if we are not attempting to decrypt data */
-	if(!krb_decrypt){
-		return NULL;
-	}
-
-	/* make sure we have all the data we need */
-	if (tvb_captured_length(cryptotvb) < tvb_reported_length(cryptotvb)) {
-		return NULL;
-	}
-
-	if (keytype != KEYTYPE_DES3_CBC_MD5 || service_key_list == NULL) {
-		return NULL;
-	}
-
-	decrypted_data = wmem_alloc(pinfo->pool, length);
-	for(ske = service_key_list; ske != NULL; ske = g_slist_next(ske)){
-		bool do_continue = false;
-		bool digest_ok;
-		sk = (service_key_t *) ske->data;
-
-		des_fix_parity(DES3_KEY_SIZE, key, sk->contents);
-
-		memset(initial_vector, 0, DES_BLOCK_SIZE);
-		des3_set_key(&ctx, key);
-		cbc_decrypt(&ctx, des3_decrypt, DES_BLOCK_SIZE, initial_vector,
-					length, decrypted_data, cryptotext);
-		encr_tvb = tvb_new_real_data(decrypted_data, length, length);
-
-		tvb_memcpy(encr_tvb, confounder, 0, 8);
-
-		/* We have to pull the decrypted data length from the decrypted
-		 * content.  If the key doesn't match or we otherwise get garbage,
-		 * an exception may get thrown while decoding the ASN.1 header.
-		 * Catch it, just in case.
-		 */
-		TRY {
-			id_offset = get_ber_identifier(encr_tvb, CONFOUNDER_PLUS_CHECKSUM, &cls, &pc, &tag);
-			offset = get_ber_length(encr_tvb, id_offset, &item_len, &ind);
-		}
-		CATCH_BOUNDS_ERRORS {
-			tvb_free(encr_tvb);
-			do_continue = true;
-		}
-		ENDTRY;
-
-		if (do_continue) continue;
-
-		data_len = item_len + offset - CONFOUNDER_PLUS_CHECKSUM;
-		if ((int) item_len + offset > length) {
-			tvb_free(encr_tvb);
-			continue;
-		}
-
-		if (gcry_md_open(&md5_handle, GCRY_MD_MD5, 0)) {
-			return NULL;
-		}
-		gcry_md_write(md5_handle, confounder, 8);
-		gcry_md_write(md5_handle, zero_fill, 16);
-		gcry_md_write(md5_handle, decrypted_data + CONFOUNDER_PLUS_CHECKSUM, data_len);
-		digest = gcry_md_read(md5_handle, 0);
-
-		digest_ok = (tvb_memeql (encr_tvb, 8, digest, HASH_MD5_LENGTH) == 0);
-		gcry_md_close(md5_handle);
-		if (digest_ok) {
-			plaintext = (uint8_t* )tvb_memdup(pinfo->pool, encr_tvb, CONFOUNDER_PLUS_CHECKSUM, data_len);
-			tvb_free(encr_tvb);
-
-			if (datalen) {
-				*datalen = data_len;
-			}
-			return plaintext;
-		}
-		tvb_free(encr_tvb);
-	}
-
-	return NULL;
-}
-
-#endif	/* HAVE_MIT_KERBEROS / HAVE_HEIMDAL_KERBEROS / HAVE_LIBNETTLE */
+#endif	/* HAVE_MIT_KERBEROS / HAVE_HEIMDAL_KERBEROS */
 
 #ifdef NEED_DECRYPT_KRB5_KRB_CFX_DCE_NOOP
 tvbuff_t *
@@ -4710,19 +4480,15 @@ dissect_krb5_PAC_UPN_DNS_INFO(proto_tree *parent_tree, tvbuff_t *tvb, unsigned o
 	tree = proto_item_add_subtree(item, ett_krb_pac_upn_dns_info);
 
 	/* upn */
-	upn_len = tvb_get_letohs(tvb, offset);
-	proto_tree_add_item(tree, hf_krb_pac_upn_upn_len, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+	proto_tree_add_item_ret_uint16(tree, hf_krb_pac_upn_upn_len, tvb, offset, 2, ENC_LITTLE_ENDIAN, &upn_len);
 	offset+=2;
-	upn_offset = tvb_get_letohs(tvb, offset);
-	proto_tree_add_item(tree, hf_krb_pac_upn_upn_offset, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+	proto_tree_add_item_ret_uint16(tree, hf_krb_pac_upn_upn_offset, tvb, offset, 2, ENC_LITTLE_ENDIAN, &upn_offset);
 	offset+=2;
 
 	/* dns */
-	dns_len = tvb_get_letohs(tvb, offset);
-	proto_tree_add_item(tree, hf_krb_pac_upn_dns_len, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+	proto_tree_add_item_ret_uint16(tree, hf_krb_pac_upn_dns_len, tvb, offset, 2, ENC_LITTLE_ENDIAN, &dns_len);
 	offset+=2;
-	dns_offset = tvb_get_letohs(tvb, offset);
-	proto_tree_add_item(tree, hf_krb_pac_upn_dns_offset, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+	proto_tree_add_item_ret_uint16(tree, hf_krb_pac_upn_dns_offset, tvb, offset, 2, ENC_LITTLE_ENDIAN, &dns_offset);
 	offset+=2;
 
 	/* flags */
@@ -4735,18 +4501,14 @@ dissect_krb5_PAC_UPN_DNS_INFO(proto_tree *parent_tree, tvbuff_t *tvb, unsigned o
 	offset+=4;
 
 	if (flags & PAC_UPN_DNS_FLAG_HAS_SAM_NAME_AND_SID) {
-		samaccountname_len = tvb_get_letohs(tvb, offset);
-		proto_tree_add_item(tree, hf_krb_pac_upn_samaccountname_len, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item_ret_uint16(tree, hf_krb_pac_upn_samaccountname_len, tvb, offset, 2, ENC_LITTLE_ENDIAN, &samaccountname_len);
 		offset+=2;
-		samaccountname_offset = tvb_get_letohs(tvb, offset);
-		proto_tree_add_item(tree, hf_krb_pac_upn_samaccountname_offset, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item_ret_uint16(tree, hf_krb_pac_upn_samaccountname_offset, tvb, offset, 2, ENC_LITTLE_ENDIAN, &samaccountname_offset);
 		offset+=2;
 
-		objectsid_len = tvb_get_letohs(tvb, offset);
-		proto_tree_add_item(tree, hf_krb_pac_upn_objectsid_len, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item_ret_uint16(tree, hf_krb_pac_upn_objectsid_len, tvb, offset, 2, ENC_LITTLE_ENDIAN, &objectsid_len);
 		offset+=2;
-		objectsid_offset = tvb_get_letohs(tvb, offset);
-		proto_tree_add_item(tree, hf_krb_pac_upn_objectsid_offset, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item_ret_uint16(tree, hf_krb_pac_upn_objectsid_offset, tvb, offset, 2, ENC_LITTLE_ENDIAN, &objectsid_offset);
 		/* offset+=2; */
 	}
 
@@ -10537,7 +10299,7 @@ void proto_register_kerberos(void) {
 #endif /* HAVE_KERBEROS */
 
 }
-static int wrap_dissect_gss_kerb(tvbuff_t *tvb, int offset, packet_info *pinfo,
+static unsigned wrap_dissect_gss_kerb(tvbuff_t *tvb, unsigned offset, packet_info *pinfo,
 				 proto_tree *tree, dcerpc_info *di _U_,uint8_t *drep _U_)
 {
 	tvbuff_t *auth_tvb;
