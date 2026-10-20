@@ -7,9 +7,9 @@ if [ "$EUID" -ne 0 ]
   exit
 fi
 
-cd tools
+cd tools/os_setup
 ./debian-setup.sh --install-all
-cd ..
+cd ../..
 
 mkdir -p build
 cd build
