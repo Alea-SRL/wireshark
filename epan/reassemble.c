@@ -1473,15 +1473,18 @@ fragment_add_work(fragment_head *fd_head, tvbuff_t *tvb, const int offset,
 				}
 				overlap = 0;
 				if (fd_i->offset < dfpos) {
-					/* The new item's begins before the
-					 * existing end. How much overlap? */
-					overlap = dfpos - fd_i->offset;
+					/* The new item's begins before the existing end. */
 					/* duplicate/retransmission/overlap */
-					uint32_t cmp_len = MIN(fd_i->len,overlap);
-
 					fd_i->flags    |= FD_OVERLAP;
 					fd_head->flags |= FD_OVERLAP;
-					if ( memcmp(data + fd_i->offset,
+
+					/* How much overlap is there with data in the buffer?
+					 * (It's possible that multiple fragments conflict in
+					 * data past the given datalen; we don't check that.) */
+					overlap = MIN(dfpos, fd_head->datalen) - fd_i->offset;
+					uint32_t cmp_len = MIN(fd_i->len,overlap);
+
+					if ( cmp_len && memcmp(data + fd_i->offset,
 							tvb_get_ptr(fd_i->tvb_data, 0, cmp_len),
 							cmp_len)
 							 ) {
@@ -1775,12 +1778,13 @@ fragment_add_out_of_order(reassembly_table *table, tvbuff_t *tvb,
 		frag_offset, frag_data_len, more_frags, true, frag_frame);
 }
 
-fragment_head *
-fragment_add_check_with_fallback(reassembly_table *table, tvbuff_t *tvb, const int offset,
+
+static fragment_head *
+fragment_add_check_common(reassembly_table *table, tvbuff_t *tvb, const int offset,
 		   const packet_info *pinfo, const uint32_t id,
-		   const void *data, const uint32_t frag_offset,
+		   const void *data, uint32_t frag_offset,
 		   const uint32_t frag_data_len, const bool more_frags,
-		   const uint32_t fallback_frame)
+		   const uint32_t flags, const uint32_t fallback_frame)
 {
 	reassembled_key reass_key;
 	fragment_head *fd_head;
@@ -1822,10 +1826,43 @@ fragment_add_check_with_fallback(reassembly_table *table, tvbuff_t *tvb, const i
 		 */
 		fd_head = new_head(0);
 
+		if((flags & REASSEMBLE_FLAGS_NO_FRAG_NUMBER)
+		   && !more_frags) {
+			/*
+			 * This is the last fragment for this packet, and
+			 * is the only one we've seen.
+			 *
+			 * We assume this is the first and only fragment for
+			 * this packet; just add the head of the list to
+			 * the table of reassembled packets.
+			 */
+			/* To save memory, we don't actually copy the
+			 * fragment from the tvbuff to the fragment, and in
+			 * process_reassembled_data just return back a subset
+			 * of the original tvbuff (which must be passed in).
+			 */
+			fd_head->datalen = frag_data_len;
+			fd_head->reassembled_in=pinfo->num;
+			fd_head->reas_in_layer_num = pinfo->curr_layer_num;
+			/*
+			 * Add this item to the table of reassembled packets.
+			 */
+			fragment_reassembled(table, fd_head, pinfo, id);
+			return fd_head;
+		}
 		/*
 		 * Save the key, for unhashing it later.
 		 */
 		orig_key = insert_fd_head(table, fd_head, pinfo, id, data);
+
+		if (flags & REASSEMBLE_FLAGS_NO_FRAG_NUMBER)
+			frag_offset = 0;
+	} else {
+		if (flags & REASSEMBLE_FLAGS_NO_FRAG_NUMBER) {
+			/* There are no gaps by construction, so we can
+			 * simply use the contiguous length. */
+			frag_offset = fd_head->contiguous_len;
+		}
 	}
 
 	/*
@@ -1869,13 +1906,34 @@ fragment_add_check_with_fallback(reassembly_table *table, tvbuff_t *tvb, const i
 }
 
 fragment_head *
+fragment_add_check_with_fallback(reassembly_table *table, tvbuff_t *tvb, const int offset,
+		   const packet_info *pinfo, const uint32_t id,
+		   const void *data, const uint32_t frag_offset,
+		   const uint32_t frag_data_len, const bool more_frags,
+		   const uint32_t fallback_frame)
+{
+	return fragment_add_check_common(table, tvb, offset, pinfo, id, data,
+		frag_offset, frag_data_len, more_frags, 0, fallback_frame);
+}
+
+fragment_head *
 fragment_add_check(reassembly_table *table, tvbuff_t *tvb, const int offset,
 		   const packet_info *pinfo, const uint32_t id,
 		   const void *data, const uint32_t frag_offset,
 		   const uint32_t frag_data_len, const bool more_frags)
 {
-	return fragment_add_check_with_fallback(table, tvb, offset, pinfo, id, data,
-		frag_offset, frag_data_len, more_frags, pinfo->num);
+	return fragment_add_check_common(table, tvb, offset, pinfo, id, data,
+		frag_offset, frag_data_len, more_frags, 0, pinfo->num);
+}
+
+fragment_head *
+fragment_add_check_next(reassembly_table *table, tvbuff_t *tvb, const int offset,
+		   const packet_info *pinfo, const uint32_t id,
+		   const void *data,
+		   const uint32_t frag_data_len, const bool more_frags)
+{
+	return fragment_add_check_common(table, tvb, offset, pinfo, id, data,
+		0, frag_data_len, more_frags, REASSEMBLE_FLAGS_NO_FRAG_NUMBER, pinfo->num);
 }
 
 static void
@@ -1889,7 +1947,12 @@ fragment_defragment_and_free (fragment_head *fd_head, const packet_info *pinfo)
 
 	for(fd_i=fd_head->next;fd_i;fd_i=fd_i->next) {
 		if(!last_fd || last_fd->offset!=fd_i->offset){
-			size+=fd_i->len;
+			if (ckd_add(&size, size, fd_i->len) || size > INT32_MAX) {
+				/* Change this maximum size when unsigned lengths
+				 * are fully supported (#20103). */
+				size = INT32_MAX;
+				break;
+			}
 		}
 		last_fd=fd_i;
 	}
@@ -1911,15 +1974,24 @@ fragment_defragment_and_free (fragment_head *fd_head, const packet_info *pinfo)
 	dfpos = 0;
 	for (fd_i=fd_head->next; fd_i; fd_i=fd_i->next) {
 		if (fd_i->len) {
-			if(!last_fd || last_fd->offset != fd_i->offset) {
+			if (dfpos >= size) {
+				fd_i->flags    |= FD_TOOLONGFRAGMENT; // FD_OVERFLOW?
+				fd_head->flags |= FD_TOOLONGFRAGMENT; // FD_OVERFLOW?
+			} else if (!last_fd || last_fd->offset != fd_i->offset) {
 				/* First fragment or in-sequence fragment */
-				if (!(fd_i->flags & FD_DEFRAGMENTED)) {
-					/* Already copied on the first pass */
-					memcpy(data+dfpos, tvb_get_ptr(fd_i->tvb_data, 0, fd_i->len), fd_i->len);
-				}
-				/* But we need the position for overlap calculation of new fragments */
+				/* We need the position for overlap calculation of new fragments */
+				uint32_t copy_len = fd_i->len;
 				old_dfpos = dfpos;
-				dfpos += fd_i->len;
+				if (ckd_add(&dfpos, dfpos, fd_i->len) || dfpos > size) {
+					copy_len = size - old_dfpos;
+					dfpos = size;
+					fd_i->flags    |= FD_TOOLONGFRAGMENT; // FD_OVERFLOW?
+					fd_head->flags |= FD_TOOLONGFRAGMENT; // FD_OVERFLOW?
+				}
+				if (!(fd_i->flags & FD_DEFRAGMENTED)) {
+					/* Copy if not already copied on the first pass */
+					memcpy(data + old_dfpos, tvb_get_ptr(fd_i->tvb_data, 0, fd_i->len), copy_len);
+				}
 			} else if (!(fd_i->flags & FD_DEFRAGMENTED)){
 				/* duplicate/retransmission/overlap */
 				/* Note that overlaps of old fragments were already calculated. */
@@ -2254,12 +2326,21 @@ fragment_add_seq_common(reassembly_table *table, tvbuff_t *tvb,
 		if (orig_keyp != NULL)
 			*orig_keyp = orig_key;
 
+		/*
+		 * XXX If fd_head exists, but nothing has been added to it,
+		 * i.e. it was created with a known datalen with
+		 * fragment_start_seq_check, we should also be able to
+		 * do the memory saving trick as in the case above
+		 * when first creating it.
+		 */
 		if (flags & REASSEMBLE_FLAGS_NO_FRAG_NUMBER) {
 			fragment_item *fd;
 			/*
 			 * If we weren't given an initial fragment number,
 			 * use the next expected fragment number as the fragment
 			 * number for this fragment.
+			 *
+			 * XXX - Use fd_head->first_gap to speed this up?
 			 */
 			for (fd = fd_head->next; fd != NULL; fd = fd->next) {
 				if (fd->next == NULL)
@@ -2879,7 +2960,6 @@ process_reassembled_data(tvbuff_t *tvb, const int offset, packet_info *pinfo,
 			if (fd_head->flags & FD_BLOCKSEQUENCE) {
 				len = fd_head->len;
 			} else {
-				// XXX Do the non-seq functions have this optimization?
 				len = fd_head->datalen;
 			}
 			next_tvb = tvb_new_subset_length(tvb, offset, len);

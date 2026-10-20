@@ -9,7 +9,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
- * References: 3GPP TS 24.301 V19.5.0 (2025-12)
+ * References: 3GPP TS 24.301 V19.6.0 (2026-06)
  */
 
 #include "config.h"
@@ -232,6 +232,7 @@ static int hf_nas_eps_rclin_cap;
 static int hf_nas_eps_edc_cap;
 static int hf_nas_eps_ptcc_cap;
 static int hf_nas_eps_pr_cap;
+static int hf_nas_eps_nonsatlsp_cap;
 static int hf_nas_eps_emm_ue_ra_cap_inf_upd_need_flg;
 static int hf_nas_eps_emm_ss_code;
 static int hf_nas_eps_emm_lcs_ind;
@@ -2412,6 +2413,11 @@ de_emm_ue_net_cap(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo _U_,
         NULL
     };
 
+    static int * const oct12_flags[] = {
+        &hf_nas_eps_nonsatlsp_cap,
+        NULL
+    };
+
     curr_offset = offset;
 
 
@@ -2486,6 +2492,16 @@ de_emm_ue_net_cap(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo _U_,
      * MINT-EPS    OHR-CP CIoT    SFSO    ATUC    RCLIN    EDC    PTCC    PR
      */
     proto_tree_add_bitmask_list(tree, tvb, curr_offset, 1, oct11_flags, ENC_NA);
+    curr_offset++;
+
+    if ((curr_offset - offset) >= len)
+        return (len);
+
+    /* Octet 12
+     * Spare    NonSATLSP
+     */
+    proto_tree_add_bits_item(tree, hf_nas_eps_spare_bits, tvb, (curr_offset<<3), 7, ENC_BIG_ENDIAN);
+    proto_tree_add_bitmask_list(tree, tvb, curr_offset, 1, oct12_flags, ENC_NA);
     curr_offset++;
 
     while ((curr_offset - offset) < len) {
@@ -6285,6 +6301,8 @@ nas_emm_transport(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, uint32_t 
     curr_len    = len;
 
     ELEM_OPT_TV(0x79, NAS_PDU_TYPE_EMM, DE_EMM_DATA_CONT, NULL);
+
+    EXTRANEOUS_DATA_CHECK(curr_len, 0, pinfo, &ei_nas_eps_extraneous_data);
 }
 
 /*
@@ -7544,13 +7562,30 @@ dissect_nas_eps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
            (security header type equal to 12 or greater) are not plain NAS messages,
            treat separately */
         if (security_header_type == 11) {
-            col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "Service request");
+            col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "EMM transport");
             /* Message authentication code */
-            proto_tree_add_item(nas_eps_tree, hf_nas_eps_msg_auth_code, tvb, offset, 4, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint(nas_eps_tree, hf_nas_eps_msg_auth_code, tvb, offset, 4, ENC_BIG_ENDIAN, &msg_auth_code);
             offset+=4;
             /* Sequence number */
             proto_tree_add_item(nas_eps_tree, hf_nas_eps_seq_no, tvb, offset, 1, ENC_BIG_ENDIAN);
             offset++;
+            if (msg_auth_code != 0 && len > 6) {
+                proto_tree_add_item(nas_eps_tree, hf_nas_eps_ciphered_msg, tvb, offset, len - 6, ENC_NA);
+                if (g_nas_eps_decipher_key != NULL) {
+                    tvbuff_t *tvb_deciphered = deciphering_eea2_msg(pinfo, tvb, offset - 1, len - 6);
+
+                    if (!tvb_deciphered) {
+                        col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "Ciphered message");
+                        return tvb_captured_length(tvb);
+                    }
+                    tvb = tvb_deciphered;
+                    offset = 0;
+                    proto_tree_add_item(nas_eps_tree, hf_nas_eps_deciphered_msg, tvb, offset, tvb_reported_length(tvb_deciphered), ENC_NA);
+                } else if (!g_nas_eps_null_decipher) {
+                    col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "Ciphered message");
+                    return tvb_captured_length(tvb);
+                }
+            }
             nas_emm_transport(tvb, nas_eps_tree, pinfo, offset, tvb_reported_length(tvb)-offset);
             return tvb_captured_length(tvb);
         }
@@ -7574,24 +7609,16 @@ dissect_nas_eps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
                 /* Integrity protected and ciphered = 2, Integrity protected and ciphered with new EPS security context = 4 */
                 /* Use preferences settings to override this behavior */
                 /* No decipher mechanism selected, returning without trying to decipher */
-                if (!g_nas_eps_null_decipher)
-                {
-                    col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "Ciphered message");
-                    return tvb_captured_length(tvb);
-                }
-                /* Force deciphering with EEA2*/
-                else if (g_nas_eps_decipher_key != NULL)
-                {
+                if (g_nas_eps_decipher_key != NULL) {
+                    /* Force deciphering with EEA2*/
                     tvbuff_t *tvb_deciphered = deciphering_eea2_msg(pinfo, tvb, offset - 1, len - 6);
 
-                    if (!tvb_deciphered)
-                    {
+                    if (!tvb_deciphered) {
                         col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "Ciphered message");
                         return tvb_captured_length(tvb);
                     }
                     uint32_t pd_deciphered = tvb_get_uint8(tvb_deciphered, 0);
-                    if ((pd_deciphered != 7) && (pd_deciphered != 15) && ((pd_deciphered & 0x0f) != 2))
-                    {
+                    if ((pd_deciphered != 7) && (pd_deciphered != 15) && ((pd_deciphered & 0x0f) != 2)) {
                         col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "Ciphered message");
                         return tvb_captured_length(tvb);
                     }
@@ -7599,10 +7626,14 @@ dissect_nas_eps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
                     tvb = tvb_deciphered;
                     offset = 0;
                     proto_tree_add_item(nas_eps_tree, hf_nas_eps_deciphered_msg, tvb, offset, len, ENC_NA);
+                } else {
+                    pd = tvb_get_uint8(tvb,offset);
+                    if (!g_nas_eps_null_decipher || ((pd != 7) && (pd != 15) && ((pd&0x0f) != 2))) {
+                        col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "Ciphered message");
+                        return tvb_captured_length(tvb);
+                    }
                 }
-            }
-            else
-            {
+            } else {
                 /* msg_auth_code == 0, probably not ciphered */
                 /* Sequence number  Sequence number 9.6 M   V   1 */
                 proto_tree_add_item(nas_eps_tree, hf_nas_eps_seq_no, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -8518,6 +8549,11 @@ proto_register_nas_eps(void)
     },
     { &hf_nas_eps_pr_cap,
         { "Paging restriction","nas-eps.emm.pr_cap",
+        FT_BOOLEAN, 8, TFS(&tfs_supported_not_supported), 0x01,
+        NULL, HFILL }
+    },
+    { &hf_nas_eps_nonsatlsp_cap,
+        { "Non satellite lower PLMN selection","nas-eps.emm.nonsatlsp_cap",
         FT_BOOLEAN, 8, TFS(&tfs_supported_not_supported), 0x01,
         NULL, HFILL }
     },

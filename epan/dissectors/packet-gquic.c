@@ -1872,7 +1872,7 @@ dissect_gquic_frame_type(tvbuff_t *tvb, packet_info *pinfo, proto_tree *gquic_tr
 
         if(frame_type == FT_CRYPTO) {
             uint64_t crypto_offset, crypto_length;
-            int32_t lenvar;
+            uint32_t lenvar;
 
             DISSECTOR_ASSERT(gquic_info->version_valid && gquic_info->version >= 50);
 
@@ -2427,7 +2427,7 @@ static bool dissect_gquic_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 {
 
     conversation_t *conversation = NULL;
-    int offset = 0;
+    unsigned offset = 0;
     uint8_t flags;
     uint32_t version;
 

@@ -50,6 +50,7 @@ import argparse
 import os
 import re
 import sys
+
 from check_common import isDissectorFile
 
 
@@ -485,7 +486,7 @@ def run_specific_file(fpath, make_replacements):
         #print(fpath, 'is not a dissector')
         return 0
     replace_cnt = 0
-    if (fpath.endswith('.c') or fpath.endswith('.cpp')):
+    if fpath.endswith(('.c', '.cpp')):
         replace_cnt += replace_file(fpath, make_replacements)
     return replace_cnt
 

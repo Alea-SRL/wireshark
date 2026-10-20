@@ -25,15 +25,53 @@ extern "C" {
  */
 
 /**
- * Flags to pass to "conversation_new()" to indicate that the address 2
- * and/or port 2 values for the conversation should be wildcards.
- * The CONVERSATION_TEMPLATE option tells that any of the other supplied
- * port and / or address wildcards will be used to match an infinite number
- * of new connections to the conversation(s) that have the CONVERSATION_-
- * TEMPLATE flag set. Any conversation created without the CONVERSATION_-
- * TEMPLATE flag will be altered once the first connections (connection
- * oriented protocols only) to include the newly found information which
- * matched the wildcard options.
+ * Flags to pass to "conversation_new()" to indicate that address and/or port
+ * values for the conversation should be wildcards. In some cases, detailed
+ * below, when the wildcard is matched with a non-wildcard value, the wildcard
+ * is replaced with the specific matched value. (I.e., there is an assumption
+ * that the true conversation is a address and port 5-tuple, with the wildcards
+ * indicating not yet known values.)
+ *
+ * NO_ADDR2 and NO_PORT2 indicate that the address 2 and port 2 field,
+ * respectively, are wildcards. These options can be used together.
+ * Conversations created with these flags will be altered to set the
+ * missing address or port upon being matched with find_conversation
+ * (only for connection oriented protocols, i.e. not for CONVERSATION_UDP
+ * only currently. XXX - This may not always work, see #8010.) The canonical
+ * use case is a control protocol setting up a data connection on some
+ * *other* ports or addresses than the current frame, where the current
+ * protocol message only specifies the port and/or address for one side
+ * of the connection, and the other side will be filled in by a response,
+ * e.g. SDP.
+ *
+ * NO_PORT2_FORCE indicates that port 2 is a wildcard, but that the
+ * conversation should *not* be altered to have port 2 set when the
+ * conversation is matched. The use case is a protocol with a given
+ * server port, but where a client can send messages from many different
+ * client ports which are all part of the same conversation. It implies
+ * NO_PORT2, which does not need to also be indicated.
+ *
+ * The CONVERSATION_TEMPLATE option must be used with a wildcard option.
+ * When a conversation with CONVERSATION_TEMPLATE is found, a new conversation
+ * is created with the specific values, but the CONVERSATION_TEMPLATE wildcard
+ * conversation remains to match other find requests with different specific
+ * values for the wildcarded address and/or port. The use case is a protocol
+ * with a given server port where clients can connect from many different
+ * client ports, but each client port should be mapped to its own unique
+ * conversation unlike NO_PORT2_FORCE.
+ *
+ * The NO_PORTS option indicates that the port fields are not used at all,
+ * and this is an address-only conversation. This is similar in behavior
+ * to creating a conversation when both port values are 0 and the port type
+ * is PT_NONE (as is the case  in a frame until any port values are set),
+ * but might prevent the need to temporarily clear the packet_info port
+ * values in some cases and/or be somewhat more efficient. Conversations
+ * with this option do *not* have their ports filled in upon a match.
+ *
+ * There are no options for indicating that address or port 1 only is a
+ * wildcard. Swap the address and ports instead so that the intended
+ * wildcard address or port is in the second position. Note that address
+ * and port conversations are bidirectional, so this makes no difference.
  */
 #define NO_ADDR2 0x01
 #define NO_PORT2 0x02
@@ -42,8 +80,20 @@ extern "C" {
 #define NO_PORTS 0x010
 
 /**
- * Flags to pass to "find_conversation()" to indicate that the address B
- * and/or port B search arguments are wildcards.
+ * Flags to pass to "find_conversation()" to indicate that addresses and/or
+ * ports are not provided as search values. NO_ADDR_B and NO_PORT_B indicate
+ * that the address B and port B search arguments, respectively, are not
+ * provided, while NO_PORT_X indicates that neither port is provided.
+ *
+ * Address and port search values not provided only match against existing
+ * conversation which have wildcard values for the corresponding address or
+ * port. By default, explicit address and port search values will match
+ * conversations with wildcards with the same value, possibly replacing the
+ * wildcard in the existing conversation as detailed above. With the NO_GREEDY
+ * flag, this behavior is changed, and specified addresses and ports only match
+ * against their exact value, not wildcards. The EXACT_EXCLUDED flag only finds
+ * conversations with at least one wildcard value to be filled in, and does
+ * not match conversations that have a full 5-tuple.
  */
 #define NO_MASK_B 0xFFFF0000
 #define NO_ADDR_B 0x00010000
@@ -55,64 +105,68 @@ extern "C" {
 /** Flags to handle endpoints */
 #define USE_LAST_ENDPOINT 0x08		/**< Use last endpoint created, regardless of type */
 
-/* Types of conversations Wireshark knows about. */
-/* XXX: There should be a way to register conversation types used only
+/**
+ * @brief Conversation key types recognized by Wireshark dissectors.
+ *
+ * XXX: There should be a way to register conversation types used only
  * within one dissector, similar to address types, instead of changing
  * the global typedef.
  */
 typedef enum {
-    CONVERSATION_NONE,		/* no conversation key */
-    CONVERSATION_SCTP,		/* SCTP */
-    CONVERSATION_TCP,		/* TCP address/port pairs */
-    CONVERSATION_UDP,		/* UDP address/port pairs */
-    CONVERSATION_DCCP,		/* DCCP */
-    CONVERSATION_IPX,		/* IPX sockets */
-    CONVERSATION_NCP,		/* NCP connection */
-    CONVERSATION_EXCHG,		/* Fibre Channel exchange */
-    CONVERSATION_DDP,		/* DDP AppleTalk address/port pair */
-    CONVERSATION_SBCCS,		/* FICON */
-    CONVERSATION_IDP,		/* XNS IDP sockets */
-    CONVERSATION_TIPC,		/* TIPC PORT */
-    CONVERSATION_USB,		/* USB endpoint 0xffff means the host */
-    CONVERSATION_I2C,
-    CONVERSATION_IBQP,		/* Infiniband QP number */
-    CONVERSATION_BLUETOOTH,
-    CONVERSATION_TDMOP,
-    CONVERSATION_DVBCI,
-    CONVERSATION_ISO14443,
-    CONVERSATION_ISDN,		/* ISDN channel number */
-    CONVERSATION_H223,		/* H.223 logical channel number */
-    CONVERSATION_X25,		/* X.25 logical channel number */
-    CONVERSATION_IAX2,		/* IAX2 call id */
-    CONVERSATION_DLCI,		/* Frame Relay DLCI */
-    CONVERSATION_ISUP,		/* ISDN User Part CIC */
-    CONVERSATION_BICC,		/* BICC Circuit identifier */
-    CONVERSATION_GSMTAP,
-    CONVERSATION_IUUP,
-    CONVERSATION_DVBBBF,	/* DVB Base Band Frame ISI/PLP_ID */
-    CONVERSATION_IWARP_MPA,	/* iWarp MPA */
-    CONVERSATION_BT_UTP,	/* BitTorrent uTP Connection ID */
-    CONVERSATION_LOG,		/* Logging source */
-    CONVERSATION_LTP,		/* LTP Engine ID and Session Number */
-    CONVERSATION_MCTP,
-    CONVERSATION_NVME_MI,       /* NVMe management interface */
-    CONVERSATION_BP,		/* Bundle Protocol endpoint IDs */
-    CONVERSATION_SNMP,		/* SNMP */
-    CONVERSATION_QUIC,		/* QUIC */
-    CONVERSATION_IDN,
-    CONVERSATION_IP,		/* IP */
-    CONVERSATION_IPV6,		/* IPv6 */
-    CONVERSATION_ETH,           /* ETHERNET classic */
-    CONVERSATION_ETH_NN,        /* ETHERNET deinterlaced Interface:N VLAN:N */
-    CONVERSATION_ETH_NV,        /* ETHERNET deinterlaced Interface:N VLAN:Y */
-    CONVERSATION_ETH_IN,        /* ETHERNET deinterlaced Interface:Y VLAN:N */
-    CONVERSATION_ETH_IV,        /* ETHERNET deinterlaced Interface:Y VLAN:Y */
-    CONVERSATION_VSPC_VMOTION,	/* VMware vSPC vMotion (Telnet) */
-    CONVERSATION_OPENVPN,
-    CONVERSATION_PROXY,
-    CONVERSATION_GNSS,
-    CONVERSATION_DNP3,
-    CONVERSATION_ILNP,          /* ILNP */
+    CONVERSATION_NONE,           /**< No conversation key */
+    CONVERSATION_SCTP,           /**< SCTP association */
+    CONVERSATION_TCP,            /**< TCP address/port pair */
+    CONVERSATION_UDP,            /**< UDP address/port pair */
+    CONVERSATION_DCCP,           /**< Datagram Congestion Control Protocol (DCCP) */
+    CONVERSATION_IPX,            /**< IPX socket number */
+    CONVERSATION_NCP,            /**< NetWare Core Protocol (NCP) connection */
+    CONVERSATION_EXCHG,          /**< Fibre Channel exchange */
+    CONVERSATION_DDP,            /**< AppleTalk Datagram Delivery Protocol (DDP) address/port pair */
+    CONVERSATION_SBCCS,          /**< FICON (SBCCS) channel connection */
+    CONVERSATION_IDP,            /**< XNS Internet Datagram Protocol (IDP) socket */
+    CONVERSATION_TIPC,           /**< TIPC port */
+    CONVERSATION_USB,            /**< USB endpoint; 0xffff denotes the host */
+    CONVERSATION_I2C,            /**< I2C bus conversation */
+    CONVERSATION_IBQP,           /**< InfiniBand Queue Pair (QP) number */
+    CONVERSATION_BLUETOOTH,      /**< Bluetooth connection */
+    CONVERSATION_TDMOP,          /**< TDMoP (TDM over Packet) circuit */
+    CONVERSATION_DVBCI,          /**< DVB Common Interface (DVB-CI) session */
+    CONVERSATION_ISO14443,       /**< ISO 14443 contactless smart card session */
+    CONVERSATION_ISDN,           /**< ISDN channel number */
+    CONVERSATION_H223,           /**< H.223 logical channel number */
+    CONVERSATION_X25,            /**< X.25 logical channel number */
+    CONVERSATION_IAX2,           /**< IAX2 call identifier */
+    CONVERSATION_DLCI,           /**< Frame Relay Data Link Connection Identifier (DLCI) */
+    CONVERSATION_ISUP,           /**< ISDN User Part (ISUP) Circuit Identification Code (CIC) */
+    CONVERSATION_BICC,           /**< Bearer Independent Call Control (BICC) circuit identifier */
+    CONVERSATION_GSMTAP,         /**< GSMTAP virtual radio conversation */
+    CONVERSATION_IUUP,           /**< Iu UP (UMTS Iu interface user plane) */
+    CONVERSATION_DVBBBF,         /**< DVB Base Band Frame ISI/PLP_ID */
+    CONVERSATION_IWARP_MPA,      /**< iWARP Marker PDU Aligned (MPA) framing conversation */
+    CONVERSATION_BT_UTP,         /**< BitTorrent uTP connection ID */
+    CONVERSATION_LOG,            /**< Logging source conversation */
+    CONVERSATION_LTP,            /**< LTP Engine ID and Session Number */
+    CONVERSATION_MCTP,           /**< Management Component Transport Protocol (MCTP) */
+    CONVERSATION_NVME_MI,        /**< NVMe Management Interface (NVMe-MI) conversation */
+    CONVERSATION_BP,             /**< Bundle Protocol endpoint IDs */
+    CONVERSATION_SNMP,           /**< SNMP community/context conversation */
+    CONVERSATION_QUIC,           /**< QUIC connection */
+    CONVERSATION_IDN,            /**< Internationalized Domain Name (IDN) conversation */
+    CONVERSATION_IP,             /**< IPv4 address pair */
+    CONVERSATION_IPV6,           /**< IPv6 address pair */
+    CONVERSATION_ETH,            /**< Classic Ethernet (no interface/VLAN deinterleaving) */
+    CONVERSATION_ETH_NN,         /**< Ethernet deinterleaved: Interface=No, VLAN=No */
+    CONVERSATION_ETH_NV,         /**< Ethernet deinterleaved: Interface=No, VLAN=Yes */
+    CONVERSATION_ETH_IN,         /**< Ethernet deinterleaved: Interface=Yes, VLAN=No */
+    CONVERSATION_ETH_IV,         /**< Ethernet deinterleaved: Interface=Yes, VLAN=Yes */
+    CONVERSATION_VSPC_VMOTION,   /**< VMware vSPC vMotion conversation (Telnet-based) */
+    CONVERSATION_OPENVPN,        /**< OpenVPN tunnel conversation */
+    CONVERSATION_PROXY,          /**< Proxy protocol conversation */
+    CONVERSATION_GNSS,           /**< Global Navigation Satellite System (GNSS) conversation */
+    CONVERSATION_DNP3,           /**< DNP3 (Distributed Network Protocol 3) conversation */
+    CONVERSATION_ILNP,           /**< Identifier-Locator Network Protocol (ILNP) conversation */
+    CONVERSATION_SYNCHROPHASOR,  /**< Synchrophasor conversation */
+    CONVERSATION_UDX,            /**< UDX stream */
 } conversation_type;
 
 /*
@@ -164,6 +218,7 @@ typedef enum {
 #define ENDPOINT_IPv6		CONVERSATION_IPv6
 #define ENDPOINT_ETH		CONVERSATION_ETH
 #define ENDPOINT_ILNP		CONVERSATION_ILNP
+#define ENDPOINT_UDX		CONVERSATION_UDX
 
 typedef conversation_type endpoint_type;
 
@@ -171,15 +226,15 @@ typedef conversation_type endpoint_type;
  * Conversation element type.
  */
 typedef enum {
-    CE_CONVERSATION_TYPE,   /* CONVERSATION_ value */
-    CE_ADDRESS,             /* address */
-    CE_PORT,                /* unsigned integer representing a port */
-    CE_STRING,              /* string */
-    CE_UINT,                /* unsigned integer not representing a port */
-    CE_UINT64,              /* 64-bit unsigned integer */
-    CE_INT,                 /* signed integer */
-    CE_INT64,               /* signed integer */
-    CE_BLOB,                /* arbitrary binary data */
+    CE_CONVERSATION_TYPE,   /**< CONVERSATION_ value */
+    CE_ADDRESS,             /**< address */
+    CE_PORT,                /**< unsigned integer representing a port */
+    CE_STRING,              /**< string */
+    CE_UINT,                /**< unsigned integer not representing a port */
+    CE_UINT64,              /**< 64-bit unsigned integer */
+    CE_INT,                 /**< signed integer */
+    CE_INT64,               /**< 64-bit signed integer */
+    CE_BLOB,                /**< arbitrary binary data */
 } conversation_element_type;
 
 /**
@@ -273,6 +328,16 @@ typedef struct conversation {
  * find_or_create_conversation().
  */
 struct conversation_addr_port_endpoints;
+
+/*
+ * Getters for conversation_addr_port_endpoints, refer to
+ * packet_info.h:{PINFO_{SRC,DST,...} macros for the reason.
+ */
+address *conversation_addr_port_endpoints_addr1(struct conversation_addr_port_endpoints *endpoints);
+address *conversation_addr_port_endpoints_addr2(struct conversation_addr_port_endpoints *endpoints);
+uint32_t conversation_addr_port_endpoints_port1(struct conversation_addr_port_endpoints *endpoints);
+uint32_t conversation_addr_port_endpoints_port2(struct conversation_addr_port_endpoints *endpoints);
+
 typedef struct conversation_addr_port_endpoints* conversation_addr_port_endpoints_t;
 
 /**

@@ -410,6 +410,7 @@ parse_dbs_etherwatch_packet(wtap *wth, FILE_T fh, wtap_rec *rec,
         /* Remember where to put the length in the header */
         length_pos = eth_hdr_len;
         /* Leave room in the header for the length */
+        ws_buffer_increase_length(&rec->data, IEEE802_LEN_LEN);
         eth_hdr_len += IEEE802_LEN_LEN;
         /* Remember how much of the header should not be added to the length */
         length_from = eth_hdr_len;
@@ -485,8 +486,10 @@ parse_dbs_etherwatch_packet(wtap *wth, FILE_T fh, wtap_rec *rec,
         return false;
     }
 
-    /* Make sure we have enough room, even for an oversized Ethernet packet */
-    ws_buffer_assure_space(&rec->data, rec->rec_header.packet_header.caplen);
+    /* Make sure we have enough room, even for an oversized Ethernet packet.
+     * The length is checked *after* writing each line, so add slack.
+     * Note the byte separator is optional. */
+    ws_buffer_assure_space(&rec->data, rec->rec_header.packet_header.caplen + DBS_ETHERWATCH_LINE_LENGTH/2);
 
     /*
      * We don't have an FCS in this frame.

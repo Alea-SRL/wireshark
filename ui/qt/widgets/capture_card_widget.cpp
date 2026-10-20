@@ -16,15 +16,21 @@
 
 #include <ui/qt/interface_frame.h>
 #include <ui/qt/main_application.h>
+#include <ui/qt/main_window.h>
+#include <ui/qt/manager/interface_list_manager.h>
 #include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/theme_manager.h>
 #include <ui/qt/utils/qt_ui_utils.h>
-#include <ui/qt/widgets/capture_filter_combo.h>
-#include <ui/qt/widgets/capture_filter_edit.h>
+#include <ui/qt/widgets/capture_filter_entry.h>
 
 #include <QEvent>
 #include <QFile>
+#include <QFontMetrics>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QResizeEvent>
+#include <QStyle>
+#include <QStyleOption>
 
 CaptureCardWidget::CaptureCardWidget(QWidget *parent) :
     QFrame(parent),
@@ -32,22 +38,36 @@ CaptureCardWidget::CaptureCardWidget(QWidget *parent) :
 {
     ui_->setupUi(this);
 
-    updateStyleSheet();
+    setStyleSheet(ThemeManager::styleSheet(QStringLiteral("widgets/capture-card")));
 
-    // Internal wiring: interface frame ↔ filter combo
+    // Reload the stylesheet whenever the theme (or its light/dark
+    // selection) changes.  QEvent::ApplicationPaletteChange alone isn't
+    // reliable — a mode flip on a theme with no palette overrides may
+    // not produce a palette delta large enough for Qt to propagate.
+    connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, [this]() {
+        setStyleSheet(ThemeManager::styleSheet(QStringLiteral("widgets/capture-card")));
+    });
+
+    // Internal wiring: interface frame ↔ filter entry
     connect(ui_->captureInterfaceFrame, &InterfaceFrame::itemSelectionChanged,
-            ui_->captureFilterCombo, &CaptureFilterCombo::interfacesChanged);
+            ui_->captureFilterEntry, &CaptureFilterEntry::recheck);
     connect(ui_->captureInterfaceFrame, &InterfaceFrame::typeSelectionChanged,
             this, &CaptureCardWidget::interfaceListChanged);
     connect(ui_->captureInterfaceFrame, &InterfaceFrame::itemSelectionChanged,
             this, &CaptureCardWidget::interfaceSelected);
 
-    // Internal wiring: filter combo → this
-    connect(ui_->captureFilterCombo->lineEdit(), &QLineEdit::textEdited,
+    // Internal wiring: filter entry → this
+    connect(ui_->captureFilterEntry, &QLineEdit::textEdited,
             this, &CaptureCardWidget::captureFilterTextEdited);
-    connect(ui_->captureFilterCombo, &CaptureFilterCombo::captureFilterSyntaxChanged,
+    // The clear button empties the field via QLineEdit::clear(), which does not
+    // emit textEdited, so propagate the cleared filter to the selected devices
+    // explicitly — otherwise the previous filter stays on the interface.
+    connect(ui_->captureFilterEntry, &FilterExpressionEdit::cleared, this, [this]() {
+        captureFilterTextEdited(QString());
+    });
+    connect(ui_->captureFilterEntry, &CaptureFilterEntry::captureFilterSyntaxChanged,
             this, &CaptureCardWidget::captureFilterSyntaxChanged);
-    connect(ui_->captureFilterCombo, &CaptureFilterCombo::startCapture,
+    connect(ui_->captureFilterEntry, &CaptureFilterEntry::startCapture,
             this, &CaptureCardWidget::captureStarting);
 
     // Signal relay: interface frame → this (forwarded to WelcomePage)
@@ -57,14 +77,10 @@ CaptureCardWidget::CaptureCardWidget(QWidget *parent) :
             this, &CaptureCardWidget::startCapture);
 
     // App-level connections
-    connect(mainApp, &MainApplication::appInitialized,
-            this, &CaptureCardWidget::appInitialized);
-    connect(mainApp, &MainApplication::localInterfaceListChanged,
+    mainApp->whenInitialized(this, [this]() { appInitialized(); });
+
+    connect(mainApp, &MainApplication::interfaceListChanged,
             this, &CaptureCardWidget::interfaceListChanged);
-#ifdef HAVE_LIBPCAP
-    connect(mainApp, &MainApplication::scanLocalInterfaces,
-            ui_->captureInterfaceFrame, &InterfaceFrame::scanLocalInterfaces);
-#endif
 }
 
 CaptureCardWidget::~CaptureCardWidget()
@@ -79,27 +95,27 @@ InterfaceFrame *CaptureCardWidget::interfaceFrame()
 
 const QString CaptureCardWidget::captureFilter()
 {
-    return ui_->captureFilterCombo->currentText();
+    return ui_->captureFilterEntry->text();
 }
 
 void CaptureCardWidget::setCaptureFilter(const QString &filter)
 {
-    ui_->captureFilterCombo->lineEdit()->setText(filter);
+    ui_->captureFilterEntry->setText(filter);
 }
 
 void CaptureCardWidget::setCaptureFilterText(const QString &filter)
 {
-    ui_->captureFilterCombo->lineEdit()->setText(filter);
+    ui_->captureFilterEntry->setText(filter);
     captureFilterTextEdited(filter);
 }
 
 void CaptureCardWidget::appInitialized()
 {
 #ifdef HAVE_LIBPCAP
-    ui_->captureFilterCombo->lineEdit()->setText(global_capture_opts.default_options.cfilter);
+    ui_->captureFilterEntry->setText(global_capture_opts.default_options.cfilter);
 #endif
 
-    ui_->captureFilterCombo->setEnabled(true);
+    ui_->captureFilterEntry->setEnabled(true);
 
     interfaceListChanged();
 
@@ -108,14 +124,90 @@ void CaptureCardWidget::appInitialized()
 
 void CaptureCardWidget::interfaceListChanged()
 {
-    QString btnText = tr("All interfaces shown");
-    if (ui_->captureInterfaceFrame->interfacesHidden() > 0) {
-        btnText = tr("%n interface(s) shown, %1 hidden", "",
-                     ui_->captureInterfaceFrame->interfacesPresent())
-                .arg(ui_->captureInterfaceFrame->interfacesHidden());
+    int shown = ui_->captureInterfaceFrame->interfacesPresent();
+    int hidden = ui_->captureInterfaceFrame->interfacesHidden();
+
+    // Label variants, most verbose first. updateInterfaceTypeButton() picks
+    // the longest one that fits the available width, so the button stays
+    // informative when there's room and compact when there isn't.
+    interfaceTypeButtonTexts_.clear();
+    if (hidden > 0) {
+        int total = shown + hidden;
+        interfaceTypeButtonTexts_
+            << tr("%n interface(s) shown, %1 hidden", "", shown).arg(hidden)
+            << tr("%1 / %2 interfaces").arg(shown).arg(total)
+            << tr("%1 / %2").arg(shown).arg(total);
+    } else {
+        interfaceTypeButtonTexts_
+            << tr("All interfaces shown")
+            << tr("%n interface(s)", "", shown);
     }
-    ui_->captureInterfaceTypeButton->setText(btnText);
+
     ui_->captureInterfaceTypeButton->setMenu(ui_->captureInterfaceFrame->getSelectionMenu());
+
+    updateInterfaceTypeButton();
+}
+
+// Full rendered width (text + frame + padding + menu-indicator arrow) the
+// button would need for a given label. Uses the same style call Qt uses to
+// size the button, so the fit test below matches the real layout exactly.
+static int buttonWidthForText(QPushButton *btn, const QString &text)
+{
+    QStyleOptionButton opt;
+    opt.initFrom(btn);
+    opt.text = text;
+    QSize contents(btn->fontMetrics().horizontalAdvance(text),
+                   btn->fontMetrics().height());
+    int w = btn->style()->sizeFromContents(QStyle::CT_PushButton, &opt, contents, btn).width();
+    // QMacStyle (and some others) don't reserve space for the menu-indicator
+    // arrow in CT_PushButton, so add it explicitly: otherwise the arrow paints
+    // over the label and the variant never collapses early enough.
+    if (btn->menu())
+        w += btn->style()->pixelMetric(QStyle::PM_MenuButtonIndicator, &opt, btn);
+    return w;
+}
+
+// Keep the interface-type button from crowding out the capture filter combo
+// on narrow windows. The button (a QPushButton) won't shrink below its own
+// label, so we pick the most verbose label variant that still leaves the
+// combo a comfortable width, and pin the button to exactly that width. The
+// full text stays as the tooltip.
+void CaptureCardWidget::updateInterfaceTypeButton()
+{
+    if (interfaceTypeButtonTexts_.isEmpty())
+        return;
+
+    QPushButton *btn = ui_->captureInterfaceTypeButton;
+    btn->setToolTip(interfaceTypeButtonTexts_.constFirst());
+
+    // Width the button may use = the card width (authoritative and current in
+    // resizeEvent, unlike the not-yet-relaid-out child row) minus the label
+    // and a comfortable reserve for the capture filter combo. The label's
+    // footprint is subtracted unconditionally (even while it's hidden below
+    // 460px) so the chosen variant changes monotonically with width instead of
+    // jumping when the label shows/hides.
+    int spacing = ui_->captureFilterRow->layout()->spacing();
+    int labelW = ui_->captureFilterLabel->sizeHint().width() + spacing;
+    const int comboReserveW = 290; // keep the capture filter combo prominent
+    int avail = width() - labelW - comboReserveW - spacing;
+
+    // Most verbose variant that fits; the tersest one is the fallback. Pin the
+    // button to the chosen variant's width so it neither clips (it's never
+    // smaller than its label) nor lets the combo starve it (it grows back when
+    // there's room again).
+    QString chosen = interfaceTypeButtonTexts_.constLast();
+    int chosenW = buttonWidthForText(btn, chosen);
+    for (const QString &candidate : interfaceTypeButtonTexts_) {
+        int candidateW = buttonWidthForText(btn, candidate);
+        if (candidateW <= avail) {
+            chosen = candidate;
+            chosenW = candidateW;
+            break;
+        }
+    }
+
+    btn->setText(chosen);
+    btn->setFixedWidth(chosenW);
 }
 
 // Update each selected device cfilter when the user changes the contents
@@ -153,15 +245,15 @@ void CaptureCardWidget::captureFilterTextEdited(const QString &filter)
 // Must not change any interface data.
 void CaptureCardWidget::interfaceSelected()
 {
-    QPair<const QString, bool> sf_pair = CaptureFilterEdit::getSelectedFilter();
+    QPair<const QString, bool> sf_pair = CaptureFilterEntry::getSelectedFilter();
     const QString user_filter = sf_pair.first;
     bool conflict = sf_pair.second;
 
     if (conflict) {
-        ui_->captureFilterCombo->lineEdit()->clear();
-        ui_->captureFilterCombo->setConflict(true);
+        ui_->captureFilterEntry->clear();
+        ui_->captureFilterEntry->setConflict(true);
     } else {
-        ui_->captureFilterCombo->lineEdit()->setText(user_filter);
+        ui_->captureFilterEntry->setText(user_filter);
     }
 
     // Notify others (capture options dialog) that the selection has changed.
@@ -172,19 +264,6 @@ void CaptureCardWidget::captureStarting()
 {
     ui_->captureInterfaceFrame->ensureSelectedInterface();
     emit startCapture(QStringList());
-}
-
-void CaptureCardWidget::updateStyleSheet()
-{
-    QString path = ColorUtils::themeIsDark()
-        ? QStringLiteral(":/stylesheets/widgets/capture-card-dark.qss")
-        : QStringLiteral(":/stylesheets/widgets/capture-card-light.qss");
-
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
-        return;
-
-    setStyleSheet(QString::fromUtf8(f.readAll()));
 }
 
 /*
@@ -207,7 +286,7 @@ bool CaptureCardWidget::event(QEvent *event)
 {
     switch (event->type()) {
     case QEvent::ApplicationPaletteChange:
-        updateStyleSheet();
+        setStyleSheet(ThemeManager::styleSheet(QStringLiteral("widgets/capture-card")));
         break;
     case QEvent::LanguageChange:
         ui_->retranslateUi(this);
@@ -224,4 +303,5 @@ void CaptureCardWidget::resizeEvent(QResizeEvent *event)
     QFrame::resizeEvent(event);
 
     updateFilterRowVisibility();
+    updateInterfaceTypeButton();
 }

@@ -59,10 +59,10 @@ ProfileDialog::ProfileDialog(QWidget *parent) :
 
     ok_button_ = pd_ui_->buttonBox->button(QDialogButtonBox::Ok);
 
-    pd_ui_->newToolButton->setStockIcon("list-add");
-    pd_ui_->deleteToolButton->setStockIcon("list-remove");
-    pd_ui_->copyToolButton->setStockIcon("list-copy");
-#ifdef Q_OS_MAC
+    pd_ui_->newToolButton->setIconByName("list-add");
+    pd_ui_->deleteToolButton->setIconByName("list-remove");
+    pd_ui_->copyToolButton->setIconByName("list-copy");
+#ifdef Q_OS_MACOS
     pd_ui_->newToolButton->setAttribute(Qt::WA_MacSmallSize, true);
     pd_ui_->deleteToolButton->setAttribute(Qt::WA_MacSmallSize, true);
     pd_ui_->copyToolButton->setAttribute(Qt::WA_MacSmallSize, true);
@@ -388,10 +388,13 @@ void ProfileDialog::buttonBoxAccepted()
             (newProfile->getName().compare(get_profile_name()) != 0) ||
             (newProfile->isGlobal() != currentProfile->isGlobal()))
         {
-            mainApp->emitAppSignal(MainApplication::ProfileChanging);
-
             // The new profile exists, change.
             mainApp->setConfigurationProfile(newProfile->getName().toUtf8().constData(), false);
+        }
+        else if (newProfile->isDefault() && currentProfile->isDefault())
+        {
+            // The default profile is resetting, ensure if reloads
+            mainApp->setConfigurationProfile(Q_NULLPTR, false);
         }
     }
 }
@@ -426,7 +429,7 @@ void ProfileDialog::dataChanged(const QModelIndex&)
     ok_button_->setEnabled(enable_ok);
 
     pd_ui_->profileTreeView->dataChanged(sort_model_->mapFromSource(model_->index(0, ProfileModel::COL_NAME)),
-        sort_model_->mapFromSource(model_->index(model_->rowCount() - 1, model_->columnCount())));
+        sort_model_->mapFromSource(model_->index(model_->rowCount() - 1, model_->columnCount() - 1)));
 }
 
 void ProfileDialog::filterChanged(const QString &text)

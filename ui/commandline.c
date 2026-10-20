@@ -118,6 +118,10 @@ commandline_print_usage(commandline_usage_app_data_t* app_data, bool for_help_op
     fprintf(output, "  -S                       update display when new items are captured\n");
     fprintf(output, "  -l                       turn on automatic scrolling while -S is in use\n");
     fprintf(output, "  --update-interval        interval between updates with new items, in milliseconds (def: %dms)\n", DEFAULT_UPDATE_INTERVAL);
+    fprintf(output, "  --process-info[=basic|full]\n");
+    fprintf(output, "                           record the processes that sent or received each packet:\n");
+    fprintf(output, "                           their ID and name (basic, the default), or their path,\n");
+    fprintf(output, "                           command line and user as well (full)\n");
     fprintf(output, "Capture stop conditions:\n");
     fprintf(output, "  -c <item count>          stop after n items (def: infinite)\n");
     fprintf(output, "  -a <autostop cond.> ..., --autostop <autostop cond.> ...\n");
@@ -328,7 +332,7 @@ int commandline_early_options(int argc, char *argv[], commandline_usage_app_data
             case 'D':        /* Print a list of capture devices and exit */
 #ifdef HAVE_LIBPCAP
                 exit_status = WS_EXIT_NOW;
-                if_list = capture_interface_list(global_capture_opts.app_name, &err, &err_str, NULL);
+                if_list = capture_interface_list(&err, &err_str, NULL);
                 if (err != 0) {
                     /*
                      * An error occurred when fetching the local
@@ -569,6 +573,7 @@ void commandline_other_options(capture_options* capture_opts _U_, int argc, char
             case LONGOPT_SET_TSTAMP_TYPE: /* Set capture timestamp type */
             case LONGOPT_CAPTURE_TMPDIR: /* capture temp directory */
             case LONGOPT_UPDATE_INTERVAL: /* sync pipe update interval */
+            case LONGOPT_PROCESS_INFO: /* record the processes that sent or received each packet */
             case 'I':        /* Capture in monitor mode, if available */
 #ifdef HAVE_PCAP_REMOTE
             case 'A':        /* Authentication */
@@ -855,6 +860,7 @@ void commandline_options_drop(const char *module_name, const char *pref_name) {
 /* Reapply any options the user specified on the command line with `-o`
  * Called in the Qt UI when reloading Lua plugins
  * For https://gitlab.com/wireshark/wireshark/-/issues/12331
+ * Also called after switching configuration profiles.
  */
 void commandline_options_reapply(void) {
     char *errmsg = NULL;
@@ -867,6 +873,10 @@ void commandline_options_reapply(void) {
          * specified for a lua plugin which has been edited after Wireshark
          * started and has had that pref removed; not worth exiting over.
          * See #12331
+         *
+         * Another error case we'll ignore is if a pref was specified for
+         * an extcap and either it was removed or all the extcaps were disabled
+         * because prefs.capture_no_extcap is now true.
          */
         prefs_set_pref((char *)entry->data, &errmsg);
         if (errmsg != NULL) {

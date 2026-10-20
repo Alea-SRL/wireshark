@@ -24,47 +24,63 @@
 extern "C" {
 #endif /* __cplusplus */
 
-/* Current state of file. */
+/**
+ * @brief Lifecycle state of a capture file.
+ */
 typedef enum {
-    FILE_CLOSED,                  /* No file open */
-    FILE_READ_PENDING,            /* A file to read, but haven't opened it yet */
-    FILE_READ_IN_PROGRESS,        /* Reading a file we've opened */
-    FILE_READ_ABORTED,            /* Read aborted by user */
-    FILE_READ_DONE                /* Read completed */
+    FILE_CLOSED,           /**< No file is currently open */
+    FILE_READ_PENDING,     /**< A file is queued to be read but has not been opened yet */
+    FILE_READ_IN_PROGRESS, /**< A file has been opened and is actively being read */
+    FILE_READ_ABORTED,     /**< File read was cancelled by the user */
+    FILE_READ_DONE         /**< File read completed successfully */
 } file_state;
 
-/* Requested packets rescan action. */
+
+/**
+ * @brief Requested packet rescan action to be performed on the current capture.
+ */
 typedef enum {
-    RESCAN_NONE = 0,              /* No rescan requested */
-    RESCAN_SCAN,                  /* Request rescan without full redissection. */
-    RESCAN_REDISSECT              /* Request full redissection. */
+    RESCAN_NONE     = 0, /**< No rescan requested */
+    RESCAN_SCAN,         /**< Rescan packets without performing full redissection */
+    RESCAN_REDISSECT     /**< Rescan packets with full redissection */
 } rescan_type;
 
-/* Character set for text search. */
+
+/**
+ * @brief Character width filter for text search operations.
+ */
 typedef enum {
-    SCS_NARROW_AND_WIDE,
-    SCS_NARROW,
-    SCS_WIDE
-        /* add EBCDIC when it's implemented */
+    SCS_NARROW_AND_WIDE, /**< Search both narrow (single-byte) and wide (multi-byte) character strings */
+    SCS_NARROW,          /**< Search narrow (single-byte) character strings only */
+    SCS_WIDE             /**< Search wide (multi-byte) character strings only */
+    /* add EBCDIC when it's implemented */
 } search_charset_t;
 
+
+/**
+ * @brief Direction of a packet search through the capture.
+ */
 typedef enum {
-    SD_FORWARD,
-    SD_BACKWARD
+    SD_FORWARD,  /**< Search forward (toward newer packets) */
+    SD_BACKWARD  /**< Search backward (toward older packets) */
 } search_direction;
 
-/*
- * Packet provider for programs using a capture file.
+
+/**
+ * @brief Packet provider context for programs operating on a capture file.
  */
 struct packet_provider_data {
-    wtap        *wth;                    /* Wiretap session */
-    const frame_data *ref;
-    frame_data  *prev_dis;
-    frame_data  *prev_cap;
-    frame_data_sequence *frames;         /* Sequence of frames, if we're keeping that information */
-    GTree       *frames_modified_blocks; /* BST with modified blocks for frames (key = frame_data) */
+    wtap                 *wth;                    /**< Wiretap session handle for the open capture file */
+    const frame_data     *ref;                    /**< Reference frame used for relative time calculations */
+    frame_data           *prev_dis;               /**< Most recently displayed frame */
+    frame_data           *prev_cap;               /**< Most recently captured frame */
+    frame_data_sequence  *frames;                 /**< Ordered sequence of all captured frames; may be NULL if not retained */
+    GTree                *frames_modified_blocks;  /**< BST mapping frame_data pointers to their modified block data */
 };
 
+/**
+ * @brief Represents a capture file and its associated metadata.
+ */
 typedef struct _capture_file {
     epan_t                     *epan;
     file_state                  state;                /* Current state of capture file */
@@ -213,6 +229,82 @@ WS_DLL_PUBLIC const char *cap_file_provider_get_process_name(struct packet_provi
  * @return Pointer to the UUID or NULL if not found.
  */
 WS_DLL_PUBLIC const uint8_t *cap_file_provider_get_process_uuid(struct packet_provider_data *prov, uint32_t process_info_id, unsigned section_number, size_t *uuid_size);
+
+/**
+ * @brief Retrieves the path of the executable image of a process from a capture file.
+ *
+ * @param prov Pointer to the packet provider data structure.
+ * @param process_info_id Identifier for the process information.
+ * @param section_number The section number (currently unused).
+ * @return The path, or NULL if not found.
+ */
+WS_DLL_PUBLIC const char *cap_file_provider_get_process_path(struct packet_provider_data *prov, uint32_t process_info_id, unsigned section_number);
+
+/**
+ * @brief Retrieves the command line of a process from a capture file.
+ *
+ * @param prov Pointer to the packet provider data structure.
+ * @param process_info_id Identifier for the process information.
+ * @param section_number The section number (currently unused).
+ * @param cmdline_size Pointer to store the size of the command line.
+ * @return Pointer to the command line, its arguments separated by NULs, or NULL if not found.
+ */
+WS_DLL_PUBLIC const uint8_t *cap_file_provider_get_process_cmdline(struct packet_provider_data *prov, uint32_t process_info_id, unsigned section_number, size_t *cmdline_size);
+
+/**
+ * @brief Retrieves the ID of the parent of a process from a capture file.
+ *
+ * @param prov Pointer to the packet provider data structure.
+ * @param process_info_id Identifier for the process information.
+ * @param section_number The section number (currently unused).
+ * @param parent_process_id Pointer to store the parent process ID.
+ * @return true if found, false otherwise.
+ */
+WS_DLL_PUBLIC bool cap_file_provider_get_process_parent_id(struct packet_provider_data *prov, uint32_t process_info_id, unsigned section_number, uint32_t *parent_process_id);
+
+/**
+ * @brief Retrieves the numeric ID of the user a process runs as from a capture file.
+ *
+ * @param prov Pointer to the packet provider data structure.
+ * @param process_info_id Identifier for the process information.
+ * @param section_number The section number (currently unused).
+ * @param user_id Pointer to store the user ID.
+ * @return true if found, false otherwise.
+ */
+WS_DLL_PUBLIC bool cap_file_provider_get_process_user_id(struct packet_provider_data *prov, uint32_t process_info_id, unsigned section_number, uint32_t *user_id);
+
+/**
+ * @brief Retrieves the name of the user a process runs as from a capture file.
+ *
+ * @param prov Pointer to the packet provider data structure.
+ * @param process_info_id Identifier for the process information.
+ * @param section_number The section number (currently unused).
+ * @return The user name, or NULL if not found.
+ */
+WS_DLL_PUBLIC const char *cap_file_provider_get_process_user_name(struct packet_provider_data *prov, uint32_t process_info_id, unsigned section_number);
+
+/**
+ * @brief Retrieves the start time of a process from a capture file.
+ *
+ * @param prov Pointer to the packet provider data structure.
+ * @param process_info_id Identifier for the process information.
+ * @param section_number The section number (currently unused).
+ * @param start_time Pointer to store the start time.
+ * @return true if found, false otherwise.
+ */
+WS_DLL_PUBLIC bool cap_file_provider_get_process_start_time(struct packet_provider_data *prov, uint32_t process_info_id, unsigned section_number, nstime_t *start_time);
+
+/**
+ * @brief Finds the process information for a process ID in a capture file.
+ *
+ * @param prov Pointer to the packet provider data structure.
+ * @param process_id The process ID.
+ * @param section_number The section number (currently unused).
+ * @param ts The time stamp of the packet, to tell apart processes that reused the ID, or NULL.
+ * @param process_info_id Pointer to store the identifier for the process information.
+ * @return true if found, false otherwise.
+ */
+WS_DLL_PUBLIC bool cap_file_provider_find_process_info(struct packet_provider_data *prov, uint32_t process_id, unsigned section_number, const nstime_t *ts, int64_t file_off, uint32_t *process_info_id);
 
 /**
  * @brief Get a modified block for a frame from the packet provider.

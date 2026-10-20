@@ -293,6 +293,9 @@ frame_data_compare(const struct epan_session *epan, const frame_data *fdata1, co
   case COL_CUMULATIVE_BYTES:
     return COMPARE_NUM(cum_bytes);
 
+  case COL_TAG:
+    return 0; /* No meaningful sort order; treat all rows as equal */
+
   }
   g_return_val_if_reached(0);
 }
@@ -454,7 +457,7 @@ void
 frame_data_destroy(frame_data *fdata)
 {
   if (fdata->pfd) {
-    g_slist_free(fdata->pfd);
+    /* The file scope data has been freed already. */
     fdata->pfd = NULL;
   }
 

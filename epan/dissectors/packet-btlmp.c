@@ -206,17 +206,7 @@ static const value_string opcode_vals[] = {
     {   0, NULL }
 };
 
-static const value_string escape1_opcode_vals[] = {
-    { 0x00, "Mandatory Scan Mode" },
-    { 0,    NULL }
-};
-
-static const value_string escape2_opcode_vals[] = {
-    { 0x00, "Mandatory Scan Mode" },
-    { 0,    NULL }
-};
-
-static const value_string escape3_opcode_vals[] = {
+static const value_string escape1_2_3_opcode_vals[] = {
     { 0x00, "Mandatory Scan Mode" },
     { 0,    NULL }
 };
@@ -585,7 +575,7 @@ dissect_btlmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         ++offset;
         proto_tree_add_item(btlmp_tree, hf_param_namelength, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         ++offset;
-        if (tvb_captured_length_remaining(tvb, offset) <= 0)
+        if (tvb_captured_length_remaining(tvb, offset) == 0)
             break;
         proto_tree_add_item(btlmp_tree, hf_param_namefragment, tvb, offset, tvb_captured_length_remaining(tvb, offset), ENC_NA);
         offset = tvb_reported_length(tvb);
@@ -1142,17 +1132,17 @@ proto_register_btlmp(void)
         },
         {  &hf_escopcode[0],
             { "Escape 1 Opcode",                                "btlmp.opcode.escaped",
-            FT_UINT16, BASE_DEC_HEX, VALS(escape1_opcode_vals), 0x00,
+            FT_UINT16, BASE_DEC_HEX, VALS(escape1_2_3_opcode_vals), 0x00,
             NULL, HFILL }
         },
         {  &hf_escopcode[1],
             { "Escape 2 Opcode",                                "btlmp.opcode.escaped",
-            FT_UINT16, BASE_DEC_HEX, VALS(escape2_opcode_vals), 0x00,
+            FT_UINT16, BASE_DEC_HEX, VALS(escape1_2_3_opcode_vals), 0x00,
             NULL, HFILL }
         },
         {  &hf_escopcode[2],
             { "Escape 3 Opcode",                                "btlmp.opcode.escaped",
-            FT_UINT16, BASE_DEC_HEX, VALS(escape3_opcode_vals), 0x00,
+            FT_UINT16, BASE_DEC_HEX, VALS(escape1_2_3_opcode_vals), 0x00,
             NULL, HFILL }
         },
         {  &hf_escopcode[3],
@@ -1167,17 +1157,17 @@ proto_register_btlmp(void)
         },
         {  &hf_accept_escopcode[0],
             { "Escape 1 Opcode",                                "btlmp.accept_opcode1",
-            FT_UINT16, BASE_DEC_HEX, VALS(escape1_opcode_vals), 0x00,
+            FT_UINT16, BASE_DEC_HEX, VALS(escape1_2_3_opcode_vals), 0x00,
             NULL, HFILL }
         },
         {  &hf_accept_escopcode[1],
             { "Escape 2 Opcode",                                "btlmp.accept_opcode2",
-            FT_UINT16, BASE_DEC_HEX, VALS(escape2_opcode_vals), 0x00,
+            FT_UINT16, BASE_DEC_HEX, VALS(escape1_2_3_opcode_vals), 0x00,
             NULL, HFILL }
         },
         {  &hf_accept_escopcode[2],
             { "Escape 3 Opcode",                                "btlmp.accept_opcode3",
-            FT_UINT16, BASE_DEC_HEX, VALS(escape3_opcode_vals), 0x00,
+            FT_UINT16, BASE_DEC_HEX, VALS(escape1_2_3_opcode_vals), 0x00,
             NULL, HFILL }
         },
         {  &hf_accept_escopcode[3],

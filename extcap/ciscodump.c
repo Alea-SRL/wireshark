@@ -32,8 +32,6 @@
 #include <wsutil/time_util.h>
 #include <wsutil/ws_strptime.h>
 
-#include <cli_main.h>
-
 #define CISCODUMP_VERSION_MAJOR "1"
 #define CISCODUMP_VERSION_MINOR "0"
 #define CISCODUMP_VERSION_RELEASE "0"
@@ -96,16 +94,7 @@ enum {
 	EXTCAP_BASE_OPTIONS_ENUM,
 	OPT_HELP,
 	OPT_VERSION,
-	OPT_REMOTE_HOST,
-	OPT_REMOTE_PORT,
-	OPT_REMOTE_USERNAME,
-	OPT_REMOTE_PASSWORD,
-	OPT_REMOTE_INTERFACE,
-	OPT_REMOTE_FILTER,
-	OPT_SSHKEY,
-	OPT_SSHKEY_PASSPHRASE,
-	OPT_PROXYCOMMAND,
-	OPT_SSH_SHA1,
+	SSH_BASE_PACKET_OPTIONS_ENUM,
 	OPT_REMOTE_COUNT
 };
 
@@ -664,6 +653,9 @@ static int parse_line_ios(uint8_t* packet, unsigned* offset, char* line, int sta
 	}
 	g_strfreev(parts);
 
+	if (*offset >= PACKET_MAX_SIZE)
+		return CISCODUMP_PARSER_IN_PACKET;
+
 	/* we got a line of the packet                                                          */
 	/* A line looks like                                                                    */
 	/* <address>: <1st group> <2nd group> <3rd group> <4th group> <ascii representation>    */
@@ -677,12 +669,15 @@ static int parse_line_ios(uint8_t* packet, unsigned* offset, char* line, int sta
 	if (*part && *(part+1)) {
 		/* There is at least one match. Skip first string */
 		part++;
-		while(*part) {
+		while(*offset < PACKET_MAX_SIZE && *part) {
 			/* RE matched */
 			if (strlen(*part) > 1) {
 				ws_hexstrtou32(*part, NULL, &value);
 				value = g_ntohl(value);
 				size = strlen(*part) / 2;
+				if (*offset + size > PACKET_MAX_SIZE) {
+					size = PACKET_MAX_SIZE - *offset;
+				}
 				memcpy(packet + *offset, &value, size);
 				*offset += (uint32_t)size;
 			}
@@ -730,6 +725,9 @@ static int parse_line_ios_xe_16(uint8_t* packet, unsigned* offset, char* line)
 		return CISCODUMP_PARSER_IN_HEADER;
 	}
 
+	if (*offset >= PACKET_MAX_SIZE)
+		return CISCODUMP_PARSER_IN_PACKET;
+
 	/* we got a line of the packet                                                          */
 	/* A line looks like                                                                    */
 	/*   0000:  00000C07 AC154C5D 3C259068 08004500   ......L]<%.h..E.                      */
@@ -744,11 +742,14 @@ static int parse_line_ios_xe_16(uint8_t* packet, unsigned* offset, char* line)
 	if (*part && *(part+1)) {
 		/* There is at least one match. Skip first string */
 		part++;
-		while(*part) {
+		while(*offset < PACKET_MAX_SIZE && *part) {
 			if (strlen(*part) > 1) {
 				ws_hexstrtou32(*part, NULL, &value);
 				value = g_ntohl(value);
 				size = strlen(*part) / 2;
+				if (*offset + size > PACKET_MAX_SIZE) {
+					size = PACKET_MAX_SIZE - *offset;
+				}
 				memcpy(packet + *offset, &value, size);
 				*offset += (uint32_t)size;
 			}
@@ -777,6 +778,9 @@ static int parse_line_ios_xe_17(uint8_t* packet, unsigned* offset, char* line)
 0030  10 20 6a 20 00 00 00 00 00 00 00 00               . j ........
 */
 
+	if (*offset >= PACKET_MAX_SIZE)
+		return CISCODUMP_PARSER_IN_PACKET;
+
 	/* we got a line of the packet                                                          */
 	/* A line looks like                                                                    */
 	/*   0000  6c 5e 3b 88 5e 80 6c 5e 3b 88 5e 80 08 00 45 00   l^;.^.l^;.^...E            */
@@ -791,7 +795,7 @@ static int parse_line_ios_xe_17(uint8_t* packet, unsigned* offset, char* line)
 	if (*part && *(part+1)) {
 		/* There is at least one match. Skip first string */
 		part++;
-		while(*part) {
+		while(*offset < PACKET_MAX_SIZE && *part) {
 			if (strlen(*part) > 1) {
 				ws_hexstrtou8(*part, NULL, &value);
 				memcpy(packet + *offset, &value, 1);
@@ -866,6 +870,9 @@ static int parse_line_asa(uint8_t* packet, unsigned* offset, char* line, uint32_
 		return CISCODUMP_PARSER_END_PACKET;
 	}
 
+	if (*offset >= PACKET_MAX_SIZE)
+		return CISCODUMP_PARSER_IN_PACKET;
+
 	/* we got a line of the packet                                                          */
 	/* A line looks like                                                                    */
 	/* 0x<address>: <1st group> <...> <8th group> <5th group> <ascii representation>        */
@@ -880,11 +887,14 @@ static int parse_line_asa(uint8_t* packet, unsigned* offset, char* line, uint32_
 	if (*part && *(part+1)) {
 		/* There is at least one match. Skip first string */
 		part++;
-		while(*part) {
+		while(*offset < PACKET_MAX_SIZE && *part) {
 			if (strlen(*part) > 1) {
 				ws_hexstrtou16(*part, NULL, &value);
 				value = g_ntohs(value);
 				size = strlen(*part) / 2;
+				if (*offset + size > PACKET_MAX_SIZE) {
+					size = PACKET_MAX_SIZE - *offset;
+				}
 				memcpy(packet + *offset, &value, size);
 				*offset += (uint32_t)size;
 			}
@@ -2123,7 +2133,7 @@ static bool run_capture(ssh_channel channel, const char* iface, const char* cfil
 		case CISCO_ASA:
 			return run_capture_asa(channel, iface, cfilter);
 		case CISCO_UNKNOWN:
-			ws_warning("Unsupported cisco software. It will not collect any data most probably!");
+			ws_warning("Unsupported cisco software. It will not collect any data most probably.");
 			return false;
 	}
 
@@ -2247,30 +2257,8 @@ static int list_config(char *interface, unsigned int remote_port)
 
 	ipfilter = local_interfaces_to_filter(remote_port);
 
-	printf("arg {number=%u}{call=--remote-host}{display=Remote SSH server address}"
-		"{type=string}{tooltip=The remote SSH host. It can be both "
-		"an IP address or a hostname}{required=true}{group=Server}\n", inc++);
-	printf("arg {number=%u}{call=--remote-port}{display=Remote SSH server port}"
-		"{type=unsigned}{default=22}{tooltip=The remote SSH host port (1-65535)}"
-		"{range=1,65535}{group=Server}\n", inc++);
-	printf("arg {number=%u}{call=--remote-username}{display=Remote SSH server username}"
-		"{type=string}{default=%s}{tooltip=The remote SSH username. If not provided, "
-		"the current user will be used}{group=Authentication}\n", inc++, g_get_user_name());
-	printf("arg {number=%u}{call=--remote-password}{display=Remote SSH server password}"
-		"{type=password}{tooltip=The SSH password, used when other methods (SSH agent "
-		"or key files) are unavailable.}{group=Authentication}\n", inc++);
-	printf("arg {number=%u}{call=--sshkey}{display=Path to SSH private key}"
-		"{type=fileselect}{tooltip=The path on the local filesystem of the private ssh key}"
-		"{group=Authentication}\n", inc++);
-	printf("arg {number=%u}{call=--proxycommand}{display=ProxyCommand}"
-		"{type=string}{tooltip=The command to use as proxy for the SSH connection}"
-		"{group=Authentication}\n", inc++);
-	printf("arg {number=%u}{call--sshkey-passphrase}{display=SSH key passphrase}"
-		"{type=password}{tooltip=Passphrase to unlock the SSH private key}"
-		"{group=Authentication\n", inc++);
-	printf("arg {number=%u}{call=--ssh-sha1}{display=Support SHA-1 keys (deprecated)}"
-	       "{type=boolflag}{tooltip=Support keys and key exchange algorithms using SHA-1 (deprecated)}{group=Authentication}"
-	       "\n", inc++);
+	ssh_base_list_config(&inc);
+
 	printf("arg {number=%u}{call=--remote-interface}{display=Remote interface}"
 		"{type=string}{required=true}{tooltip=The remote network interface used for capture"
 		"}{group=Capture}\n", inc++);
@@ -2308,7 +2296,7 @@ int main(int argc, char *argv[])
 	g_set_prgname("ciscodump");
 
 	/* Initialize log handler early so we can have proper logging during startup. */
-	extcap_log_init();
+	extcap_log_init(extcap_conf);
 
 	/*
 	 * Get credential information for later use.
@@ -2331,7 +2319,7 @@ int main(int argc, char *argv[])
 		CISCODUMP_VERSION_RELEASE, help_url);
 	add_libssh_info(extcap_conf);
 	g_free(help_url);
-	extcap_base_register_interface(extcap_conf, CISCODUMP_EXTCAP_INTERFACE, "Cisco remote capture", 147, "Remote capture dependent DLT");
+	extcap_base_register_interface_ext(extcap_conf, CISCODUMP_EXTCAP_INTERFACE, "Cisco remote capture", 147, NULL, "Remote capture dependent DLT", EXTCAP_CONTROL_QUIT);
 	if (!extcap_base_register_graceful_shutdown_cb(extcap_conf, graceful_shutdown_cb)) {
 		ret = EXIT_FAILURE;
 		goto end;
@@ -2350,15 +2338,7 @@ int main(int argc, char *argv[])
 
 	extcap_help_add_option(extcap_conf, "--help", "print this help");
 	extcap_help_add_option(extcap_conf, "--version", "print the version");
-	extcap_help_add_option(extcap_conf, "--remote-host <host>", "the remote SSH host");
-	extcap_help_add_option(extcap_conf, "--remote-port <port>", "the remote SSH port (default: 22)");
-	extcap_help_add_option(extcap_conf, "--remote-username <username>", "the remote SSH username (default: the current user)");
-	extcap_help_add_option(extcap_conf, "--remote-password <password>", "the remote SSH password. "
-		"If not specified, ssh-agent and ssh-key are used");
-	extcap_help_add_option(extcap_conf, "--sshkey <public key path>", "the path of the ssh key");
-	extcap_help_add_option(extcap_conf, "--sshkey-passphrase <public key passphrase>", "the passphrase to unlock public ssh");
-	extcap_help_add_option(extcap_conf, "--proxycommand <proxy command>", "the command to use as proxy for the ssh connection");
-	extcap_help_add_option(extcap_conf, "--ssh-sha1", "support keys and key exchange using SHA-1 (deprecated)");
+	ssh_base_add_help_options(extcap_conf);
 	extcap_help_add_option(extcap_conf, "--remote-interface <iface>", "the remote capture interface");
 	extcap_help_add_option(extcap_conf, "--remote-filter <filter>", "a filter for remote capture "
 		"(default: don't capture data for all interfaces IPs)");
@@ -2425,6 +2405,10 @@ int main(int argc, char *argv[])
 
 		case OPT_SSH_SHA1:
 			ssh_params->ssh_sha1 = true;
+			break;
+
+		case OPT_UPDATE_KNOWN_HOSTS:
+			ssh_params->update_known_hosts = true;
 			break;
 
 		case OPT_REMOTE_INTERFACE:

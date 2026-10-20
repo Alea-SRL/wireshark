@@ -296,7 +296,7 @@ dissect_mstp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 #if defined(BACNET_MSTP_CHECKSUM_VALIDATE)
 	/* used to calculate the crc value */
 	uint8_t crc8 = 0xFF;
-	uint16_t crc16 = 0xFFFF;
+	uint16_t crc16;
 	uint8_t crcdata;
 	uint16_t i; /* loop counter */
 #endif
@@ -422,7 +422,7 @@ dissect_mstp_wtap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
 {
 	proto_item *ti;
 	proto_tree *subtree;
-	int offset = 0;
+	unsigned offset = 0;
 #ifdef BACNET_MSTP_SUMMARY_IN_TREE
 	uint8_t mstp_frame_type = 0;
 	uint8_t mstp_frame_source = 0;

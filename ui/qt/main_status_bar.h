@@ -68,6 +68,14 @@ public:
      */
     void setFileName(CaptureFile &cf);
 
+    /**
+     * @brief Optional supplement for STATUS_CTX_FIELD, formatted by the caller.
+     *
+     * When @a include_selected_field is true and a field is selected, the selected-field
+     * text is appended after @a supplement.
+     */
+    void setFieldStatusSupplement(const QString &supplement, bool include_selected_field = true);
+
 protected:
 
     /**
@@ -94,7 +102,7 @@ protected:
      * @brief Handles state change events.
      * @param event The event to handle.
      */
-    virtual void changeEvent(QEvent* event);
+    virtual void changeEvent(QEvent* event) override;
 
     /**
      * @brief Displays the capture statistics.
@@ -145,8 +153,24 @@ private:
     /** Label for the current profile status. */
     ClickableLabel profile_status_;
 
-    /** String representing the ready message. */
-    QString ready_msg_;
+    /** Selected-field text for STATUS_CTX_FIELD. */
+    QString field_status_base_;
+
+    /** Optional supplement prepended to @ref field_status_base_. */
+    QString field_status_supplement_;
+
+    /** Whether @ref field_status_base_ is appended to @ref field_status_supplement_. */
+    bool field_status_include_base_ = true;
+
+    /**
+     * @brief Push STATUS_CTX_FIELD using @ref field_status_supplement_ and @ref field_status_base_.
+     */
+    void refreshFieldStatus();
+
+    /**
+     * @brief Sets the ready message depending on the current locale.
+     */
+    void setReadyMsg();
 
     /**
      * @brief Configures the status bar for a capture file.

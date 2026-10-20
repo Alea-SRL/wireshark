@@ -8,31 +8,14 @@
  */
 
 #include <ui/qt/utils/color_utils.h>
-#include <ui/qt/utils/tango_colors.h>
+#include <ui/qt/utils/theme_manager.h>
+#include <ui/qt/utils/themes/color_math.h>
 
+#include <QAbstractItemView>
 #include <QApplication>
+#include <QPainter>
 #include <QPalette>
-
-#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
-#include <QStyleHints>
-#include <epan/prefs.h>
-#endif
-
-// Colors we use in various parts of the UI.
-//
-// New colors should be chosen from tango_colors.h. The expert and hidden
-// colors come from the GTK+ UI and are grandfathered in.
-//
-// At some point we should probably make these configurable along with the
-// graph and sequence colors.
-
-const QColor ColorUtils::expert_color_comment    = QColor (0xb7, 0xf7, 0x74);        /* Green */
-const QColor ColorUtils::expert_color_chat       = QColor (0x80, 0xb7, 0xf7);        /* Light blue */
-const QColor ColorUtils::expert_color_note       = QColor (0xa0, 0xff, 0xff);        /* Bright turquoise */
-const QColor ColorUtils::expert_color_warn       = QColor (0xf7, 0xf2, 0x53);        /* Yellow */
-const QColor ColorUtils::expert_color_error      = QColor (0xff, 0x5c, 0x5c);        /* Pale red */
-const QColor ColorUtils::expert_color_foreground = QColor (0x00, 0x00, 0x00);        /* Black */
-const QColor ColorUtils::hidden_proto_item       = QColor (0x44, 0x44, 0x44);        /* Gray */
+#include <QStyle>
 
 ColorUtils::ColorUtils(QObject *parent) :
     QObject(parent)
@@ -94,94 +77,6 @@ QRgb ColorUtils::alphaBlend(const QBrush &brush1, const QBrush &brush2, qreal al
     return alphaBlend(brush1.color(), brush2.color(), alpha);
 }
 
-QList<QRgb> ColorUtils::graph_colors_;
-const QList<QRgb> ColorUtils::graphColors()
-{
-    if (graph_colors_.isEmpty()) {
-        // Available graph colors
-        // XXX - Add custom
-        graph_colors_ = QList<QRgb>()
-                << tango_aluminium_6 // Bar outline (use black instead)?
-                << tango_sky_blue_5
-                << tango_butter_6
-                << tango_chameleon_5
-                << tango_scarlet_red_5
-                << tango_plum_5
-                << tango_orange_6
-                << tango_aluminium_3
-                << tango_sky_blue_3
-                << tango_butter_3
-                << tango_chameleon_3
-                << tango_scarlet_red_3
-                << tango_plum_3
-                << tango_orange_3;
-    }
-    return graph_colors_;
-}
-
-QRgb ColorUtils::graphColor(int item)
-{
-    if (graph_colors_.isEmpty()) graphColors(); // Init list.
-    return graph_colors_[item % graph_colors_.size()];
-}
-
-QList<QRgb> ColorUtils::sequence_colors_;
-QRgb ColorUtils::sequenceColor(int item)
-{
-    if (sequence_colors_.isEmpty()) {
-        // Available sequence colors. Copied from gtk/graph_analysis.c.
-        // XXX - Add custom?
-        sequence_colors_ = QList<QRgb>()
-                << qRgb(144, 238, 144)
-                << qRgb(255, 160, 123)
-                << qRgb(255, 182, 193)
-                << qRgb(250, 250, 210)
-                << qRgb(255, 255, 52)
-                << qRgb(103, 205, 170)
-                << qRgb(224, 255, 255)
-                << qRgb(176, 196, 222)
-                << qRgb(135, 206, 254)
-                << qRgb(211, 211, 211);
-    }
-    return sequence_colors_[item % sequence_colors_.size()];
-}
-
-bool ColorUtils::themeIsDark()
-{
-#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
-    switch (qApp->styleHints()->colorScheme()) {
-        case Qt::ColorScheme::Dark:
-            return true;
-        case Qt::ColorScheme::Light:
-            return false;
-        case Qt::ColorScheme::Unknown:
-            break;
-    }
-#endif
-    return qApp->palette().windowText().color().lightness() > qApp->palette().window().color().lightness();
-}
-
-#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
-void ColorUtils::setScheme(int scheme)
-{
-    switch (scheme) {
-    case COLOR_SCHEME_LIGHT:
-        qApp->styleHints()->setColorScheme(Qt::ColorScheme::Light);
-        break;
-    case COLOR_SCHEME_DARK:
-        qApp->styleHints()->setColorScheme(Qt::ColorScheme::Dark);
-        break;
-    case COLOR_SCHEME_DEFAULT:
-    default:
-        qApp->styleHints()->setColorScheme(Qt::ColorScheme::Unknown);
-    }
-}
-#else
-void ColorUtils::setScheme(int)
-{
-}
-#endif
-
 QBrush ColorUtils::themeLinkBrush()
 {
     return qApp->palette().link();
@@ -191,41 +86,65 @@ QString ColorUtils::themeLinkStyle()
 {
     QString link_style;
 
-    if (themeIsDark()) {
+    if (ThemeManager::isDark()) {
         link_style = QStringLiteral("<style>a:link { color: %1; }</style>")
                 .arg(themeLinkBrush().color().name());
     }
     return link_style;
 }
 
-const QColor ColorUtils::contrastingTextColor(const QColor color)
+QString ColorUtils::itemHoverStyleSheet(const QString &selector)
 {
-    bool background_is_light = color.lightness() > 127;
-    if ( (background_is_light && !ColorUtils::themeIsDark()) || (!background_is_light && ColorUtils::themeIsDark()) ) {
-        // usually black/darker color in light mode and white/lighter color in dark mode
-        return QApplication::palette().text().color();
-    }
-    // usually white/lighter color in light mode and black/darker color in dark mode
-    return QApplication::palette().base().color();
+    // Read the application palette: ThemeManager installs it before
+    // emitting themeChanged, while a widget's own palette may not have
+    // been propagated yet when its restyle slot runs.
+    const QPalette pal = QApplication::palette();
+    const QColor hover_bg = ColorMath::selectionHoverFill(pal.color(QPalette::Base),
+                                                          pal.color(QPalette::Highlight));
+    const QColor hover_fg = ColorMath::readableText(pal.color(QPalette::Text), hover_bg);
+    return QStringLiteral("%1:item:hover { background-color: %2; color: %3; }")
+            .arg(selector, hover_bg.name(), hover_fg.name());
 }
 
-const QColor ColorUtils::hoverBackground()
+void ColorUtils::paintFlatCell(QPainter *painter, const QAbstractItemView *view,
+                                const QStyleOptionViewItem &option, const QModelIndex &index,
+                                const QColor &bg, const QColor &fg)
 {
-    QPalette hover_palette = QApplication::palette();
-#if defined(Q_OS_MAC)
-    hover_palette.setCurrentColorGroup(QPalette::Active);
-    return hover_palette.highlight().color();
-#else
-    return ColorUtils::alphaBlend(hover_palette.window(), hover_palette.highlight(), 0.5);
-#endif
+    painter->save();
+    painter->fillRect(option.rect, bg);
+    painter->restore();
+
+    QStyleOptionViewItem cell_option = option;
+    cell_option.features |= QStyleOptionViewItem::HasDisplay;
+    cell_option.text = index.data(Qt::DisplayRole).toString();
+    cell_option.icon = qvariant_cast<QIcon>(index.data(Qt::DecorationRole));
+    QVariant alignment = index.data(Qt::TextAlignmentRole);
+    if (alignment.isValid()) {
+        cell_option.displayAlignment = Qt::Alignment(alignment.toInt());
+    }
+    cell_option.backgroundBrush = QBrush();
+    cell_option.palette.setBrush(QPalette::Base, QBrush());
+    cell_option.palette.setBrush(QPalette::Window, QBrush());
+    cell_option.palette.setColor(QPalette::Text, fg);
+    cell_option.palette.setColor(QPalette::WindowText, fg);
+    cell_option.palette.setColor(QPalette::HighlightedText, fg);
+
+    QStyle *style = view->style() ? view->style() : QApplication::style();
+    style->drawControl(QStyle::CE_ItemViewItem, &cell_option, painter, view);
 }
 
 const QColor ColorUtils::warningBackground()
 {
-    if (themeIsDark()) {
-        return QColor(tango_butter_6);
+    return ThemeManager::instance()->color(ThemeManager::FilterDeprecated);
+}
+
+QColor ColorUtils::rowSeparatorColor(const QPalette &palette)
+{
+    const QColor base = palette.color(QPalette::Base);
+    if (ColorMath::isDark(base)) {
+        return ColorMath::mix(base, palette.color(QPalette::Text), 0.5);
     }
-    return QColor(tango_butter_2);
+    return base;
 }
 
 const QColor ColorUtils::disabledForeground()

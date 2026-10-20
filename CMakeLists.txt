@@ -16,10 +16,7 @@ if(DEFINED ENV{FORCE_CMAKE_NINJA_NON_VERBOSE})
 endif()
 
 # https://doc.qt.io/qt-6/cmake-supported-cmake-versions.html
-cmake_minimum_required(VERSION 3.20)
-if(POLICY CMP0127)
-	cmake_policy(SET CMP0127 NEW)
-endif()
+cmake_minimum_required(VERSION 3.22)
 if(POLICY CMP0135)
 	cmake_policy(SET CMP0135 NEW)
 endif()
@@ -33,6 +30,112 @@ else()
 endif()
 
 project(${_project_name} C CXX)
+
+#
+# Make sure the C and C++ compilers support C17 and C++17, and recommend
+# using GCC or Clang if they don't.
+#
+if(NOT "c_std_17" IN_LIST CMAKE_C_COMPILE_FEATURES)
+	message(FATAL_ERROR "The C compiler you're using does not support C17, but Wireshark and Stratoshark require it; use GCC or Clang.")
+endif()
+if(NOT "cxx_std_17" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+	message(FATAL_ERROR "The C++ compiler you're using does not support C17, but Wireshark and Stratoshark require it; use GCC or Clang.")
+endif()
+
+#
+# SunOS 5.x (the SVR4-based version, i.e. the one people usually call
+# "Solaris")) is annoying. (We don't support previous versions.)
+#
+# The Sun/Oracle compilers default to building 32-bit *even when running
+# on 64-bit platforms*; you have to provide an explicit flag to force a
+# 64-bit build. (This might be a backwards-compatibility thing.)
+#
+# Fortunately for us, 1) we require C17 support and 2) the Sun/Oracle
+# compilers don't offer C17 support, so we can't use them, and don't
+# have to worry about them.
+#
+# CMake, however, doesn't seem to understand Solaris's multi-architecture
+# file pathname structure. It's different from the structures used on
+# Linux distributions; it appears that the /usr/lib directory contains
+# stuff for 32-bit targets, and that there's a /usr/lib/${isa} directory
+# for the equivalent stuff for 64-bit targets.
+#
+# This means that, if you're doing a 64-bit build, find_package() will
+# look in /usr/lib/cmake rather than /usr/lib/${isa}/cmake, and the
+# FindPkgConfig functions/macros will look in /usr/lib/pkgconfig rather
+# than /usr/lib/${isa}/pkgconfig. This means that, if you don't have
+# 32-bit versions of various packages installed, those packages won't
+# be found, and if you *do* have 32-bit version installed, they will be
+# found and used for a 64-bit build.
+#
+# Both of those will produce hard-to-diagnose failures.
+#
+# So, if we're doing a 64-bit build on SunOS 5.x, we use "isainfo -n" to
+# get the ${isa} value, and set CMAKE_LIBRARY_ARCHITECTURE to that value
+# to force CMake to look in the right places.
+#
+# Furthermore, for at least for some packages (D-Bus an GLib), there are
+# separate include files for 32-bit and 64-bit builds (I guess using
+# "unsigned long long" as a 64-bit integer type on a 64-bit build is
+# like crossing the beams or something), and there are two separate
+# .pc files, so if we're doing a 32-bit build we should make sure we look
+# in /usr/lib/pkgconfig for .pc files and if we're doing a 64-bit build
+# we should make sure we look in /usr/lib/amd64/pkgconfig for .pc files.
+#
+if(CMAKE_SYSTEM_NAME STREQUAL "SunOS" AND CMAKE_SYSTEM_VERSION MATCHES "5[.][0-9.]*")
+	if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+		#
+		# 64-bit build. Get the ISA, and set
+		# CMAKE_LIBRARY_ARCHITECTURE to it.
+		#
+		execute_process(
+		    COMMAND "isainfo" "-n"
+		    OUTPUT_VARIABLE CMAKE_LIBRARY_ARCHITECTURE
+		    RESULT_VARIABLE status
+		    OUTPUT_STRIP_TRAILING_WHITESPACE)
+		if(status)
+			#
+			# isainfo -n failed; give up.
+			#
+			message(FATAL_ERROR "isainfo -n failed, so we can't determine the target architecture")
+		endif()
+
+		#
+		# If /usr/lib/pkgconfig appears in the path, prepend
+		# /usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/pkgconfig to it;
+		# otherwise, put /usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}
+		# at the end.
+		#
+		# Note: string(REPLACE) does not appear to support using
+		# ENV{...} as an argument, so we set a variable and then
+		# use set() to set the environment variable.
+		#
+		if((NOT DEFINED ENV{PKG_CONFIG_PATH}) OR "$ENV{PKG_CONFIG_PATH}" EQUAL "")
+			#
+			# Not set, or empty.  Set it to
+			# /usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/pkgconfig.
+			#
+			set(fixed_path "/usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/pkgconfig")
+		elseif("$ENV{PKG_CONFIG_PATH}" MATCHES "/usr/lib/pkgconfig")
+			#
+			# It contains /usr/lib/pkgconfig.  Prepend
+			# /usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/pkgconfig
+			# to /usr/lib/pkgconfig.
+			#
+			string(REPLACE "/usr/lib/pkgconfig"
+			    "/usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/pkgconfig:/usr/lib/pkgconfig"
+			    fixed_path "$ENV{PKG_CONFIG_PATH}")
+		else()
+			#
+			# Not empty, but doesn't contain /usr/lib/pkgconfig.
+			# Append /usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/pkgconfig
+			# to it.
+			#
+			set(fixed_path "$ENV{PKG_CONFIG_PATH}:/usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/pkgconfig")
+		endif()
+		set(ENV{PKG_CONFIG_PATH} "${fixed_path}")
+	endif()
+endif()
 
 if(WIN32)
 	set(_msystem False)
@@ -56,8 +159,8 @@ if(WIN32)
 endif()
 
 # Updated by tools/make-version.py
-set(PROJECT_MAJOR_VERSION 4)
-set(PROJECT_MINOR_VERSION 7)
+set(PROJECT_MAJOR_VERSION 5)
+set(PROJECT_MINOR_VERSION 1)
 set(PROJECT_PATCH_VERSION 0)
 set(PROJECT_BUILD_VERSION 0)
 set(PROJECT_VERSION_EXTENSION "")
@@ -68,8 +171,8 @@ endif()
 
 set(PROJECT_VERSION "${PROJECT_MAJOR_VERSION}.${PROJECT_MINOR_VERSION}.${PROJECT_PATCH_VERSION}${PROJECT_VERSION_EXTENSION}")
 
-set(STRATOSHARK_MAJOR_VERSION 0)
-set(STRATOSHARK_MINOR_VERSION 10)
+set(STRATOSHARK_MAJOR_VERSION 1)
+set(STRATOSHARK_MINOR_VERSION 1)
 
 set(STRATOSHARK_VERSION "${STRATOSHARK_MAJOR_VERSION}.${STRATOSHARK_MINOR_VERSION}.${PROJECT_PATCH_VERSION}${PROJECT_VERSION_EXTENSION}")
 
@@ -220,12 +323,12 @@ if(WIN32)
 			set(WIRESHARK_BASE_DIR $ENV{WIRESHARK_BASE_DIR})
 		endif()
 		if(WIRESHARK_BASE_DIR)
-			file( TO_CMAKE_PATH ${WIRESHARK_BASE_DIR} _ws_base_dir )
+			file( TO_CMAKE_PATH "${WIRESHARK_BASE_DIR}" _ws_base_dir )
 			set( _PROJECT_LIB_DIR "${_ws_base_dir}/wireshark-${WIRESHARK_TARGET_PLATFORM}-libs" )
 			unset(_ws_base_dir)
 		elseif( DEFINED ENV{WIRESHARK_LIB_DIR} )
 			message(DEPRECATION "Support for the WIRESHARK_LIB_DIR environment variable will be removed in the future. Use WIRESHARK_BASE_DIR instead.")
-			file( TO_CMAKE_PATH $ENV{WIRESHARK_LIB_DIR} _PROJECT_LIB_DIR )
+			file( TO_CMAKE_PATH "$ENV{WIRESHARK_LIB_DIR}" _PROJECT_LIB_DIR )
 		else()
 			# Don't know what to do
 			message(FATAL_ERROR "Neither WIRESHARK_BASE_DIR or WIRESHARK_LIB_DIR are defined")
@@ -243,13 +346,13 @@ if(WIN32)
 	include(FetchContent)
 
 	set(LIBS_URL "https://dev-libs.wireshark.org/windows/packages")
-	file(TO_CMAKE_PATH ${EXTRA_INSTALLER_DIR} _file_download_dir)
+	file(TO_CMAKE_PATH "${EXTRA_INSTALLER_DIR}" _file_download_dir)
 
 	# Download Npcap required by the Windows installer.
 	# We do this here and not in FetchArtifacts.cmake because this
 	# is required by both the Visual Studio and MSYS2 builds.
-	set(NPCAP_VERSION "1.88")
-	set(NPCAP_SHA256 "a2f4ec1e5ea353ff67efd24b2ebf081ba44532410fae8d5e146af0310aa4f56b")
+	set(NPCAP_VERSION "1.89")
+	set(NPCAP_SHA256 "8aed85e900d783d1308506e919587d3e540451947af8a82f2d04f819e44305cc")
 	set(NPCAP_FILENAME "npcap-${NPCAP_VERSION}.exe")
 	set(NPCAP_URL "${LIBS_URL}/Npcap/${NPCAP_FILENAME}")
 	FetchContent_Declare(Npcap
@@ -311,6 +414,12 @@ if(WIN32 AND NOT USE_MSYSTEM)
 	set(CMAKE_INSTALL_INCLUDEDIR "include")
 	set(CMAKE_INSTALL_DATADIR ".")
 	set(CMAKE_INSTALL_DOCDIR ".")
+elseif(CMAKE_SYSTEM_NAME MATCHES "Haiku")
+	# By default INSTALL_DATADIR is set to INSTALL_DATAROOTDIR, set the
+	# proper value here.
+	set(CMAKE_INSTALL_DATADIR "data/${PROJECT_NAME}"
+		CACHE PATH "Read-only architecture-independent data"
+	)
 endif()
 include(GNUInstallDirs)
 
@@ -369,6 +478,21 @@ if(NOT (WIN32 OR APPLE OR USE_STATIC))
 	endif()
 endif()
 
+# Preprocessor definitions common to all compilers
+# Do not put any add_[compile_]definitions calls before this,
+# as this overrides the existing values.
+# These only depend on values from CMakeOptions.txt and CMAKE_BUILD_TYPE,
+# which have been handled above.
+set_property(DIRECTORY
+	PROPERTY COMPILE_DEFINITIONS
+		"G_DISABLE_DEPRECATED"
+		"G_DISABLE_SINGLE_INCLUDES"
+		$<$<OR:$<BOOL:${ENABLE_DEBUG}>,$<CONFIG:Debug>>:WS_DEBUG>
+		$<$<OR:$<AND:$<BOOL:${ENABLE_DEBUG}>,$<BOOL:${ENABLE_DEBUG_UTF_8}>>,$<CONFIG:Debug>>:WS_DEBUG_UTF_8>
+		$<$<BOOL:${ENABLE_ASSERT}>:ENABLE_ASSERT>
+		$<$<NOT:$<BOOL:${BUILD_SHARED_LIBS}>>:ENABLE_STATIC>
+)
+
 # Ensure that executables in the build directory always have the same RPATH.
 # This ensures relocatable binaries and reproducible builds (invariant of the
 # build directory location). (Requires CMake 3.14)
@@ -410,6 +534,20 @@ if(NOT MSVC)
 		#
 		add_definitions(${FSEEKO_DEFINITIONS})
 	endif()
+	#
+	# Check for 64-bit time_t if asked for. We don't support 32-bit
+	# Windows at all so we don't call this outside this path.
+	#
+	if(ENABLE_Y2038)
+		include(FindTime64)
+		if(TIME64_FOUND)
+			# Add the required #defines.
+			#
+			add_definitions(${TIME64_DEFINITIONS})
+		else()
+			message(FATAL_ERROR "Y2038/POSIX.1-2024 compliant time_t not found")
+		endif()
+	endif()
 endif()
 
 # Banner shown at top right of Qt welcome screen.
@@ -436,6 +574,7 @@ include(UseExecutableResources)
 include(UseAsn2Wrs)
 include(UseJsonTranslations)
 include(QrcBuilder)
+include(AddThemes)
 
 # The following snippet has been taken from
 # https://github.com/USESystemEngineeringBV/cmake-eclipse-helper/wiki/HowToWorkaroundIndexer
@@ -533,18 +672,9 @@ endif()
 # -fPIC/-fPIE (so set CMAKE_POSITION_INDEPENDENT_CODE to enable that).
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Preprocessor definitions common to all compilers
-set_property(DIRECTORY
-	PROPERTY COMPILE_DEFINITIONS
-		"G_DISABLE_DEPRECATED"
-		"G_DISABLE_SINGLE_INCLUDES"
-		$<$<OR:$<BOOL:${ENABLE_DEBUG}>,$<CONFIG:Debug>>:WS_DEBUG>
-		$<$<OR:$<AND:$<BOOL:${ENABLE_DEBUG}>,$<BOOL:${ENABLE_DEBUG_UTF_8}>>,$<CONFIG:Debug>>:WS_DEBUG_UTF_8>
-		$<$<BOOL:${ENABLE_ASSERT}>:ENABLE_ASSERT>
-		$<$<NOT:$<BOOL:${BUILD_SHARED_LIBS}>>:ENABLE_STATIC>
-)
-
 if(WIN32)
+	# XXX Add MIN_WINDOWS_VERSION similar to MIN_MACOS_VERSION
+	# set(MIN_WINDOWS_VERSION ???)
 	#
 	# NOTE: Because of the way Qt moc is including "config.h" (not as the
 	# first header) this *MUST* be defined on the command line to precede
@@ -910,6 +1040,7 @@ else() # ! MSVC
 		#
 		### Flags for C++ only ###
 		#
+		-Wsuggest-override  # Warn when an overriding virtual function is missing 'override'
 	)
 
 	#
@@ -1413,87 +1544,49 @@ ws_find_package(LIBSSH ENABLE_LIBSSH HAVE_LIBSSH "0.8.5")
 ws_find_package(PCAP ENABLE_PCAP HAVE_LIBPCAP)
 ws_find_package(Systemd BUILD_sdjournal HAVE_SYSTEMD)
 
+# The SpeexDSP resampler is required iff building sharkd, or building
+# Wireshark or Stratoshark with Qt Multimedia
+if(BUILD_sharkd)
+	reset_find_package(SPEEXDSP)
+	find_package(SpeexDSP REQUIRED)
+elseif(BUILD_wireshark OR BUILD_stratoshark)
+	reset_find_package(SPEEXDSP)
+	find_package(SpeexDSP)
+endif()
+
 # Build one of the Qt GUIs?
 if(BUILD_wireshark OR BUILD_stratoshark)
 	# We don't use any QVulkan* classes, so tell Qt's CMake modules not to look for Vulkan.
 	set(CMAKE_DISABLE_FIND_PACKAGE_WrapVulkanHeaders ON)
-	if(USE_qt6)
-		set(qtver 6)
-		if(DEFINED ENV{WIRESHARK_QT6_PREFIX_PATH})
-			list(APPEND CMAKE_PREFIX_PATH $ENV{WIRESHARK_QT6_PREFIX_PATH})
-		endif()
+	set(qtver 6)
+	if(DEFINED ENV{WIRESHARK_QT6_PREFIX_PATH})
+		list(APPEND CMAKE_PREFIX_PATH $ENV{WIRESHARK_QT6_PREFIX_PATH})
+	endif()
 
-		find_package(Qt6 6.2 REQUIRED
-			COMPONENTS
-				Core
-				Gui
-				LinguistTools
-				PrintSupport
-				Widgets
-				Concurrent
-				Network
-				Core5Compat
-			OPTIONAL_COMPONENTS
-				DBus
-				Multimedia
-		)
+	find_package(Qt6 6.2 REQUIRED
+		COMPONENTS
+			Core
+			Concurrent
+			Gui
+			LinguistTools
+			Network
+			PrintSupport
+			Svg
+			Widgets
+		OPTIONAL_COMPONENTS
+			DBus
+	)
 
-		if (WIN32 AND Qt6Widgets_VERSION VERSION_LESS 6.5.3)
-			message(WARNING "Qt 6.5.3 or later is required.")
-		endif()
-		if (APPLE AND Qt6Widgets_VERSION VERSION_LESS 6.5.3)
-			message(WARNING "Qt 6.5.3 or later is required.")
-		endif()
-	else() # USE_qt6
-		set(qtver 5)
-		if(DEFINED ENV{WIRESHARK_QT5_PREFIX_PATH})
-			list(APPEND CMAKE_PREFIX_PATH $ENV{WIRESHARK_QT5_PREFIX_PATH})
-		endif()
-		message(DEPRECATION "Support for building with Qt 5 will be removed in the future.")
-		if(APPLE OR WIN32)
-			message(FATAL_ERROR "Qt 6 is required to build on ${CMAKE_SYSTEM_NAME}.")
-		endif()
+	if (SPEEXDSP_FOUND)
+		find_package(Qt6 ${Qt6_VERSION} REQUIRED OPTIONAL_COMPONENTS Multimedia)
+	endif()
 
-		set(QT5_PACKAGELIST
-			Qt5Core
-			Qt5Gui
-			Qt5LinguistTools
-			Qt5PrintSupport
-			Qt5Widgets
-			Qt5Concurrent
-		)
-		set(QT5_OPTIONAL_PACKAGELIST
-			# DBus is a core component of Qt6, but was an add-on in Qt5.
-			Qt5DBus
-			Qt5Multimedia
-		)
-		foreach(_qt5_package IN LISTS QT5_PACKAGELIST)
-			find_package(${_qt5_package} REQUIRED ${QT5_FIND_PACKAGE_OPTIONS})
-			list(APPEND QT5_LIBRARIES ${${_qt5_package}_LIBRARIES})
-			list(APPEND QT5_INCLUDE_DIRS ${${_qt5_package}_INCLUDE_DIRS})
-			list(APPEND QT5_COMPILE_DEFINITIONS ${${_qt5_package}_COMPILE_DEFINITIONS})
-		endforeach()
-		foreach(_qt5_package IN LISTS QT5_OPTIONAL_PACKAGELIST)
-			find_package(${_qt5_package} ${QT5_FIND_PACKAGE_OPTIONS})
-			list(APPEND QT5_LIBRARIES ${${_qt5_package}_LIBRARIES})
-			list(APPEND QT5_INCLUDE_DIRS ${${_qt5_package}_INCLUDE_DIRS})
-			list(APPEND QT5_COMPILE_DEFINITIONS ${${_qt5_package}_COMPILE_DEFINITIONS})
-		endforeach()
-
-		if (Qt5Widgets_VERSION VERSION_LESS 5.15)
-			message(FATAL_ERROR "Qt 5.15 or later is required. Qt 6 is recommended.")
-		endif()
-
-		if(APPLE AND "/usr/local/opt/qt5/lib/QtCore.framework" IN_LIST Qt5Core_INCLUDE_DIRS)
-			# When qt@6 and qt@5 are both installed via Homebrew,
-			# /usr/local/include/QtCore/qvariant.h points to Qt 6 headers.
-			# Normally the Headers from `-iframework /usr/local/opt/qt5/lib`
-			# should be used, but `-isystem /usr/local/include` (via
-			# Libgcrypt and others) seems to prioritized, resulting in use
-			# of the Qt6 headers. Resolve this by explicit including Qt5.
-			list(APPEND QT5_INCLUDE_DIRS /usr/local/opt/qt5/include)
-		endif()
-	endif() # USE_qt6
+	if (WIN32 AND Qt6Widgets_VERSION VERSION_LESS 6.5.3)
+		message(WARNING "Qt 6.5.3 or later is required.")
+	endif()
+	if (APPLE AND Qt6Widgets_VERSION VERSION_LESS 6.5.3)
+		message(WARNING "Qt 6.5.3 or later is required.")
+	endif()
 
 	set(QT_FOUND ON)
 	if(WIN32)
@@ -1502,11 +1595,9 @@ if(BUILD_wireshark OR BUILD_stratoshark)
 	if(APPLE)
 		ws_find_package(Sparkle ENABLE_SPARKLE HAVE_SOFTWARE_UPDATE 2)
 	endif()
-	if(Qt6Multimedia_FOUND OR Qt5Multimedia_FOUND)
-		set(QT_MULTIMEDIA_LIB 1)
-	endif()
-	if(Qt6DBus_FOUND OR Qt5DBus_FOUND)
-		set(QT_DBUS_LIB 1)
+	# PackageKit is queried over D-Bus, no library needed
+	if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND Qt6DBus_FOUND)
+		set(HAVE_SOFTWARE_UPDATE 1)
 	endif()
 	if(NOT DEFINED MOC_OPTIONS)
 		# Squelch moc verbose "nothing to do" output
@@ -1601,15 +1692,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	find_package(SETCAP)
 endif()
 
-find_package( Asciidoctor 1.5 )
+ws_find_package(CpuInfo ENABLE_CPUINFO HAVE_CPUINFO)
+
+find_package( Asciidoctor 2.0 )
 find_package( XSLTPROC )
 
 find_package(DOXYGEN)
-
-# The SpeexDSP resampler is required iff building wireshark or sharkd.
-if(BUILD_wireshark OR BUILD_stratoshark OR BUILD_sharkd)
-	find_package(SpeexDSP REQUIRED)
-endif()
 
 # Generate the distribution tarball.
 add_custom_target(dist
@@ -1637,9 +1725,9 @@ endif()
 
 if (QT_FOUND)
 	# CMake uses qmake to find Qt4. It relies on Qt's CMake modules
-	# to find Qt5. This means that we can't assume that the qmake
+	# to find Qt >= 5. This means that we can't assume that the qmake
 	# in our PATH is the correct one. We can fetch qmake's location
-	# from Qt5::qmake, which is defined in Qt5CoreConfigExtras.cmake.
+	# from Qt6::qmake, which is defined in Qt6CoreConfigExtras.cmake.
 	get_target_property(QT_QMAKE_EXECUTABLE Qt${qtver}::qmake IMPORTED_LOCATION)
 	get_filename_component(_qt_bin_path "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
 	set(QT_BIN_PATH "${_qt_bin_path}" CACHE INTERNAL
@@ -1648,7 +1736,7 @@ if (QT_FOUND)
 	# Use qmake to find windeployqt and macdeployqt. Ideally one of
 	# the modules in ${QTDIR}/lib/cmake would do this for us.
 	if(WIN32)
-		if (USE_qt6 AND USE_MSYSTEM)
+		if (USE_MSYSTEM)
 			set(_windeployqt_name "windeployqt-qt6")
 		else()
 			set(_windeployqt_name "windeployqt")
@@ -1716,7 +1804,12 @@ if(WIN32)
 	set(WIN_IPHLPAPI_LIBRARY iphlpapi.lib)
 	set(WIN_PSAPI_LIBRARY    psapi.lib)
 	set(WIN_VERSION_LIBRARY  version.lib)
-	set(WIN_WS2_32_LIBRARY   ws2_32.lib)
+	set(SOCKET_LIBRARY       ws2_32.lib)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Haiku")
+	#
+	# Haiku. We need libnetwork.
+	#
+	set(SOCKET_LIBRARY       network)
 endif()
 
 if(APPLE)
@@ -1863,24 +1956,29 @@ else()
 	set(_datafile_dir "${CMAKE_BINARY_DIR}/run")
 endif()
 
+# XXX We should probably drop this and use {WIRE,STRATO}SHARK_DATAFILE_DIR instead.
 set(DATAFILE_DIR ${_datafile_dir} CACHE INTERNAL "Build time data file location.")
 
+# Application-specific data files (coloring rules, profiles, protocol
+# dictionaries, etc.). Wireshark and Stratoshark share DATAFILE_DIR on
+# Windows and UN*X, so each application gets its own share/<app> subdirectory
+# there. This matches the layout of the macOS application bundles.
+# XXX This must match get_datafile_dir() in wsutil/filesystem.c.
 if(ENABLE_APPLICATION_BUNDLE)
 	if(CMAKE_CFG_INTDIR STREQUAL ".")
-		set(_stratoshark_datafile_dir "${CMAKE_BINARY_DIR}/run/Stratoshark.app/Contents/Resources/share/stratoshark")
+		set(_bundle_run_dir "${CMAKE_BINARY_DIR}/run")
 	else()
 		# Xcode
-		set(_stratoshark_datafile_dir "${CMAKE_BINARY_DIR}/run/${CMAKE_CFG_INTDIR}/Stratoshark.app/Contents/Resources/share/stratoshark")
+		set(_bundle_run_dir "${CMAKE_BINARY_DIR}/run/${CMAKE_CFG_INTDIR}")
 	endif()
-	set(STRATOSHARK_DATAFILE_DIR ${_stratoshark_datafile_dir} CACHE INTERNAL "Build time log analysis data file location.")
-# XXX We need to update wsutil/filesystem.c and packaging/nsis/*stratoshark* to match.
-# elseif(NOT CMAKE_CFG_INTDIR STREQUAL ".")
-# 	# Visual Studio, Xcode, etc.
-# 	set(_stratoshark_datafile_dir "${CMAKE_BINARY_DIR}/run/${CMAKE_CFG_INTDIR}/share/stratoshark")
-# else()
-# 	# Makefile, Ninja, etc.
-# 	set(_stratoshark_datafile_dir "${CMAKE_BINARY_DIR}/run/share/stratoshark")
+	set(_wireshark_datafile_dir "${_bundle_run_dir}/Wireshark.app/Contents/Resources/share/wireshark")
+	set(_stratoshark_datafile_dir "${_bundle_run_dir}/Stratoshark.app/Contents/Resources/share/stratoshark")
+else()
+	set(_wireshark_datafile_dir "${DATAFILE_DIR}/share/wireshark")
+	set(_stratoshark_datafile_dir "${DATAFILE_DIR}/share/stratoshark")
 endif()
+set(WIRESHARK_DATAFILE_DIR ${_wireshark_datafile_dir} CACHE INTERNAL "Build time Wireshark-specific data file location.")
+set(STRATOSHARK_DATAFILE_DIR ${_stratoshark_datafile_dir} CACHE INTERNAL "Build time Stratoshark-specific data file location.")
 
 # wsutil must be added after DATAFILE_DIR is set such that filesystem.c can
 # learn about the directory location.
@@ -1891,17 +1989,21 @@ add_subdirectory( wsutil )
 add_subdirectory( doc )
 
 if(BUILD_wireshark AND QT_FOUND)
+	set(CMAKE_FOLDER "UI")
 	add_subdirectory( ui/qt )
+	unset(CMAKE_FOLDER)
 	add_subdirectory( ui/plugins )
-elseif(BUILD_wireshark AND USE_qt6)
-	message(VERBOSE "To use Qt5 instead of Qt6 use CMake option USE_qt6=OFF.")
+elseif(BUILD_wireshark)
+	message(WARNING "Building Wireshark requested but Qt 6.2 or later not found.")
 endif()
 
 if(BUILD_stratoshark AND QT_FOUND)
 	if(NOT BUILD_wireshark)
 		add_subdirectory( ui/plugins )
 	endif()
+	set(CMAKE_FOLDER "UI")
 	add_subdirectory( ui/stratoshark )
+	unset(CMAKE_FOLDER)
 endif()
 
 # Location of our plugins. {WIRESHARK,STRATOSHARK}_PLUGIN_DIR should allow
@@ -2130,6 +2232,11 @@ set_package_properties(Lua PROPERTIES
 	URL "https://www.lua.org/"
 	PURPOSE "Lua allows writing dissectors and other extensions without a C/C++ compiler"
 )
+set_package_properties(CpuInfo PROPERTIES
+	DESCRIPTION "CPU INFOrmation library"
+	URL "https://github.com/pytorch/cpuinfo/"
+	PURPOSE "Detect information about host CPU, e.g., for performance optimization"
+)
 
 string(TOUPPER "${CMAKE_BUILD_TYPE}" _build_type)
 message(STATUS "C-Flags: ${CMAKE_C_FLAGS} ${CMAKE_C_FLAGS_${_build_type}}")
@@ -2172,6 +2279,7 @@ set(TSHARK_TAP_SRC
 	${CMAKE_SOURCE_DIR}/ui/cli/tap-httpstat.c
 	${CMAKE_SOURCE_DIR}/ui/cli/tap-icmpstat.c
 	${CMAKE_SOURCE_DIR}/ui/cli/tap-icmpv6stat.c
+	${CMAKE_SOURCE_DIR}/ui/cli/tap-imsi.c
 	${CMAKE_SOURCE_DIR}/ui/cli/tap-iostat.c
 	${CMAKE_SOURCE_DIR}/ui/cli/tap-iousers.c
 	${CMAKE_SOURCE_DIR}/ui/cli/tap-macltestat.c
@@ -2239,7 +2347,7 @@ endif()
 # at install time.
 set(INSTALL_FILES
 	resources/share/wireshark/cfilters
-	resources/share/wireshark/colorfilters
+	resources/share/wireshark/coloring_rules.jsonc
 	resources/share/wireshark/dmacros
 	resources/share/wireshark/dfilters
 	resources/share/wireshark/ipmap.html
@@ -2264,40 +2372,67 @@ if (BUILD_stratoshark)
 
 	set(STRATOSHARK_INSTALL_FILES
 		doc/ws.css
-		resources/share/stratoshark/colorfilters
+		resources/share/stratoshark/coloring_rules.jsonc
 		resources/share/stratoshark/dfilter_buttons
 	)
 endif()
 
 if (ASCIIDOCTOR_FOUND)
 	list(APPEND DOC_FILES
-		${CMAKE_BINARY_DIR}/doc/man_pages/androiddump.html
-		${CMAKE_BINARY_DIR}/doc/man_pages/udpdump.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/capinfos.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/captype.html
-		${CMAKE_BINARY_DIR}/doc/man_pages/ciscodump.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/dumpcap.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/editcap.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/extcap.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/mergecap.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/randpkt.html
-		${CMAKE_BINARY_DIR}/doc/man_pages/randpktdump.html
-		${CMAKE_BINARY_DIR}/doc/man_pages/etwdump.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/rawshark.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/reordercap.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/sharkd.html
-		${CMAKE_BINARY_DIR}/doc/man_pages/sshdig.html
-		${CMAKE_BINARY_DIR}/doc/man_pages/sshdump.html
-		${CMAKE_BINARY_DIR}/doc/man_pages/strato.html
-		${CMAKE_BINARY_DIR}/doc/man_pages/stratoshark.html
-		${CMAKE_BINARY_DIR}/doc/man_pages/wifidump.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/text2pcap.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/tshark.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/wireshark.html
 		${CMAKE_BINARY_DIR}/doc/man_pages/wireshark-filter.html
 		"${CMAKE_BINARY_DIR}/doc/Wireshark Release Notes.html"
-		"${CMAKE_BINARY_DIR}/doc/Stratoshark Release Notes.html"
 	)
+
+	#
+	# Install the HTML manual page for a program only when that program is
+	# built (matching doc/CMakeLists.txt); the pages are always generated.
+	#
+	if(BUILD_stratoshark)
+		list(APPEND DOC_FILES
+			${CMAKE_BINARY_DIR}/doc/man_pages/stratoshark.html
+			"${CMAKE_BINARY_DIR}/doc/Stratoshark Release Notes.html"
+		)
+	endif()
+	if(BUILD_strato)
+		list(APPEND DOC_FILES ${CMAKE_BINARY_DIR}/doc/man_pages/strato.html)
+	endif()
+	if(BUILD_androiddump)
+		list(APPEND DOC_FILES ${CMAKE_BINARY_DIR}/doc/man_pages/androiddump.html)
+	endif()
+	if(BUILD_ciscodump AND LIBSSH_FOUND)
+		list(APPEND DOC_FILES ${CMAKE_BINARY_DIR}/doc/man_pages/ciscodump.html)
+	endif()
+	if(BUILD_etwdump AND WIN32)
+		list(APPEND DOC_FILES ${CMAKE_BINARY_DIR}/doc/man_pages/etwdump.html)
+	endif()
+	if(BUILD_randpktdump)
+		list(APPEND DOC_FILES ${CMAKE_BINARY_DIR}/doc/man_pages/randpktdump.html)
+	endif()
+	if(BUILD_sshdig AND LIBSSH_FOUND)
+		list(APPEND DOC_FILES ${CMAKE_BINARY_DIR}/doc/man_pages/sshdig.html)
+	endif()
+	if(BUILD_sshdump AND LIBSSH_FOUND)
+		list(APPEND DOC_FILES ${CMAKE_BINARY_DIR}/doc/man_pages/sshdump.html)
+	endif()
+	if(BUILD_udpdump)
+		list(APPEND DOC_FILES ${CMAKE_BINARY_DIR}/doc/man_pages/udpdump.html)
+	endif()
+	if(BUILD_wifidump AND LIBSSH_FOUND)
+		list(APPEND DOC_FILES ${CMAKE_BINARY_DIR}/doc/man_pages/wifidump.html)
+	endif()
 	if(MAXMINDDB_FOUND)
 		list(APPEND DOC_FILES ${CMAKE_BINARY_DIR}/doc/man_pages/mmdbresolve.html)
 	endif()
@@ -2311,12 +2446,12 @@ if (ASCIIDOCTOR_FOUND)
 			${CMAKE_BINARY_DIR}/doc/man_pages/idl2deb.html
 		)
 	endif()
-	if (BUILD_falcodump)
+	if (BUILD_falcodump AND SINSP_FOUND)
 		list(APPEND DOC_FILES
 			${CMAKE_BINARY_DIR}/doc/man_pages/falcodump.html
 		)
 	endif()
-	if (BUILD_dumpcalls)
+	if (BUILD_dumpcalls AND SINSP_FOUND)
 		list(APPEND DOC_FILES
 			${CMAKE_BINARY_DIR}/doc/man_pages/dumpcalls.html
 		)
@@ -2354,7 +2489,8 @@ if(USE_REPOSITORY)
 	# https://github.com/maxmind/libmaxminddb/commit/3998f42bdb6678cbaa1a543057e5c81ba1668ac2
 	# percolates up to vcpkg.
 	# if (MAXMINDDB_FOUND)
-	# 	list (APPEND THIRD_PARTY_DLLS "${MAXMINDDB_DLL_DIR}/${MAXMINDDB_DLL}")
+	#	list(APPEND THIRD_PARTY_DLLS "$<$<CONFIG:Debug>:${MAXMINDDB_DLL_DIR_DEBUG}/${MAXMINDDB_DLL_DEBUG}")
+	#	list(APPEND THIRD_PARTY_DLLS "$<$<NOT:$<CONFIG:Debug>>:${MAXMINDDB_DLL_DIR_RELEASE}/${MAXMINDDB_DLL_RELEASE}>")
 	# endif(MAXMINDDB_FOUND)
 	if (LIBSSH_FOUND)
 		foreach( _dll ${LIBSSH_DLLS} )
@@ -2396,10 +2532,11 @@ if(USE_REPOSITORY)
 	endforeach(_dll)
 	if (LUA_FOUND)
 		list (APPEND THIRD_PARTY_DLLS "${LUA_DLL_DIR}/${LUA_DLL}")
+		list (APPEND THIRD_PARTY_PDBS "${LUA_DLL_DIR}/${LUA_PDB}")
 	endif(LUA_FOUND)
 	if (LZ4_FOUND)
-		list (APPEND THIRD_PARTY_DLLS "${LZ4_DLL_DIR}/${LZ4_DLL}")
-		list (APPEND THIRD_PARTY_PDBS "${LZ4_DLL_DIR}/${LZ4_PDB}")
+		list (APPEND THIRD_PARTY_DLLS "$<IF:$<CONFIG:Debug>,${LZ4_DLL_DIR_DEBUG}/${LZ4_DLL_DEBUG},${LZ4_DLL_DIR}/${LZ4_DLL}>")
+		list (APPEND THIRD_PARTY_PDBS "$<IF:$<CONFIG:Debug>,${LZ4_DLL_DIR_DEBUG}/${LZ4_PDB_DEBUG},${LZ4_DLL_DIR}/${LZ4_PDB}>")
 	endif(LZ4_FOUND)
 	if (MINIZIP_FOUND)
 		list (APPEND THIRD_PARTY_DLLS "${MINIZIP_DLL_DIR}/${MINIZIP_DLL}")
@@ -2427,8 +2564,10 @@ if(USE_REPOSITORY)
 	if (SPANDSP_FOUND)
 		list (APPEND THIRD_PARTY_DLLS "${SPANDSP_DLL_DIR}/${SPANDSP_DLL}")
 	endif(SPANDSP_FOUND)
-	if (SINSP_FOUND AND FALCO_PLUGIN_DLLS)
-		list (APPEND THIRD_PARTY_DLLS ${FALCO_PLUGIN_DLLS})
+	if (SINSP_FOUND AND FALCO_PLUGIN_DIR AND FALCO_PLUGIN_DLLS)
+		foreach(_falco_plugin_dll ${FALCO_PLUGIN_DLLS})
+			list (APPEND THIRD_PARTY_DLLS ${FALCO_PLUGIN_DIR}/${_falco_plugin_dll})
+		endforeach()
 	endif()
 	if (BCG729_FOUND)
 		list (APPEND THIRD_PARTY_DLLS "${BCG729_DLL_DIR}/${BCG729_DLL}")
@@ -2511,11 +2650,14 @@ if(USE_REPOSITORY)
 		list (APPEND THIRD_PARTY_DLLS "${WINSPARKLE_DLL_DIR}/${WINSPARKLE_DLL}")
 	endif(WINSPARKLE_FOUND)
 	if (XXHASH_FOUND)
-		list (APPEND THIRD_PARTY_DLLS "${XXHASH_DLL_DIR}/${XXHASH_DLL}")
-		list (APPEND THIRD_PARTY_PDBS "${XXHASH_DLL_DIR}/${XXHASH_PDB}")
+		list (APPEND THIRD_PARTY_DLLS "$<IF:$<CONFIG:Debug>,${XXHASH_DLL_DIR_DEBUG}/${XXHASH_DLL_DEBUG},${XXHASH_DLL_DIR}/${XXHASH_DLL}>")
+		list (APPEND THIRD_PARTY_PDBS "$<IF:$<CONFIG:Debug>,${XXHASH_DLL_DIR_DEBUG}/${XXHASH_PDB_DEBUG},${XXHASH_DLL_DIR}/${XXHASH_PDB}>")
 	endif(XXHASH_FOUND)
 	if (ZLIB_FOUND)
-		list (APPEND THIRD_PARTY_DLLS "${ZLIB_DLL_DIR}/${ZLIB_DLL}")
+		foreach(_dll ${ZLIB_DLLS_RELEASE})
+			# list(APPEND THIRD_PARTY_DLLS "$<$<NOT:$<CONFIG:Debug>>:${ZLIB_DLL_DIR_RELEASE}/${_dll}>")
+			list(APPEND THIRD_PARTY_DLLS "${ZLIB_DLL_DIR}/${_dll}")
+		endforeach()
 		list (APPEND THIRD_PARTY_PDBS "${ZLIB_DLL_DIR}/${ZLIB_PDB}")
 	endif(ZLIB_FOUND)
 	if (ZLIBNG_FOUND)
@@ -2604,7 +2746,25 @@ if(WIN32)
 	endforeach()
 endif()
 
-foreach(_install_file ${INSTALL_FILES} ${DOC_FILES})
+# Application data files need to go in each application's data directory. Documentation
+# is looked up relative to the program directory when running from the build directory
+# (see get_docfile_path()), so it stays in DATAFILE_DIR.
+foreach(_install_file ${INSTALL_FILES})
+	get_filename_component(_install_file_src "${_install_file}" ABSOLUTE)
+	get_filename_component(_install_basename "${_install_file}" NAME)
+	set(_output_file "${WIRESHARK_DATAFILE_DIR}/${_install_basename}")
+	add_custom_command(OUTPUT "${_output_file}"
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${_install_file_src}"
+			"${_output_file}"
+		DEPENDS
+			docs
+			"${_install_file}"
+	)
+	list(APPEND copy_data_files_depends "${_output_file}")
+endforeach()
+
+foreach(_install_file ${DOC_FILES})
 	get_filename_component(_install_file_src "${_install_file}" ABSOLUTE)
 	get_filename_component(_install_basename "${_install_file}" NAME)
 	set(_output_file "${DATAFILE_DIR}/${_install_basename}")
@@ -2621,187 +2781,216 @@ endforeach()
 
 if (BUILD_stratoshark)
 	if (ENABLE_APPLICATION_BUNDLE)
-		foreach(_install_file ${STRATOSHARK_INSTALL_FILES} ${DOC_FILES})
-			get_filename_component(_install_file_src "${_install_file}" ABSOLUTE)
-			get_filename_component(_install_basename "${_install_file}" NAME)
-			set(_output_file "${STRATOSHARK_DATAFILE_DIR}/${_install_basename}")
-			add_custom_command(OUTPUT "${_output_file}"
-				COMMAND ${CMAKE_COMMAND} -E copy_if_different
-					"${_install_file_src}"
-					"${_output_file}"
-				DEPENDS
-					docs
-					"${_install_file}"
-			)
-			list(APPEND copy_data_files_depends "${_output_file}")
-		endforeach()
+		# The documentation lives in the bundle's share directory.
+		set(_stratoshark_install_files ${STRATOSHARK_INSTALL_FILES} ${DOC_FILES})
 	else()
-		# XXX The default profile (colorfilters, dfilters) is at the
-		# top-level resources directory for both Wireshark and Stratoshark.
+		# DOC_FILES are shared via DATAFILE_DIR. Stratoshark also needs
+		# the data files that its installers pick up in addition to
+		# STRATOSHARK_INSTALL_FILES.
+		set(_stratoshark_install_files ${STRATOSHARK_INSTALL_FILES}
+			resources/share/wireshark/ipmap.html
+			resources/share/wireshark/smi_modules
+			wka
+		)
 	endif()
+	foreach(_install_file ${_stratoshark_install_files})
+		get_filename_component(_install_file_src "${_install_file}" ABSOLUTE)
+		get_filename_component(_install_basename "${_install_file}" NAME)
+		set(_output_file "${STRATOSHARK_DATAFILE_DIR}/${_install_basename}")
+		add_custom_command(OUTPUT "${_output_file}"
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+				"${_install_file_src}"
+				"${_output_file}"
+			DEPENDS
+				docs
+				"${_install_file}"
+		)
+		list(APPEND copy_data_files_depends "${_output_file}")
+	endforeach()
 endif()
 
 set(_protocol_data_dir ${CMAKE_SOURCE_DIR}/resources/protocols)
-# Glob patterns relative to the source directory that should be copied to
-# ${DATAFILE_DIR} (including directory prefixes)
-# TODO shouldn't this use full (relative) paths instead of glob patterns?
-set(DATA_FILES_SRC
-	${_protocol_data_dir}/tpncp/tpncp.dat
-	${_protocol_data_dir}/trdp/iec_61375-2-3.xml
-	${_protocol_data_dir}/wimaxasncp/*.dtd
-	${_protocol_data_dir}/wimaxasncp/*.xml
-)
 
-# Copy all paths from the source tree to the data directory. Directories are
-# automatically created if missing as the filename is given.
-file(GLOB _data_files RELATIVE ${_protocol_data_dir} ${DATA_FILES_SRC})
-foreach(_data_file ${_data_files})
-	add_custom_command(OUTPUT "${DATAFILE_DIR}/${_data_file}"
-		COMMAND ${CMAKE_COMMAND} -E copy_if_different
-			${_protocol_data_dir}/${_data_file}
-			${DATAFILE_DIR}/${_data_file}
-		DEPENDS
-			${_protocol_data_dir}/${_data_file}
+# Copy the protocol data files (dictionaries, DTDs, etc.) to the given data
+# directory.
+function(COPY_PROTOCOL_DATA_FILES _dest)
+	set(_protocol_depends)
+	# Glob patterns relative to the source directory that should be copied to
+	# ${_dest} (including directory prefixes)
+	# TODO shouldn't this use full (relative) paths instead of glob patterns?
+	set(DATA_FILES_SRC
+		${_protocol_data_dir}/tpncp/tpncp.dat
+		${_protocol_data_dir}/trdp/iec_61375-2-3.xml
+		${_protocol_data_dir}/wimaxasncp/*.dtd
+		${_protocol_data_dir}/wimaxasncp/*.xml
 	)
-	list(APPEND copy_data_files_depends ${DATAFILE_DIR}/${_data_file})
-endforeach()
 
-file(GLOB _dtds_src_files RELATIVE ${_protocol_data_dir} ${_protocol_data_dir}/dtds/*.dtd)
+	# Copy all paths from the source tree to the data directory. Directories are
+	# automatically created if missing as the filename is given.
+	file(GLOB _data_files RELATIVE ${_protocol_data_dir} ${DATA_FILES_SRC})
+	foreach(_data_file ${_data_files})
+		add_custom_command(OUTPUT "${_dest}/${_data_file}"
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+				${_protocol_data_dir}/${_data_file}
+				${_dest}/${_data_file}
+			DEPENDS
+				${_protocol_data_dir}/${_data_file}
+		)
+		list(APPEND _protocol_depends ${_dest}/${_data_file})
+	endforeach()
 
-set (_dtds_data_files)
-set (_dtds_dep_files)
-foreach(_data_file ${_dtds_src_files})
-	list(APPEND _dtds_data_files ${DATAFILE_DIR}/${_data_file})
-	list(APPEND _dtds_dep_files ${_protocol_data_dir}/${_data_file})
-endforeach()
+	file(GLOB _dtds_src_files RELATIVE ${_protocol_data_dir} ${_protocol_data_dir}/dtds/*.dtd)
 
-add_custom_command(
-	OUTPUT ${_dtds_data_files}
-	COMMAND ${CMAKE_COMMAND} -E make_directory ${DATAFILE_DIR}/dtds
-	COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		${_dtds_src_files}
-		${DATAFILE_DIR}/dtds
-	VERBATIM
-	DEPENDS ${_dtds_dep_files}
-	WORKING_DIRECTORY ${_protocol_data_dir}
-)
+	set (_dtds_data_files)
+	set (_dtds_dep_files)
+	foreach(_data_file ${_dtds_src_files})
+		list(APPEND _dtds_data_files ${_dest}/${_data_file})
+		list(APPEND _dtds_dep_files ${_protocol_data_dir}/${_data_file})
+	endforeach()
 
-file(GLOB _diameter_src_files RELATIVE ${_protocol_data_dir}
-	${_protocol_data_dir}/diameter/*.dtd
-	${_protocol_data_dir}/diameter/*.ent
-	${_protocol_data_dir}/diameter/*.xml
-)
+	add_custom_command(
+		OUTPUT ${_dtds_data_files}
+		COMMAND ${CMAKE_COMMAND} -E make_directory ${_dest}/dtds
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			${_dtds_src_files}
+			${_dest}/dtds
+		VERBATIM
+		DEPENDS ${_dtds_dep_files}
+		WORKING_DIRECTORY ${_protocol_data_dir}
+	)
 
-set (_diameter_data_files)
-set (_diameter_dep_files)
-foreach(_data_file ${_diameter_src_files})
-	list(APPEND _diameter_data_files ${DATAFILE_DIR}/${_data_file})
-	list(APPEND _diameter_dep_files ${_protocol_data_dir}/${_data_file})
-endforeach()
+	file(GLOB _diameter_src_files RELATIVE ${_protocol_data_dir}
+		${_protocol_data_dir}/diameter/*.dtd
+		${_protocol_data_dir}/diameter/*.ent
+		${_protocol_data_dir}/diameter/*.xml
+	)
 
-add_custom_command(
-	OUTPUT ${_diameter_data_files}
-	COMMAND ${CMAKE_COMMAND} -E make_directory ${DATAFILE_DIR}/diameter
-	COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		${_diameter_src_files}
-		${DATAFILE_DIR}/diameter
-	VERBATIM
-	DEPENDS ${_diameter_dep_files}
-	WORKING_DIRECTORY ${_protocol_data_dir}
-)
+	set (_diameter_data_files)
+	set (_diameter_dep_files)
+	foreach(_data_file ${_diameter_src_files})
+		list(APPEND _diameter_data_files ${_dest}/${_data_file})
+		list(APPEND _diameter_dep_files ${_protocol_data_dir}/${_data_file})
+	endforeach()
 
-file(GLOB _radius_src_files RELATIVE ${_protocol_data_dir}
-	CONFIGURE_DEPENDS
-	${_protocol_data_dir}/radius/README.radius_dictionary
-	${_protocol_data_dir}/radius/custom.includes
-	${_protocol_data_dir}/radius/dictionary
-	${_protocol_data_dir}/radius/dictionary.*
-)
+	add_custom_command(
+		OUTPUT ${_diameter_data_files}
+		COMMAND ${CMAKE_COMMAND} -E make_directory ${_dest}/diameter
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			${_diameter_src_files}
+			${_dest}/diameter
+		VERBATIM
+		DEPENDS ${_diameter_dep_files}
+		WORKING_DIRECTORY ${_protocol_data_dir}
+	)
 
-set (_radius_data_files)
-set (_radius_dep_files)
-foreach(_data_file ${_radius_src_files})
-	list(APPEND _radius_data_files ${DATAFILE_DIR}/${_data_file})
-	list(APPEND _radius_dep_files ${_protocol_data_dir}/${_data_file})
-endforeach()
+	file(GLOB _radius_src_files RELATIVE ${_protocol_data_dir}
+		CONFIGURE_DEPENDS
+		${_protocol_data_dir}/radius/README.radius_dictionary
+		${_protocol_data_dir}/radius/custom.includes
+		${_protocol_data_dir}/radius/dictionary
+		${_protocol_data_dir}/radius/dictionary.*
+	)
 
-add_custom_command(
-	OUTPUT ${_radius_data_files}
-	COMMAND ${CMAKE_COMMAND} -E make_directory ${DATAFILE_DIR}/radius
-	COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		${_radius_src_files}
-		${DATAFILE_DIR}/radius
-	VERBATIM
-	DEPENDS ${_radius_dep_files}
-	WORKING_DIRECTORY ${_protocol_data_dir}
-)
+	set (_radius_data_files)
+	set (_radius_dep_files)
+	foreach(_data_file ${_radius_src_files})
+		list(APPEND _radius_data_files ${_dest}/${_data_file})
+		list(APPEND _radius_dep_files ${_protocol_data_dir}/${_data_file})
+	endforeach()
 
-file(GLOB _json_dict_src_files RELATIVE ${_protocol_data_dir}
-	${_protocol_data_dir}/json/*.xml
-	${_protocol_data_dir}/json/*.txt
-)
+	add_custom_command(
+		OUTPUT ${_radius_data_files}
+		COMMAND ${CMAKE_COMMAND} -E make_directory ${_dest}/radius
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			${_radius_src_files}
+			${_dest}/radius
+		VERBATIM
+		DEPENDS ${_radius_dep_files}
+		WORKING_DIRECTORY ${_protocol_data_dir}
+	)
 
-set (_json_dict_data_files)
-set (_json_dict_dep_files)
-foreach(_data_file ${_json_dict_src_files})
-	list(APPEND _json_dict_data_files ${DATAFILE_DIR}/${_data_file})
-	list(APPEND _json_dict_dep_files ${_protocol_data_dir}/${_data_file})
-endforeach()
+	file(GLOB _json_dict_src_files RELATIVE ${_protocol_data_dir}
+		${_protocol_data_dir}/json/*.xml
+		${_protocol_data_dir}/json/*.txt
+	)
 
-add_custom_command(
-	OUTPUT ${_json_dict_data_files}
-	COMMAND ${CMAKE_COMMAND} -E make_directory ${DATAFILE_DIR}/json
-	COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		${_json_dict_src_files}
-		${DATAFILE_DIR}/json
-	VERBATIM
-	DEPENDS ${_json_dict_dep_files}
-	WORKING_DIRECTORY ${_protocol_data_dir}
-)
+	set (_json_dict_data_files)
+	set (_json_dict_dep_files)
+	foreach(_data_file ${_json_dict_src_files})
+		list(APPEND _json_dict_data_files ${_dest}/${_data_file})
+		list(APPEND _json_dict_dep_files ${_protocol_data_dir}/${_data_file})
+	endforeach()
 
-file(GLOB _protobuf_src_files RELATIVE ${_protocol_data_dir}
-	${_protocol_data_dir}/protobuf/*.proto
-)
-set (_protobuf_data_files)
-set (_protobuf_dep_files)
-foreach(_data_file ${_protobuf_src_files})
-	list(APPEND _protobuf_data_files ${DATAFILE_DIR}/${_data_file})
-	list(APPEND _protobuf_dep_files ${_protocol_data_dir}/${_data_file})
-endforeach()
+	add_custom_command(
+		OUTPUT ${_json_dict_data_files}
+		COMMAND ${CMAKE_COMMAND} -E make_directory ${_dest}/json
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			${_json_dict_src_files}
+			${_dest}/json
+		VERBATIM
+		DEPENDS ${_json_dict_dep_files}
+		WORKING_DIRECTORY ${_protocol_data_dir}
+	)
 
-add_custom_command(
-	OUTPUT ${_protobuf_data_files}
-	COMMAND ${CMAKE_COMMAND} -E make_directory ${DATAFILE_DIR}/protobuf
-	COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		${_protobuf_src_files}
-		${DATAFILE_DIR}/protobuf
-	VERBATIM
-	DEPENDS ${_protobuf_dep_files}
-	WORKING_DIRECTORY ${_protocol_data_dir}
-)
+	file(GLOB _protobuf_src_files RELATIVE ${_protocol_data_dir}
+		${_protocol_data_dir}/protobuf/*.proto
+	)
+	set (_protobuf_data_files)
+	set (_protobuf_dep_files)
+	foreach(_data_file ${_protobuf_src_files})
+		list(APPEND _protobuf_data_files ${_dest}/${_data_file})
+		list(APPEND _protobuf_dep_files ${_protocol_data_dir}/${_data_file})
+	endforeach()
 
-file(GLOB _qualcomm_src_files RELATIVE ${_protocol_data_dir}
-	${_protocol_data_dir}/qualcomm/*.dtd
-	${_protocol_data_dir}/qualcomm/*.xml
-)
+	add_custom_command(
+		OUTPUT ${_protobuf_data_files}
+		COMMAND ${CMAKE_COMMAND} -E make_directory ${_dest}/protobuf
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			${_protobuf_src_files}
+			${_dest}/protobuf
+		VERBATIM
+		DEPENDS ${_protobuf_dep_files}
+		WORKING_DIRECTORY ${_protocol_data_dir}
+	)
 
-set (_qualcomm_data_files)
-set (_qualcomm_dep_files)
-foreach(_data_file ${_qualcomm_src_files})
-	list(APPEND _qualcomm_data_files ${DATAFILE_DIR}/${_data_file})
-	list(APPEND _qualcomm_dep_files ${_protocol_data_dir}/${_data_file})
-endforeach()
+	file(GLOB _qualcomm_src_files RELATIVE ${_protocol_data_dir}
+		${_protocol_data_dir}/qualcomm/*.dtd
+		${_protocol_data_dir}/qualcomm/*.xml
+	)
 
-add_custom_command(
-	OUTPUT ${_qualcomm_data_files}
-	COMMAND ${CMAKE_COMMAND} -E make_directory ${DATAFILE_DIR}/qualcomm
-	COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		${_qualcomm_src_files}
-		${DATAFILE_DIR}/qualcomm
-	VERBATIM
-	DEPENDS ${_qualcomm_dep_files}
-	WORKING_DIRECTORY ${_protocol_data_dir}
-)
+	set (_qualcomm_data_files)
+	set (_qualcomm_dep_files)
+	foreach(_data_file ${_qualcomm_src_files})
+		list(APPEND _qualcomm_data_files ${_dest}/${_data_file})
+		list(APPEND _qualcomm_dep_files ${_protocol_data_dir}/${_data_file})
+	endforeach()
+
+	add_custom_command(
+		OUTPUT ${_qualcomm_data_files}
+		COMMAND ${CMAKE_COMMAND} -E make_directory ${_dest}/qualcomm
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			${_qualcomm_src_files}
+			${_dest}/qualcomm
+		VERBATIM
+		DEPENDS ${_qualcomm_dep_files}
+		WORKING_DIRECTORY ${_protocol_data_dir}
+	)
+
+	list(APPEND _protocol_depends
+		${_dtds_data_files}
+		${_diameter_data_files}
+		${_qualcomm_data_files}
+		${_radius_data_files}
+		${_json_dict_data_files}
+		${_protobuf_data_files}
+	)
+	set(copy_data_files_depends ${copy_data_files_depends} ${_protocol_depends} PARENT_SCOPE)
+endfunction()
+
+COPY_PROTOCOL_DATA_FILES(${WIRESHARK_DATAFILE_DIR})
+if (BUILD_stratoshark AND NOT ENABLE_APPLICATION_BUNDLE)
+	COPY_PROTOCOL_DATA_FILES(${STRATOSHARK_DATAFILE_DIR})
+endif()
 
 if (GLOBAL_PROFILE_DATA_DIR)
 	set(_profiles_src_dir ${GLOBAL_PROFILE_DATA_DIR})
@@ -2811,13 +3000,13 @@ endif()
 	file(GLOB WIRESHARK_PROFILE_FILES RELATIVE ${_profiles_src_dir} ${_profiles_src_dir}/*/*)
 set (_profiles_data_files)
 foreach(_data_file ${WIRESHARK_PROFILE_FILES})
-	list(APPEND _profiles_data_files "${DATAFILE_DIR}/profiles/${_data_file}")
+	list(APPEND _profiles_data_files "${WIRESHARK_DATAFILE_DIR}/profiles/${_data_file}")
 endforeach()
 
 add_custom_command(
 	OUTPUT ${_profiles_data_files}
 	COMMAND ${CMAKE_COMMAND} -E copy_directory
-		"${_profiles_src_dir}" "${DATAFILE_DIR}/profiles"
+		"${_profiles_src_dir}" "${WIRESHARK_DATAFILE_DIR}/profiles"
 )
 
 
@@ -2831,7 +3020,7 @@ if (BUILD_stratoshark)
 endif()
 
 set (_stratoshark_profiles_data_files)
-if (BUILD_stratoshark AND ENABLE_APPLICATION_BUNDLE)
+if (BUILD_stratoshark)
 	foreach(_data_file ${STRATOSHARK_PROFILE_FILES})
 		list(APPEND _stratoshark_profiles_data_files "${STRATOSHARK_DATAFILE_DIR}/profiles/${_data_file}")
 	endforeach()
@@ -2843,12 +3032,6 @@ if (BUILD_stratoshark AND ENABLE_APPLICATION_BUNDLE)
 endif()
 
 list(APPEND copy_data_files_depends
-	${_dtds_data_files}
-	${_diameter_data_files}
-	${_qualcomm_data_files}
-	${_radius_data_files}
-	${_json_dict_data_files}
-	${_protobuf_data_files}
 	${_profiles_data_files}
 	${_stratoshark_profiles_data_files}
 )
@@ -2871,8 +3054,6 @@ set(EXTCAP_SUPPORT_SRC
 )
 add_library(extcap_support OBJECT ${EXTCAP_SUPPORT_SRC})
 target_compile_options(extcap_support PRIVATE ${WERROR_COMMON_FLAGS})
-add_library(cli_main OBJECT cli_main.c)
-target_compile_options(cli_main PRIVATE ${WERROR_COMMON_FLAGS})
 
 if(BUILD_wireshark AND QT_FOUND)
 	set(WIRESHARK_SRC
@@ -3096,6 +3277,82 @@ else()
 	set(EXTRA_STRATOSHARK_BUNDLE_FILES)
 endif()
 
+function(add_qt_default_translations _target)
+	# Qt provides translation catalogs for strings used in Qt modules.
+	# https://doc.qt.io/qt-6/localization.html#available-catalogs
+	# main_application.cpp loads these via QLibraryInfo::TranslationPath
+	# On UN*X systems these will tend to be located in a shared directory,
+	# e.g. /usr/share/qt6/translations, but on Windows the path will map
+	# to a relative path ("translations") inside the app install directory.
+	# windeployqt merges the translation catalogs for all modules found
+	# and then deploys them to the application subdirectory. That doesn't
+	# work on MinGW. (The same problem might happen on WSL builds.)
+	#
+	# This is essentially what windeployqt does. On Qt 6.5 and later,
+	# qt_deploy_translations() is also similar, but that "can only be called
+	# from a deployment script. It cannot be called directly by the project
+	# during the configure stage."
+	# https://doc.qt.io/qt-6/qt-deploy-translations.html
+	# It might be possible to just call qt_deploy_translations from a
+	# POST_BUILD custom command, though.
+
+	get_target_property(QTPATHS_EXECUTABLE Qt6::qtpaths LOCATION)
+	execute_process(
+		COMMAND ${QTPATHS_EXECUTABLE} --query QT_INSTALL_TRANSLATIONS
+		OUTPUT_VARIABLE QT_TRANSLATIONS_DIR
+		OUTPUT_STRIP_TRAILING_WHITESPACE
+	)
+
+	file(GLOB QM_FILES CONFIGURE_DEPENDS "${QT_TRANSLATIONS_DIR}/qtbase_*.qm")
+	set(DETECTED_LANGUAGES "")
+	foreach(QM_FILE IN LISTS QM_FILES)
+		cmake_path(GET QM_FILE STEM QM_STEM)
+		string(SUBSTRING "${QM_STEM}" 7 -1 LANG_CODE)
+		list(APPEND DETECTED_LANGUAGES "${LANG_CODE}")
+	endforeach()
+	message(DEBUG "Detected Languages: ${DETECTED_LANGUAGES}")
+	set(GENERATED_QM_FILES "")
+
+	foreach(LANG IN LISTS DETECTED_LANGUAGES)
+		set(QM_FILE "${PROJECT_BINARY_DIR}/translations/qt_${LANG}.qm")
+		set(TS_FILES "${QT_TRANSLATIONS_DIR}/qtbase_${LANG}.qm")
+		set(MULTIMEDIA_TS "${QT_TRANSLATIONS_DIR}/qtmultimedia_${LANG}.qm")
+		if(Qt6Multimedia_FOUND AND EXISTS "${MULTIMEDIA_TS}")
+			list(APPEND TS_FILES "${MULTIMEDIA_TS}")
+		endif()
+		add_custom_command(
+			OUTPUT ${QM_FILE}
+			COMMAND $<TARGET_FILE:Qt6::lconvert> -o ${QM_FILE} ${TS_FILES}
+			COMMENT "Generated QM for ${LANG}..."
+			VERBATIM
+		)
+
+		list(APPEND GENERATED_QM_FILES ${QM_FILE})
+	endforeach()
+
+	add_custom_target(copy_qt_translations ALL DEPENDS ${GENERATED_QM_FILES})
+	add_custom_command(TARGET copy_qt_translations
+		POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${_target}>/translations
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${GENERATED_QM_FILES} $<TARGET_FILE_DIR:${_target}>/translations
+	)
+
+	# On MinGW (both cross-compiling and not), QLibraryInfo::TranslationPath
+	# resolves to the share directory (in some cases it seems to point to
+	# the share directory as relative path inside the app directory, which
+	# doesn't work even in the staging directory.) If we create an empty
+	# qt.conf file like so and place it in the app subdirectory, then the
+	# paths become the default and work.
+	# https://doc.qt.io/qt-6/qt-conf.html
+	# We could also place this in the resource system, but we (probably)
+	# don't want to do that if we're installing into the MinGW POSIX-like
+	# directory structure instead of making a NSIS installer.
+	file(GENERATE
+		OUTPUT "$<TARGET_FILE_DIR:${_target}>/qt.conf"
+		CONTENT "[Paths]\n"
+	)
+endfunction()
+
 if(BUILD_wireshark AND QT_FOUND)
 	set(wireshark_LIBS
 		ui
@@ -3107,13 +3364,12 @@ if(BUILD_wireshark AND QT_FOUND)
 		wiretap
 		epan
 		summary
-		${QT5_LIBRARIES}
 		${APPLE_APPLICATION_SERVICES_LIBRARY}
 		${APPLE_APPKIT_LIBRARY}
 		${APPLE_CORE_FOUNDATION_LIBRARY}
 		${APPLE_SYSTEM_CONFIGURATION_LIBRARY}
 		${SPARKLE_LIBRARIES}
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 		${WIN_VERSION_LIBRARY}
 		${WINSPARKLE_LIBRARIES}
 		$<$<BOOL:${WIN32}>:uxtheme.lib>
@@ -3211,6 +3467,10 @@ if(BUILD_wireshark AND QT_FOUND)
 		)
 
 	endif(QT_WINDEPLOYQT_EXECUTABLE)
+
+	if(MINGW)
+		add_qt_default_translations(wireshark)
+	endif()
 endif()
 
 if(BUILD_stratoshark AND QT_FOUND)
@@ -3224,13 +3484,12 @@ if(BUILD_stratoshark AND QT_FOUND)
 		wiretap
 		epan
 		summary
-		${QT5_LIBRARIES}
 		${APPLE_APPLICATION_SERVICES_LIBRARY}
 		${APPLE_APPKIT_LIBRARY}
 		${APPLE_CORE_FOUNDATION_LIBRARY}
 		${APPLE_SYSTEM_CONFIGURATION_LIBRARY}
 		${SPARKLE_LIBRARIES}
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 		${WIN_VERSION_LIBRARY}
 		${WINSPARKLE_LIBRARIES}
 		$<$<BOOL:${WIN32}>:uxtheme.lib>
@@ -3322,18 +3581,29 @@ if(BUILD_stratoshark AND QT_FOUND)
 		)
 
 	endif(QT_WINDEPLOYQT_EXECUTABLE AND NOT BUILD_wireshark)
+
+	if(MINGW)
+		if(NOT BUILD_wireshark)
+			add_qt_default_translations(stratoshark)
+		endif()
+	endif()
 endif()
 
-if (BUILD_stratoshark AND FALCO_PLUGINS)
+if (BUILD_stratoshark AND FALCO_PLUGIN_DIR AND FALCO_PLUGINS)
+	set (_falco_plugins)
+	foreach(_plugin ${FALCO_PLUGINS})
+		list(APPEND _falco_plugins ${FALCO_PLUGIN_DIR}/${_plugin})
+	endforeach()
 	add_custom_target(copy_falco_plugins)
 	add_custom_command(TARGET copy_falco_plugins POST_BUILD
 		# XXX Falco plugins should probably be installed in a path that reflects
 		# the Falco version or its plugin API version.
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${STRATOSHARK_PLUGIN_DIR}/../falco
-		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FALCO_PLUGINS} ${STRATOSHARK_PLUGIN_DIR}/../falco
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_falco_plugins} ${STRATOSHARK_PLUGIN_DIR}/../falco
 		VERBATIM
 	)
 	add_dependencies(stratoshark copy_falco_plugins)
+	unset(_falco_plugins)
 endif()
 
 # Common properties for CLI executables
@@ -3375,13 +3645,6 @@ function(set_extra_executable_properties _executable _folder)
 	endif()
 endfunction()
 
-macro(executable_link_mingw_unicode _target)
-	# target_link_options() requires CMake >= 3.13
-	if (MINGW)
-		target_link_options(${_target} PRIVATE "-municode")
-	endif()
-endmacro()
-
 register_tap_files(tshark-tap-register.c
 	${TSHARK_TAP_SRC}
 )
@@ -3397,10 +3660,9 @@ if(BUILD_tshark)
 		wsutil
 		${APPLE_CORE_FOUNDATION_LIBRARY}
 		${APPLE_SYSTEM_CONFIGURATION_LIBRARY}
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 	)
 	set(tshark_FILES
-		$<TARGET_OBJECTS:cli_main>
 		$<TARGET_OBJECTS:extcap_support>
 		tshark-tap-register.c
 		tshark.c
@@ -3413,7 +3675,6 @@ if(BUILD_tshark)
 	add_executable(tshark ${tshark_FILES})
 	set_extra_executable_properties(tshark "Executables")
 	target_link_libraries(tshark ${tshark_LIBS})
-	executable_link_mingw_unicode(tshark)
 	install(TARGETS tshark RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
@@ -3428,10 +3689,9 @@ if(BUILD_strato)
 		wsutil
 		${APPLE_CORE_FOUNDATION_LIBRARY}
 		${APPLE_SYSTEM_CONFIGURATION_LIBRARY}
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 	)
 	set(strato_FILES
-		$<TARGET_OBJECTS:cli_main>
 		$<TARGET_OBJECTS:extcap_support>
 		strato.c
 		app/stratoshark_flavor.c
@@ -3444,7 +3704,6 @@ if(BUILD_strato)
 	add_executable(strato ${strato_FILES})
 	set_extra_executable_properties(strato "Executables")
 	target_link_libraries(strato ${strato_LIBS})
-	executable_link_mingw_unicode(strato)
 	install(TARGETS strato RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 	register_tap_files(strato-tap-register.c ${STRATO_TAP_SRC})
@@ -3460,7 +3719,6 @@ if(BUILD_tfshark)
 		${APPLE_SYSTEM_CONFIGURATION_LIBRARY}
 	)
 	set(tfshark_FILES
-		$<TARGET_OBJECTS:cli_main>
 		tfshark.c
 		app/wireshark_flavor.c
 		${TSHARK_TAP_SRC}
@@ -3480,10 +3738,9 @@ if(BUILD_rawshark AND PCAP_FOUND)
 		epan
 		${APPLE_CORE_FOUNDATION_LIBRARY}
 		${APPLE_SYSTEM_CONFIGURATION_LIBRARY}
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 	)
 	set(rawshark_FILES
-		$<TARGET_OBJECTS:cli_main>
 		rawshark.c
 		app/wireshark_flavor.c
 	)
@@ -3491,7 +3748,6 @@ if(BUILD_rawshark AND PCAP_FOUND)
 	add_executable(rawshark ${rawshark_FILES})
 	set_extra_executable_properties(rawshark "Executables")
 	target_link_libraries(rawshark ${rawshark_LIBS})
-	executable_link_mingw_unicode(rawshark)
 	install(TARGETS rawshark RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
@@ -3502,15 +3758,11 @@ if(BUILD_sharkd)
 		epan
 		${APPLE_CORE_FOUNDATION_LIBRARY}
 		${APPLE_SYSTEM_CONFIGURATION_LIBRARY}
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 		${SPEEXDSP_LIBRARIES}
 		${GCRYPT_LIBRARIES}
 	)
 	set(sharkd_FILES
-		#
-		# XXX - currently doesn't work on Windows if it uses
-		# $<TARGET_OBJECTS:cli_main> and has real_main().
-		#
 		ui/cli/simple_dialog.c
 		sharkd.c
 		sharkd_daemon.c
@@ -3534,7 +3786,6 @@ if(BUILD_dftest)
 		epan
 	)
 	set(dftest_FILES
-		$<TARGET_OBJECTS:cli_main>
 		app/wireshark_flavor.c
 		dftest.c
 	)
@@ -3542,7 +3793,6 @@ if(BUILD_dftest)
 	add_executable(dftest ${dftest_FILES})
 	set_extra_executable_properties(dftest "Tests")
 	target_link_libraries(dftest ${dftest_LIBS})
-	executable_link_mingw_unicode(dftest)
 
 	install(TARGETS dftest RUNTIME
 		DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -3559,7 +3809,6 @@ if(BUILD_randpkt)
 		wsutil
 	)
 	set(randpkt_FILES
-		$<TARGET_OBJECTS:cli_main>
 		app/wireshark_flavor.c
 		randpkt.c
 	)
@@ -3568,7 +3817,6 @@ if(BUILD_randpkt)
 	add_executable(randpkt ${randpkt_FILES})
 	set_extra_executable_properties(randpkt "Executables")
 	target_link_libraries(randpkt ${randpkt_LIBS})
-	executable_link_mingw_unicode(randpkt)
 	install(TARGETS randpkt RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
@@ -3586,7 +3834,6 @@ if(BUILD_text2pcap)
 		${ZLIBNG_LIBRARIES}
 	)
 	set(text2pcap_FILES
-		$<TARGET_OBJECTS:cli_main>
 		app/wireshark_flavor.c
 		text2pcap.c
 	)
@@ -3595,7 +3842,6 @@ if(BUILD_text2pcap)
 	add_executable(text2pcap ${text2pcap_FILES})
 	set_extra_executable_properties(text2pcap "Executables")
 	target_link_libraries(text2pcap ${text2pcap_LIBS})
-	executable_link_mingw_unicode(text2pcap)
 	install(TARGETS text2pcap RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
@@ -3608,7 +3854,6 @@ if(BUILD_mergecap)
 		${CMAKE_DL_LIBS}
 	)
 	set(mergecap_FILES
-		$<TARGET_OBJECTS:cli_main>
 		app/wireshark_flavor.c
 		mergecap.c
 	)
@@ -3616,7 +3861,6 @@ if(BUILD_mergecap)
 	add_executable(mergecap ${mergecap_FILES})
 	set_extra_executable_properties(mergecap "Executables")
 	target_link_libraries(mergecap ${mergecap_LIBS})
-	executable_link_mingw_unicode(mergecap)
 	install(TARGETS mergecap RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
@@ -3629,7 +3873,6 @@ if(BUILD_reordercap)
 		${CMAKE_DL_LIBS}
 	)
 	set(reordercap_FILES
-		$<TARGET_OBJECTS:cli_main>
 		app/wireshark_flavor.c
 		reordercap.c
 	)
@@ -3637,7 +3880,6 @@ if(BUILD_reordercap)
 	add_executable(reordercap ${reordercap_FILES})
 	set_extra_executable_properties(reordercap "Executables")
 	target_link_libraries(reordercap ${reordercap_LIBS})
-	executable_link_mingw_unicode(reordercap)
 	install(TARGETS reordercap RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
@@ -3652,7 +3894,6 @@ if(BUILD_capinfos)
 		${CMAKE_DL_LIBS}
 	)
 	set(capinfos_FILES
-		$<TARGET_OBJECTS:cli_main>
 		app/wireshark_flavor.c
 		capinfos.c
 	)
@@ -3661,7 +3902,6 @@ if(BUILD_capinfos)
 	set_extra_executable_properties(capinfos "Executables")
 	target_link_libraries(capinfos ${capinfos_LIBS})
 	target_include_directories(capinfos SYSTEM PRIVATE ${GCRYPT_INCLUDE_DIRS})
-	executable_link_mingw_unicode(capinfos)
 	install(TARGETS capinfos RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
@@ -3675,7 +3915,6 @@ if(BUILD_captype)
 		${CMAKE_DL_LIBS}
 	)
 	set(captype_FILES
-		$<TARGET_OBJECTS:cli_main>
 		app/wireshark_flavor.c
 		captype.c
 	)
@@ -3683,7 +3922,6 @@ if(BUILD_captype)
 	add_executable(captype ${captype_FILES})
 	set_extra_executable_properties(captype "Executables")
 	target_link_libraries(captype ${captype_LIBS})
-	executable_link_mingw_unicode(captype)
 	install(TARGETS captype RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
@@ -3697,7 +3935,6 @@ if(BUILD_editcap)
 		${CMAKE_DL_LIBS}
 	)
 	set(editcap_FILES
-		$<TARGET_OBJECTS:cli_main>
 		app/wireshark_flavor.c
 		editcap.c
 	)
@@ -3706,7 +3943,6 @@ if(BUILD_editcap)
 	set_extra_executable_properties(editcap "Executables")
 	target_link_libraries(editcap ${editcap_LIBS})
 	target_include_directories(editcap SYSTEM PRIVATE ${GCRYPT_INCLUDE_DIRS})
-	executable_link_mingw_unicode(editcap)
 	install(TARGETS editcap RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
@@ -3719,7 +3955,7 @@ if(BUILD_dumpcap AND PCAP_FOUND)
 		${NL_LIBRARIES}
 		${APPLE_CORE_FOUNDATION_LIBRARY}
 		${APPLE_SYSTEM_CONFIGURATION_LIBRARY}
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 	)
 	if(UNIX)
 		list(APPEND CAPUTILS_SRC
@@ -3748,9 +3984,9 @@ if(BUILD_dumpcap AND PCAP_FOUND)
 	# the static version of libwsutil.
 	#
 	set(dumpcap_FILES
-		cli_main.c
 		dumpcap.c
 		ringbuffer.c
+		capture/capture_process_info.c
 		capture/iface_monitor.c
 		capture/sync_pipe_write.c
 		capture/ws80211_utils.c
@@ -3763,7 +3999,6 @@ if(BUILD_dumpcap AND PCAP_FOUND)
 	target_link_libraries(dumpcap ${dumpcap_LIBS})
 	target_include_directories(dumpcap SYSTEM PRIVATE ${NL_INCLUDE_DIRS})
 	target_compile_definitions(dumpcap PRIVATE ENABLE_STATIC)
-	executable_link_mingw_unicode(dumpcap)
 	install(TARGETS dumpcap
 			RUNTIME	DESTINATION ${CMAKE_INSTALL_BINDIR}
 			PERMISSIONS ${DUMPCAP_SETUID}
@@ -3848,9 +4083,9 @@ endif()
 if (MAXMINDDB_FOUND)
 	set(mmdbresolve_LIBS
 		# Note: libmaxminddb is not GPL-2 compatible.
-		${MAXMINDDB_LIBRARY}
+		MaxMindDB::MaxMindDB
 		# Needed for CMake-built libmaxminddb.lib <= 1.43.
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 	)
 	set(mmdbresolve_FILES
 		mmdbresolve.c
@@ -3862,8 +4097,6 @@ if(NOT VCSVERSION_OVERRIDE)
 	add_dependencies(mmdbresolve vcs_version)
 endif()
 	target_link_libraries(mmdbresolve ${mmdbresolve_LIBS})
-	target_include_directories(mmdbresolve PUBLIC ${MAXMINDDB_INCLUDE_DIRS})
-	target_compile_definitions(mmdbresolve PUBLIC ${MAXMINDDB_DEFINITIONS})
 	install(TARGETS mmdbresolve RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 	if(BUILD_stratoshark AND ENABLE_APPLICATION_BUNDLE)
 		add_custom_command(TARGET mmdbresolve POST_BUILD
@@ -4176,12 +4409,10 @@ if(RPMBUILD_EXECUTABLE)
 	if(CCACHE_EXECUTABLE)
 		list(APPEND _rpmbuild_with_args --with ccache)
 	endif()
-	if(NOT BUILD_wireshark)
-		list(APPEND _rpmbuild_with_args --without qt5 --without qt6)
-	elseif(USE_qt6)
-		list(APPEND _rpmbuild_with_args --without qt5 --with qt6)
+	if(QT_FOUND AND (BUILD_wireshark OR BUILD_stratoshark))
+		list(APPEND _rpmbuild_with_args --with qt6)
 	else()
-		list(APPEND _rpmbuild_with_args --with qt5 --without qt6)
+		list(APPEND _rpmbuild_with_args --without qt6)
 	endif()
 	if(SINSP_FOUND)
 		if(BUILD_stratoshark)
@@ -4241,6 +4472,9 @@ if(RPMBUILD_EXECUTABLE)
 	endif()
 	if(ASCIIDOCTOR_FOUND AND XSLTPROC_EXECUTABLE)
 		list(APPEND _rpmbuild_with_args --with guides)
+	endif()
+	if (CPUINFO_FOUND)
+		list(APPEND _rpmbuild_with_args --with cpuinfo)
 	endif()
 
 	execute_process(
@@ -4457,7 +4691,6 @@ if(ASCIIDOCTOR_FOUND AND XSLTPROC_EXECUTABLE)
 endif()
 
 set(SHARK_PUBLIC_HEADERS
-	cli_main.h
 	${CMAKE_BINARY_DIR}/ws_version.h
 )
 
@@ -4668,6 +4901,7 @@ add_custom_target(test-programs
 		wscbor_enc_test
 		test_epan
 		test_wsutil
+		test_wiretap
 	COMMENT "Building unit test programs and wrapper"
 )
 set_target_properties(test-programs PROPERTIES
@@ -4714,7 +4948,7 @@ endif (GIT_EXECUTABLE)
 set_target_properties(gen-authors PROPERTIES FOLDER "Documentation")
 
 if(WIN32 AND NOT USE_MSYSTEM)
-	file (TO_NATIVE_PATH ${CMAKE_SOURCE_DIR}/tools/Get-HardenFlags.ps1 _win_harden_flags)
+	file (TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}/tools/Get-HardenFlags.ps1" _win_harden_flags)
 	add_custom_target(hardening-check
 		COMMAND ${POWERSHELL_COMMAND} "${_win_harden_flags}" "${_dll_output_dir_win}"
 		DEPENDS ${PROGLIST}
@@ -4770,19 +5004,28 @@ if(SHELLCHECK_EXECUTABLE)
 			packaging/macosx/osx-app.sh.in
 			packaging/macosx/osx-dmg.sh.in
 			packaging/source/git-export-release.sh.in
-			tools/arch-setup.sh
-			tools/bsd-setup.sh
-			tools/debian-setup.sh
+			tools/os_setup/arch-setup.sh
+			tools/os_setup/bsd-setup.sh
+			tools/os_setup/debian-setup.sh
 			tools/fuzz-test.sh
 			tools/gen-bugnote
-			tools/macos-setup-brew.sh
+			tools/os_setup/haiku-setup.sh
+			tools/os_setup/macos-setup-brew.sh
+			tools/os_setup/mingw-rpm-setup.sh
+			tools/os_setup/msys2-setup.sh
 			tools/pre-commit
 			tools/randpkt-test.sh
 			tools/release-update-debian-soversions.sh
-			tools/rpm-setup.sh
+			tools/os_setup/rpm-setup.sh
 			tools/test-captures.sh
 			tools/update-tx
 			tools/valgrind-wireshark.sh
+		WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+	)
+	# Check the setup scripts that require something other than bash.
+	add_custom_command(TARGET shellcheck POST_BUILD
+		COMMAND shellcheck --shell=dash --external-sources
+			tools/os_setup/alpine-setup.sh
 		WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 	)
 endif()

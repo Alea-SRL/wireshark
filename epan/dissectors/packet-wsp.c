@@ -4396,7 +4396,7 @@ add_headers (proto_tree *tree, tvbuff_t *tvb, int hf, packet_info *pinfo)
                     break;
                 }
             } else { /* Openwave header code page */
-                /* Here I'm delibarately assuming that Openwave is the only
+                /* Here I'm deliberately assuming that Openwave is the only
                  * company that defines a WSP header code page. */
                 save_offset = offset;
                 offset = WellKnownOpenwaveHeader[hdr_id & 0x7F](wsp_headers,
@@ -4609,7 +4609,7 @@ static void
 dissect_wsp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     dissector_handle_t dissector_handle, bool is_connectionless)
 {
-    int offset = 0;
+    unsigned offset = 0;
 
     uint8_t     pdut;
     unsigned    count            = 0;
@@ -5151,9 +5151,9 @@ add_capabilities (proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, uint8_t p
     char       *capaName, *str;
     uint32_t    offset       = 0;
     uint32_t    len          = 0;
-    uint32_t    capaStart    = 0; /* Start offset of the capability */
-    uint32_t    capaLen      = 0; /* Length of the entire capability */
-    uint32_t    capaValueLen = 0; /* Length of the capability value & type */
+    uint32_t    capaStart;        /* Start offset of the capability */
+    uint32_t    capaLen;          /* Length of the entire capability */
+    uint32_t    capaValueLen;     /* Length of the capability value & type */
     uint32_t    tvb_len      = tvb_reported_length(tvb);
     bool        ok           = false;
     uint8_t     peek;
@@ -5378,7 +5378,7 @@ add_post_data (proto_tree *tree, tvbuff_t *tvb, unsigned contentType,
     unsigned    variableStart = 0;
     unsigned    variableEnd   = 0;
     unsigned    valueStart    = 0;
-    uint8_t     peek          = 0;
+    uint8_t     peek;
     proto_item *ti;
     proto_tree *sub_tree;
 
@@ -5476,7 +5476,7 @@ add_multipart_data (proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo)
     tvbuff_t   *tmp_tvb;
     int         partnr      = 1;
     int         part_start;
-    int         found_match = 0;
+    int         found_match;
 
     proto_item *sub_tree   = NULL;
     proto_item *ti         = NULL;

@@ -32,7 +32,7 @@
 #include "app/application_flavor.h"
 #include "lua_debugger_dialog.h"
 #include "lua_debugger_utils.h"
-#include "utils/stock_icon.h"
+#include "utils/themes/themed_icon.h"
 #include "widgets/collapsible_section.h"
 #include "wsutil/filesystem.h"
 #include <epan/wslua/wslua_debugger.h>
@@ -57,12 +57,12 @@ void LuaDebuggerFilesController::attach(QTreeView *tree, QStandardItemModel *mod
 {
     tree_ = tree;
     model_ = model;
-    /* Stock icons need a styled application; loading them here (rather
+    /* Themed icons need a styled application; loading them here (rather
      * than in the constructor) means the controller picks up the right
      * theme even if the host runs without a default style at construct
      * time. The icons are immutable for the dialog's lifetime. */
-    folderIcon_ = StockIcon("folder");
-    fileIcon_ = StockIcon("text-x-generic");
+    folderIcon_ = ThemedIcon("folder");
+    fileIcon_ = ThemedIcon("text-x-generic");
 }
 
 LuaDebuggerFilesController::LuaDebuggerFilesController(LuaDebuggerDialog *host) : QObject(host), host_(host) {}
@@ -339,14 +339,14 @@ void LuaDebuggerFilesController::showContextMenu(const QPoint &pos)
     }
 
     QMenu menu(host_);
-    QAction *openAct = menu.addAction(host_->tr("Open Source"));
-#ifdef Q_OS_MAC
-    QAction *revealAct = menu.addAction(host_->tr("Show in Finder"));
+    QAction *openAct = menu.addAction(QObject::tr("Open Source"));
+#ifdef Q_OS_MACOS
+    QAction *revealAct = menu.addAction(QObject::tr("Show in Finder"));
 #else
-    QAction *revealAct = menu.addAction(host_->tr("Show in Folder"));
+    QAction *revealAct = menu.addAction(QObject::tr("Show in Folder"));
 #endif
     menu.addSeparator();
-    QAction *copyPathAct = menu.addAction(host_->tr("Copy Path"));
+    QAction *copyPathAct = menu.addAction(QObject::tr("Copy Path"));
 
     QAction *chosen = menu.exec(tree_->viewport()->mapToGlobal(pos));
     if (!chosen)

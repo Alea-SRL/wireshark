@@ -17,6 +17,9 @@
 
 #include <ui/qt/utils/qt_ui_utils.h>
 #include "main_application.h"
+#include <ui/qt/utils/font_manager.h>
+#include <ui/qt/utils/theme_manager.h>
+#include <ui/qt/utils/themes/color_math.h>
 
 // To do:
 // - Add "Find next" to highlighting.
@@ -39,7 +42,7 @@ FunnelTextDialog::FunnelTextDialog(QWidget *parent, const QString &title) :
 
     funnel_text_window_.funnel_text_dialog = this;
 
-    ui->textEdit->setFont(mainApp->monospaceFont());
+    ui->textEdit->setFont(FontManager::monospaceFont());
     ui->textEdit->setReadOnly(true);
     ui->textEdit->setAcceptRichText(false);
 }
@@ -67,9 +70,9 @@ void FunnelTextDialog::reject()
                 funnel_button->free_fcn(funnel_button);
             }
         }
+        disconnect(button, &QPushButton::clicked, this, &FunnelTextDialog::buttonClicked);
     }
 
-    disconnect();
     deleteLater();
 }
 
@@ -144,7 +147,9 @@ void FunnelTextDialog::on_findLineEdit_textChanged(const QString &pattern)
     QRegularExpression re(pattern, QRegularExpression::CaseInsensitiveOption |
                           QRegularExpression::UseUnicodePropertiesOption);
     QTextCharFormat plain_fmt, highlight_fmt;
-    highlight_fmt.setBackground(Qt::yellow);
+    const QColor highlight_bg = ThemeManager::instance()->color(ThemeManager::HighlightColorOrange);
+    highlight_fmt.setBackground(highlight_bg);
+    highlight_fmt.setForeground(ColorMath::contrastingText(highlight_bg));
     QTextCursor csr(ui->textEdit->document());
     int position = csr.position();
 

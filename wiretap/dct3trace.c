@@ -72,8 +72,13 @@ static const char dct3trace_magic_line2[] = "<dump>";
 static const char dct3trace_magic_record_start[]  = "<l1 ";
 static const char dct3trace_magic_record_end[]  = "</l1>";
 
-#define RINGBUFFER_START_SIZE INT_MAX
 #define RINGBUFFER_CHUNK_SIZE 1024
+/* The buffer is filled incrementally in RINGBUFFER_CHUNK_SIZE reads and grows
+ * on demand, so only reserve a small amount up front. Reserving a huge amount
+ * here would mean a large allocation for every file we accept, which glib
+ * treats as fatal if it fails.
+ */
+#define RINGBUFFER_START_SIZE (64 * RINGBUFFER_CHUNK_SIZE)
 
 #define MAX_PACKET_LEN 23
 
@@ -113,7 +118,7 @@ hex2bin(uint8_t *out, uint8_t *out_end, char *in)
 			in++;
 			continue;
 		}
-		if (out == out_end)
+		if (out >= out_end)
 		{
 			/* Too much data */
 			return -1;
@@ -318,7 +323,8 @@ dct3trace_get_packet(wtap* wth, wtap_rec* rec, const char* text, size_t len, int
 						{
 							*err = WTAP_ERR_BAD_FILE;
 							*err_info = ws_strdup_printf("dct3trace: record length %d too long", rec->rec_header.packet_header.caplen);
-							return false;
+							status = false;
+							goto end;
 						}
 						local_len += data_len;
 
@@ -326,6 +332,10 @@ dct3trace_get_packet(wtap* wth, wtap_rec* rec, const char* text, size_t len, int
 						*(bufp - 1) = data_len << 2 | 0x1;
 					}
 				}
+				/* There should be only a single "l2" child element
+				 * within a "l1" element, so break. (This keeps us
+				 * from writing to bufp a seconds time.) */
+				break;
 			}
 		}
 	}

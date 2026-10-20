@@ -41,8 +41,10 @@
 
 #define DUMPCALLS_PLUGIN_PLACEHOLDER "<modern_bpf or kmod>"
 
+#ifndef SINSP_CHECK_VERSION
 #define SINSP_CHECK_VERSION(major, minor, micro) \
     (((SINSP_VERSION_MAJOR << 16) + (SINSP_VERSION_MINOR << 8) + SINSP_VERSION_MICRO) >= ((major << 16) + (minor << 8) + micro))
+#endif
 
 enum {
     EXTCAP_BASE_OPTIONS_ENUM,
@@ -291,7 +293,7 @@ int main(int argc, char **argv)
     g_set_prgname("dumpcalls");
 
     /* Initialize log handler early so we can have proper logging during startup. */
-    extcap_log_init();
+    extcap_log_init(extcap_conf);
 
     /*
      * Get credential information for later use.

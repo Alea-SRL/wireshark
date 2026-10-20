@@ -99,7 +99,7 @@ typedef struct {
 
 static erf_dump_t* erf_dump_priv_create(void);
 static void erf_dump_priv_free(erf_dump_t *dump_priv);
-static bool erf_dump_priv_compare_capture_comment(wtap_dumper *wdh, erf_dump_t *dump_priv,const union wtap_pseudo_header *pseudo_header, const uint8_t *pd);
+static bool erf_dump_priv_compare_capture_comment(wtap_dumper *wdh, erf_dump_t *dump_priv,const union wtap_pseudo_header *pseudo_header, const uint8_t *pd, uint32_t captured_len);
 static bool erf_comment_to_sections(wtap_dumper *wdh, uint16_t section_type, uint16_t section_id, char *comment, GPtrArray *sections);
 static bool erf_wtap_info_to_sections(wtap_dumper *wdh, GPtrArray *sections);
 static bool get_user_comment_string(wtap_dumper *wdh, char** user_comment_ptr);
@@ -1625,7 +1625,7 @@ static bool erf_write_anchor_meta_update_phdr(wtap_dumper *wdh, erf_dump_t *dump
    * Now construct the metadata Anchor record with the same Anchor ID
    */
 
-  meta_ehdrs = g_array_new(false, false, sizeof(struct erf_ehdr));
+  meta_ehdrs = g_array_new(FALSE, FALSE, sizeof(struct erf_ehdr));
 
   /* We need up to 4 extension headers on the Provenance metadata record */
   /*Required*/
@@ -1677,7 +1677,7 @@ static bool erf_write_meta_record(wtap_dumper *wdh, erf_dump_t *dump_priv, uint6
   struct erf_meta_section *section_ptr;
   unsigned total_wlen = 0;
   unsigned total_rlen = 0;
-  int64_t alignbytes = 0;
+  uint64_t alignbytes = 0;
   unsigned i;
   unsigned num_extra_ehdrs = 0;
 
@@ -1770,7 +1770,7 @@ static erf_dump_t *erf_dump_priv_create(void) {
   dump_priv->prev_erf_type = 0;
   dump_priv->user_comment_ptr = NULL;
   dump_priv->periodic_sections = NULL;
-  dump_priv->periodic_extra_ehdrs = g_array_new(false, false, sizeof(struct erf_ehdr));
+  dump_priv->periodic_extra_ehdrs = g_array_new(FALSE, FALSE, sizeof(struct erf_ehdr));
   dump_priv->rand = g_rand_new();
 
   return dump_priv;
@@ -1786,9 +1786,9 @@ static bool erf_dump(
   union wtap_pseudo_header other_phdr;
   const uint8_t *pd = ws_buffer_start_ptr(&rec->data);
   int      erf_type;
-  int64_t  alignbytes   = 0;
+  uint64_t alignbytes = 0;
   unsigned padbytes   = 0;
-  int      round_down   = 0;
+  unsigned round_down = 0;
   bool must_add_crc = false;
   uint32_t crc32        = 0x00000000;
   erf_dump_t *dump_priv = (erf_dump_t*)wdh->priv;
@@ -1891,8 +1891,16 @@ static bool erf_dump(
     total_rlen += 8;
 
     padbytes = WS_PADDING_TO_8(total_rlen);  /*calculate how much padding will be required */
-    if(rec->rec_header.packet_header.caplen < rec->rec_header.packet_header.len){ /*if packet has been snapped, we need to round down what we output*/
-      round_down = (8 - padbytes) % 8;
+    if(rec->rec_header.packet_header.caplen < rec->rec_header.packet_header.len){
+      /* if packet has been snapped, we need to round down what we output;
+       * if we added padding, then the padding would be treated as the missing
+       * captured length. */
+      round_down = (8U - padbytes) % 8U;
+      if (rec->rec_header.packet_header.caplen < round_down) {
+        *err = WTAP_ERR_UNWRITABLE_REC_DATA;
+        *err_info = ws_strdup_printf("erf: Truncated record too short to align for output");
+        return false;
+      }
       total_rlen -= round_down;
     }else{
       total_rlen += padbytes;
@@ -1943,7 +1951,7 @@ static bool erf_dump(
   if (erf_type == ERF_TYPE_META) {
     /* Check whether the capture comment string has changed */
     /* Updates write_next_extra_meta */
-    dump_priv->last_meta_periodic = erf_dump_priv_compare_capture_comment(wdh, dump_priv, pseudo_header, pd);
+    dump_priv->last_meta_periodic = erf_dump_priv_compare_capture_comment(wdh, dump_priv, pseudo_header, pd, rec->rec_header.packet_header.caplen);
   } else { /* don't want to insert a new metadata record while looking at another */
     if (dump_priv->prev_erf_type == ERF_TYPE_META && dump_priv->last_meta_periodic) {
       /* Last frame was a periodic (non-comment) metadata record (and this frame is not), check if we
@@ -2671,7 +2679,7 @@ static int populate_capture_host_info(erf_t *erf_priv, wtap *wth, union wtap_pse
      *
      * If we have no app_version, this will just use app_name.
      */
-    // coverity[var_deref_model:FALSE]
+    // coverity[var_deref_model:false]
     tmp = g_strjoin(" ", app_name ? app_name : "(Unknown application)", app_version, NULL);
     wtap_block_set_string_option_value(shb_hdr, OPT_SHB_USERAPPL, tmp, strlen(tmp));
     g_free(tmp);
@@ -2983,8 +2991,8 @@ static int populate_interface_info(erf_t *erf_priv, wtap *wth, union wtap_pseudo
     if_info->set_flags.fcs_len = 1;
   }
 
-  if (state->if_map->module_snaplen != (uint32_t) -1 && !if_info->set_flags.snaplen && tag.value) {
-    int_data_mand->snap_len = pntohu32(tag.value);
+  if (state->if_map->module_snaplen != (uint32_t) -1 && !if_info->set_flags.snaplen) {
+    int_data_mand->snap_len = state->if_map->module_snaplen;
     if_info->set_flags.snaplen = 1;
   }
 
@@ -3277,6 +3285,15 @@ static int populate_summary_info(erf_t *erf_priv, wtap *wth, wtap_rec *rec, uint
       if(state.gen_time == 0U
           && tag.type == ERF_META_TAG_gen_time
           ) {
+        if (tag.length < sizeof(state.gen_time)) {
+          /*
+           * Skip the record if the time tag is bogusly short.
+           * XXX - Should this, and other tags with bogus length,
+           * be reported as an error and bad file?
+           */
+          return 0;
+        }
+
         memcpy(&state.gen_time, tag.value, sizeof(state.gen_time));
 
         /*
@@ -3480,7 +3497,7 @@ static bool get_user_comment_string(wtap_dumper *wdh, char** user_comment_ptr) {
   return true;
 }
 
-static bool erf_dump_priv_compare_capture_comment(wtap_dumper *wdh _U_, erf_dump_t *dump_priv, const union wtap_pseudo_header *pseudo_header, const uint8_t *pd){
+static bool erf_dump_priv_compare_capture_comment(wtap_dumper *wdh _U_, erf_dump_t *dump_priv, const union wtap_pseudo_header *pseudo_header _U_, const uint8_t *pd, uint32_t captured_len){
   struct erf_meta_read_state state = {0};
   struct erf_meta_tag tag = {0, 0, NULL};
   uint32_t tagtotallength;
@@ -3488,7 +3505,12 @@ static bool erf_dump_priv_compare_capture_comment(wtap_dumper *wdh _U_, erf_dump
   bool found_normal_section = false;
   char* comment_ptr = NULL;
 
-  state.remaining_len = pseudo_header->erf.phdr.wlen;
+  /* The metadata walk must be bounded by the number of bytes actually
+   * captured (pd points to a caplen-sized buffer), not by the on-wire
+   * length (wlen) from the pseudo-header. A record whose wlen exceeds its
+   * captured payload would otherwise make erf_meta_read_tag() read past
+   * the end of the buffer. */
+  state.remaining_len = captured_len;
   memcpy(&(state.tag_ptr), &pd, sizeof(pd));
 
   while((tagtotallength = erf_meta_read_tag(&tag, state.tag_ptr, state.remaining_len))) {

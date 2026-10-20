@@ -122,6 +122,7 @@ static int hf_ip_tos_delay;
 static int hf_ip_tos_throughput;
 static int hf_ip_tos_reliability;
 static int hf_ip_tos_cost;
+static int hf_ip_tos_resvd;
 static int hf_ip_len;
 static int hf_ip_id;
 static int hf_ip_dst;
@@ -276,6 +277,7 @@ static expert_field ei_ip_opt_ptr_middle_address;
 static expert_field ei_ip_subopt_too_long;
 static expert_field ei_ip_nop;
 static expert_field ei_ip_bogus_ip_length;
+static expert_field ei_ip_zero_data_length;
 static expert_field ei_ip_evil_packet;
 static expert_field ei_ip_checksum_bad;
 static expert_field ei_ip_ttl_lncb;
@@ -386,6 +388,7 @@ const value_string ip_version_vals[] = {
 #define IPTOS_TOS_MASK          0x1E
 #define IPTOS_TOS(tos)          ((tos) & IPTOS_TOS_MASK)
 #define IPTOS_NONE              0x00
+#define IPTOS_RESERVED          0x01
 #define IPTOS_LOWCOST           0x02
 #define IPTOS_RELIABILITY       0x04
 #define IPTOS_THROUGHPUT        0x08
@@ -505,13 +508,14 @@ const value_string ip_version_vals[] = {
 
 static void ip_prompt(packet_info *pinfo, char* result)
 {
-    snprintf(result, MAX_DECODE_AS_PROMPT_LEN, "IP protocol %u as",
-        GPOINTER_TO_UINT(p_get_proto_data(pinfo->pool, pinfo, proto_ip, pinfo->curr_layer_num)));
+    ws_ip4* iph = (ws_ip4*)p_get_proto_data(pinfo->pool, pinfo, proto_ip, pinfo->curr_layer_num);
+    snprintf(result, MAX_DECODE_AS_PROMPT_LEN, "IP protocol %u as", iph->ip_proto);
 }
 
 static void *ip_value(packet_info *pinfo)
 {
-    return p_get_proto_data(pinfo->pool, pinfo, proto_ip, pinfo->curr_layer_num);
+    ws_ip4* iph = (ws_ip4*)p_get_proto_data(pinfo->pool, pinfo, proto_ip, pinfo->curr_layer_num);
+    return GUINT_TO_POINTER(iph->ip_proto);
 }
 
 static const char* ip_conv_get_filter_type(conv_item_t* conv, conv_filter_type_e filter)
@@ -918,7 +922,7 @@ dissect_ipopt_security(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
                          ENC_BIG_ENDIAN);
   curr_offset++;
   while (val & 0x01) {
-    if ((val & 0x01) && (curr_offset == optlen)) {
+    if (curr_offset == optlen) {
       expert_add_info(pinfo, tf, &ei_ip_opt_sec_prot_auth_fti);
       break;
     }
@@ -995,8 +999,7 @@ dissect_ipopt_cipso(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * 
 
   /* loop through all of the tags in the CIPSO option */
   while (offset < offset_max) {
-    tagtype = tvb_get_uint8(tvb, offset);
-    tag_item = proto_tree_add_item(field_tree, hf_ip_cipso_tag_type, tvb, offset, 1, ENC_NA);
+    tag_item = proto_tree_add_item_ret_uint(field_tree, hf_ip_cipso_tag_type, tvb, offset, 1, ENC_NA, &tagtype);
 
     if ((offset + 1) < offset_max)
       taglen = tvb_get_uint8(tvb, offset + 1);
@@ -1023,7 +1026,7 @@ dissect_ipopt_cipso(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * 
       offset += 1;
 
       if (taglen > 4) {
-        unsigned bit_spot = 0;
+        unsigned bit_spot;
         unsigned byte_spot = 0;
         unsigned char bitmask;
         wmem_strbuf_t* cat_str_buf = wmem_strbuf_new(pinfo->pool, "");
@@ -2058,6 +2061,7 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
       proto_tree_add_item(field_tree, hf_ip_tos_throughput, tvb, offset + 1, 1, ENC_NA);
       proto_tree_add_item(field_tree, hf_ip_tos_reliability, tvb, offset + 1, 1, ENC_NA);
       proto_tree_add_item(field_tree, hf_ip_tos_cost, tvb, offset + 1, 1, ENC_NA);
+      proto_tree_add_item(field_tree, hf_ip_tos_resvd, tvb, offset + 1, 1, ENC_NA);
     }
   }
 
@@ -2109,6 +2113,11 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
                                tvb_reported_length(tvb));
       }
     } else {
+      if (iph->ip_len == hlen) {
+        /* IP header with no data.  Let the user know */
+        expert_add_info(pinfo, tf, &ei_ip_zero_data_length);
+      }
+
       /*
        * Now that we know that the total length of this IP datagram isn't
        * obviously bogus, adjust the length of this tvbuff to include only
@@ -2363,7 +2372,7 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
     dissect_ip_options(tvb, offset + 20, optlen, pinfo, field_tree, tf, iph);
   }
 
-  p_add_proto_data(pinfo->pool, pinfo, proto_ip, pinfo->curr_layer_num, GUINT_TO_POINTER((unsigned)iph->ip_proto));
+  p_add_proto_data(pinfo->pool, pinfo, proto_ip, pinfo->curr_layer_num, iph);
   tap_queue_packet(ip_tap, pinfo, iph);
 
   /* Skip over header + options */
@@ -2375,7 +2384,7 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
    */
   save_fragmented = pinfo->fragmented;
   if (ip_defragment && (iph->ip_off & (IP_MF|IP_OFFSET)) &&
-      iph->ip_len > hlen &&
+      iph->ip_len >= hlen &&
       tvb_bytes_exist(tvb, offset, iph->ip_len - hlen) &&
       ipsum == 0) {
     uint32_t frag_id;
@@ -2550,8 +2559,9 @@ dissect_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 static bool
 dissect_ip_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-  int length, tot_length;
+  unsigned length, tot_length;
   uint8_t oct, version, ihl;
+  bool ipv4_good = false;
 
   /*
    * IPv4 Header Format
@@ -2574,24 +2584,29 @@ dissect_ip_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
   version = oct >> 4;
 
   if (version == 6) {
-      return dissect_ipv6_heur(tvb, pinfo, tree, data);
+    return dissect_ipv6_heur(tvb, pinfo, tree, data);
   }
 
   /* version == IPv4, the minimum value for a correct header is 5 */
   if ((version != 4) || (ihl < 5)) {
-      return false;
+    return false;
   }
 
   /* Total Length is the length of the datagram, measured in octets,
    *  including internet header and data.
    */
   tot_length = tvb_get_ntohs(tvb, 2);
-  if (tot_length != (int)tvb_reported_length(tvb)) {
-      return false;
+  if (tot_length == tvb_reported_length(tvb)) {
+    ipv4_good = true;
+  } else if (ip_check_checksum && tvb_bytes_exist(tvb, 0, ihl * 4)) {
+    if (ip_checksum_tvb(tvb, 0, ihl * 4) == 0) {
+      ipv4_good = true;
+    }
   }
 
-  dissect_ip_v4(tvb, pinfo, tree, data);
-  return true;
+  if (ipv4_good)
+    dissect_ip_v4(tvb, pinfo, tree, data);
+  return ipv4_good;
 }
 
 static void
@@ -2649,6 +2664,10 @@ proto_register_ip(void)
     { &hf_ip_tos_cost,
       { "Cost", "ip.tos.cost", FT_BOOLEAN, 8,
         TFS(&tfs_low_normal), IPTOS_LOWCOST, NULL, HFILL }},
+
+    { &hf_ip_tos_resvd,
+      { "Reserved", "ip.tos.reserved", FT_BOOLEAN, 8,
+        TFS(&tfs_set_notset), IPTOS_RESERVED, "Unused, must be zero", HFILL }},
 
     { &hf_ip_len,
       { "Total Length", "ip.len", FT_UINT16, BASE_DEC,
@@ -3100,6 +3119,7 @@ proto_register_ip(void)
      { &ei_ip_subopt_too_long, { "ip.subopt_too_long", PI_PROTOCOL, PI_WARN, "Suboption would go past end of option", EXPFILL }},
      { &ei_ip_nop, { "ip.nop", PI_PROTOCOL, PI_WARN, "4 NOP in a row - a router may have removed some options", EXPFILL }},
      { &ei_ip_bogus_ip_length, { "ip.bogus_ip_length", PI_PROTOCOL, PI_ERROR, "Bogus IP length", EXPFILL }},
+     { &ei_ip_zero_data_length, { "ip.zero_data_length", PI_PROTOCOL, PI_NOTE, "Empty data packet", EXPFILL }},
      { &ei_ip_evil_packet, { "ip.evil_packet", PI_PROTOCOL, PI_WARN, "Packet has evil intent", EXPFILL }},
      { &ei_ip_checksum_bad, { "ip.checksum_bad.expert", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
      { &ei_ip_ttl_lncb, { "ip.ttl.lncb", PI_SEQUENCE, PI_NOTE, "Time To Live", EXPFILL }},

@@ -137,6 +137,7 @@ anonymization
 antsel
 aperiodic
 apname
+appcast
 appcheader
 appcontainer
 appdata
@@ -189,7 +190,9 @@ asynchronous
 asynchronously
 asyncio
 asyncmap
+asyncs
 atapi
+atest
 athens
 atheros
 atime
@@ -476,6 +479,7 @@ cliprdr
 clksrc
 cllog
 clopts
+clrpc
 clsfr
 clusctl
 clusprop
@@ -612,6 +616,7 @@ csapi
 cseds
 ctime
 ctratt
+ctrlinfo
 ctrls
 ctrlstat
 ctxinfo
@@ -707,6 +712,7 @@ deencapsulate
 defaultsc
 defence
 deferral
+defgroup
 defrag
 defragment
 defragmentation
@@ -856,6 +862,7 @@ dnssrv
 docomo
 docsis
 dodag
+dofst
 doneconf
 doppler
 dot11Qos
@@ -913,6 +920,7 @@ econet
 ecpri
 ed137a
 ed137b
+edata
 edhoc
 editcap
 edonkey
@@ -922,8 +930,10 @@ effecter
 eg20t
 egprs
 egroup
+ehtsig
 eigrp
 einval
+elcid
 elektronik
 elided
 elink
@@ -957,6 +967,7 @@ endforeach
 endian
 endianness
 endif
+endoff
 endpoint
 endpt
 endtry
@@ -967,6 +978,7 @@ enqueue
 enrollee
 entel
 entityid
+entries
 entryid
 enttec
 entypes
@@ -1031,6 +1043,7 @@ euresys
 europe
 eutra
 eutran
+evcsn
 eventlog
 evolutions
 evrsn
@@ -1063,6 +1076,7 @@ extopt
 extpfx
 extractors
 extrainformation
+extunit
 eyesdn
 f1removal
 f1setup
@@ -1099,7 +1113,9 @@ filsfils
 filter1d
 filter2d
 finalise
+findall
 finditer
+finfo
 firefox
 firewall
 fiveco
@@ -1133,6 +1149,7 @@ fournier
 fpath
 fpiur
 fprintf
+fracsec
 fraghdr
 fragmenter
 frags
@@ -1253,6 +1270,7 @@ gtalk
 guang
 guangzhou
 guatemala
+guids
 guint
 gzipped
 handoff
@@ -1281,6 +1299,7 @@ hebrew
 heimdal
 hellman
 helsinki
+hesiga
 heuristic
 heuristicly
 heuristics
@@ -1360,6 +1379,7 @@ ieee17221
 ieee80211
 ienergy
 iface
+ifaces
 ifconfig
 ifdef
 ifindex
@@ -1377,6 +1397,7 @@ image4dsgis
 imeisv
 immdt
 immersive
+imodeuuid
 impinj
 implementations
 implementer
@@ -1400,6 +1421,8 @@ infiniband
 infix
 infocomm
 infolist
+informatica
+informatik
 informationitem
 informationlist
 informations
@@ -1490,6 +1513,7 @@ ipmap
 ipnos
 ipphone
 ipprim
+ipproto
 ipsec
 ipseckey
 ipset
@@ -1534,6 +1558,7 @@ jiangsu
 jminfo
 joerg
 joiners
+jsonc
 jsonraw
 jtids
 juliat
@@ -1561,6 +1586,7 @@ keyset
 keysyms
 keytab
 knxip
+koffset
 koi8r
 koi8u
 kolkata
@@ -1647,6 +1673,7 @@ literals
 lithionics
 lithuanian
 llcgprs
+lldpdatatbl
 lldpdu
 llogd
 lnpdqp
@@ -1714,6 +1741,7 @@ marconi
 mariadb
 marvell
 masterkey
+matchers
 mathieson
 matrixes
 matsushita
@@ -1779,6 +1807,7 @@ miami
 michal
 microapp
 microbit
+microsec
 midamble
 middlebox
 migratable
@@ -1788,6 +1817,7 @@ milli
 millimeters
 millimetre
 millimetres
+millisec
 millisecs
 milliwatt
 mingw
@@ -1924,6 +1954,7 @@ myobj
 mysql
 méxico
 móviles
+n3gpp
 n3iwf
 n3nan
 n3qai
@@ -1944,6 +1975,7 @@ nbifom
 nbrar
 nbytes
 ncell
+ncpic
 ndiswan
 ndpsm
 ndriver
@@ -1982,6 +2014,7 @@ nforge
 nfs2err
 nfs3err
 nfs4err
+nftables
 nfula
 nghttp
 ngran
@@ -1998,6 +2031,7 @@ nitnxlate
 njack
 nlink
 nlpid
+nmimt
 nmtcommand
 nnnnnnnn
 nnsvc
@@ -2010,6 +2044,7 @@ nodiscriminant
 noemit
 noexpandtab
 nofcs
+nokey
 nokia
 nolintnextline
 nominals
@@ -2029,6 +2064,7 @@ normalise
 normalised
 nortel
 norzig
+noslot
 nosupp
 notarized
 notational
@@ -2049,6 +2085,7 @@ nrppa
 nrtcws
 nsapi
 nsdbg
+nshds
 nssai
 nssrg
 nssvc
@@ -2072,6 +2109,7 @@ numerus
 numitems
 nvgre
 nvmeof
+nvmset
 nvram
 nxtpdu
 nytro
@@ -2151,6 +2189,7 @@ opmode
 opnode
 opnum
 opreply
+optane
 optarg
 opterr
 optimisation
@@ -2163,11 +2202,13 @@ optoelectronics
 optreq
 optrsp
 optus
+oracledb
 ordinal
 organisation
 orpcthat
 orthogonal
 osaka
+osapi
 oscillatory
 oscore
 osdinfo
@@ -2187,9 +2228,11 @@ overlay1mask
 overlay2mask
 overnet
 overridable
+owamp
 p2pstar
 p4rpc
 p8118e
+p8118h
 p8118x
 p8118z
 p8128z
@@ -2263,6 +2306,8 @@ peristency
 persian
 persistency
 persresv
+pfcpsr
+pflog
 pfname
 pfsync
 pgpool
@@ -2283,11 +2328,13 @@ pinfo
 pixmap
 pkinit
 pktdata
+pktlen
 plaintext
 planar
 plano
 plcinterface
 plessey
+plink
 plixer
 plmnid
 plottable1d
@@ -2492,6 +2539,7 @@ rcrsp
 rcsta
 rctxinfo
 rdata
+rdentity
 rdeth
 rdpdr
 rdpmt
@@ -2499,6 +2547,7 @@ rdpudp
 rdstls
 rdtci
 reachability
+readall
 readdir
 readme
 realise
@@ -2560,6 +2609,7 @@ redirects
 redissect
 redissecting
 redissection
+redissects
 redist
 redistributable
 redistributables
@@ -2580,6 +2630,7 @@ regex
 regexp
 regid
 regionid
+regist
 regname
 reimplement
 reimplementation
@@ -2610,6 +2661,7 @@ reordercap
 reorigination
 reparse
 replot
+repoid
 representable
 reproducible
 reprogrammable
@@ -2649,6 +2701,7 @@ reserved5
 resid
 resize
 resized
+resizes
 resolvable
 resolver
 resolvers
@@ -2663,6 +2716,7 @@ resynchronize
 resynchronized
 retap
 retarder
+rethrow
 rethrown
 retrans
 retranslated
@@ -2754,6 +2808,7 @@ sanitize
 sanitizers
 santa
 santiago
+sapdiag
 sapgui
 sarajevo
 sargent
@@ -2768,12 +2823,15 @@ scalable
 scaleout
 scaler
 scannable
+scapy
 scard
+sccpch
 scdma
 scell
 sched
 schema
 schemas
+schematl
 schweiz
 scoped
 scpsflags
@@ -2895,6 +2953,7 @@ slovak
 slovenian
 slovensko
 slsch
+smbus
 smime
 sminfo
 smpdirected
@@ -3006,7 +3065,9 @@ stringified
 stringz
 stringzpad
 strix
+strlcpy
 strlen
+strptr
 strtod
 strtoul
 struct
@@ -3069,8 +3130,11 @@ sunday
 superseding
 superset
 suppfeat
+supportof
 svalidator
 svalue
+svcctl
+svcinfo
 svcparam
 svcparams
 sverige
@@ -3134,6 +3198,7 @@ tdd128
 tdd384
 tdd768
 technica
+tecnologia
 tektronix
 telco
 telecel
@@ -3155,6 +3220,7 @@ telfonica
 telia
 telkom
 telnet
+telos
 telostech
 telstra
 teléfonos
@@ -3193,6 +3259,7 @@ titlebar
 tlvlen
 tlvtype
 tmflags
+tmpdir
 tname
 tobago
 toggled
@@ -3271,6 +3338,7 @@ twopc
 txchannel
 txmcsmap
 txpwr
+txrate
 txsta
 txtmod
 type1
@@ -3284,6 +3352,7 @@ type2ps
 type2r
 type3
 typedef
+typedefn
 typeof
 télécom
 uarfcn
@@ -3302,6 +3371,7 @@ udphdr
 udrei
 ueids
 uganda
+uhrsig
 uievent
 uimsbf
 uint16
@@ -3323,6 +3393,7 @@ unalias
 unaligned
 unallocated
 unallowed
+unannounce
 unary
 unassign
 unassoc
@@ -3490,6 +3561,7 @@ uploaded
 uploading
 uploads
 uptime
+upvalue
 upvalues
 uring
 urlencoded
@@ -3523,7 +3595,14 @@ v1410
 v1530
 v1610
 v2client
+v590ext
 v6133cl
+v690non
+v770ext
+v770non
+v860ext
+v860non
+va40ext
 valgrind
 validations
 validator
@@ -3531,8 +3610,10 @@ valstringname
 varbyte
 varinfo
 varint
+vb50ext
 vbucket
 vbuckets
+vc50ext
 vcard
 vcinstalldir
 vcpkg
@@ -3646,6 +3727,7 @@ wmdrmpd
 workarounds
 wowlan
 wpcap
+wrentity
 wrepl
 writable
 writecap
@@ -3657,6 +3739,9 @@ wscbor
 wslog
 wslua
 wsluarm
+wsrepodir
+wsrepofile
+wstheme
 wstring
 wsutil
 wusps
@@ -3689,6 +3774,7 @@ xilleon
 xinerama
 xinput
 xmlns
+xmlprop
 xoffset
 xpert
 xpress
@@ -3701,6 +3787,7 @@ xtest
 xtreme
 xtypes
 xxhash
+ypxfr
 yyextra
 yyscanner
 yyterminate
@@ -3720,3 +3807,5 @@ zquarter
 zsssr
 zugtyp
 zürich
+dektec
+syscom

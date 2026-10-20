@@ -12,16 +12,18 @@
 
 #include <epan/cfile.h>
 
-#include <QHeaderView>
 #include <QDrag>
 #include <QMenu>
+#include <QPoint>
+
+#include <ui/qt/widgets/adaptive_header_view.h>
 
 class QEvent;
 
 /**
  * @brief Custom header view for the packet list.
  */
-class PacketListHeader : public QHeaderView
+class PacketListHeader : public AdaptiveHeaderView
 {
     Q_OBJECT
 
@@ -32,6 +34,21 @@ public:
      * @param parent The parent widget.
      */
     PacketListHeader(Qt::Orientation orientation, QWidget *parent = nullptr);
+
+    /**
+     * @brief Public entry point used by PacketList to forward a context
+     * menu request that originated on the pinned column view's own header.
+     */
+    void showContextMenuAt(QContextMenuEvent *event);
+
+    /**
+     * @brief Public entry points used by PacketList to forward mouse
+     * events (used for interactive column resize) that originated on the
+     * pinned column view's own header.
+     */
+    void forwardMousePressEvent(QMouseEvent *event);
+    void forwardMouseMoveEvent(QMouseEvent *event);
+    void forwardMouseReleaseEvent(QMouseEvent *event);
 
 protected:
     /**
@@ -63,6 +80,7 @@ protected:
      * @param e The mouse event.
      */
     virtual void mousePressEvent(QMouseEvent *e) override;
+    virtual void mouseReleaseEvent(QMouseEvent *e) override;
 
     /**
      * @brief Handles context menu events.
@@ -113,6 +131,12 @@ protected slots:
      */
     void resizeToWidth();
 
+    // Freezes all columns up to and including the context-menu column.
+    void doFreezeColumnsToHere();
+
+    // Clears the frozen-column boundary.
+    void doUnfreezeColumns();
+
 signals:
     /**
      * @brief Signal emitted to reset a column's width.
@@ -143,8 +167,34 @@ signals:
      */
     void columnsChanged();
 
+    /**
+     * @brief Signal emitted to freeze the leftmost columns up to and
+     * including logicalIndex.
+     * @param logicalIndex The last (rightmost) column to freeze.
+     */
+    void freezeColumnsToHere(int logicalIndex);
+
+    // Signal emitted to clear the frozen-column boundary.
+    void unfreezeColumns();
+
+    // Emitted when a left-button drag on the header starts (true) or ends (false).
+    void dragActiveChanged(bool active);
+
+public:
+    /**
+     * @brief Updates the checked/enabled state of the "freeze columns" menu
+     * item the next time the context menu opens.
+     * @param frozen_column_count Current number of frozen columns (0 = none).
+     */
+    void setFrozenColumnCount(int frozen_column_count);
+
 private:
+    QPoint press_pos_;
+    bool press_active_ = false;
+    bool drag_active_ = false;
+    void setDragActive(bool active);
     int sectionIdx; /**< The index of the section currently being interacted with. */
+    int frozen_column_count_; /**< Current number of frozen columns, as last reported by PacketList. */
 };
 
 #endif

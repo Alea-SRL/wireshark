@@ -71,28 +71,6 @@ file(TO_NATIVE_PATH "${CMAKE_BINARY_DIR}/doc" DOC_DIR)
 set (VERSION "${PROJECT_VERSION}")
 set(PRODUCT_VERSION ${PROJECT_MAJOR_VERSION}.${PROJECT_MINOR_VERSION}.${PROJECT_PATCH_VERSION}.${PROJECT_BUILD_VERSION})
 
-# Starting with Visual Studio 2019 merge modules are deprecated but
-# are available as an individual component.
-# https://docs.microsoft.com/en-us/visualstudio/releases/2019/release-notes#-deprecations
-set(MERGE_MODULE "Microsoft_VC${MSVC_TOOLSET_VERSION}_CRT_${WIRESHARK_TARGET_PLATFORM}.msm")
-set (PF86_ENV "ProgramFiles(x86)")
-
-set(VC_TOOLS_MERGE_MODULES_DIR)
-if (DEFINED ENV{VCToolsRedistDir})
-	set(VC_TOOLS_MERGE_MODULES_DIR "$ENV{VCToolsRedistDir}/MergeModules")
-endif()
-
-find_path(MERGE_MODULE_DIR ${MERGE_MODULE}
-	PATHS
-		#"$ENV{VCINSTALLDIR}/VC/Redist/MSVC/how-do-we-get-this-version/Merge Modules"
-		${VC_TOOLS_MERGE_MODULES_DIR}
-		"$ENV{${PF86_ENV}}/Common Files/Merge Modules"
-		"$ENV{PROGRAMFILES}/Common Files/Merge Modules"
-	NO_DEFAULT_PATH
-)
-file(TO_NATIVE_PATH "${MERGE_MODULE_DIR}/${MERGE_MODULE}" MSM_NATIVE_PATH)
-message(STATUS "Using ${MSM_NATIVE_PATH} for the WiX installer")
-
 # DependentComponents.wxi. Can be created at configure time.
 set(_all_manifest_wix "${CMAKE_CURRENT_BINARY_DIR}/DependentComponents.wxs")
 file(WRITE "${_all_manifest_wix}" "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
@@ -121,7 +99,7 @@ set (_dll_list ${AMRNB_DLL} ${AMRWB_DLL} ${CARES_DLL} ${PCRE2_RELEASE_DLL} ${GCR
 	${GNUTLS_DLLS} ${KERBEROS_DLLS} ${LIBSSH_DLLS} ${LUA_DLL}
 	${LZ4_DLL} ${MINIZIP_DLL} ${MINIZIPNG_DLLS} ${NGHTTP2_DLL} ${NGHTTP3_DLL} ${SBC_DLL} ${SMI_DLL}
 	${SNAPPY_DLL} ${SPANDSP_DLL} ${BCG729_DLL} ${LIBXML2_DLLS} ${WINSPARKLE_DLL}
-	${XXHASH_DLL} ${ZLIB_DLL} ${ZLIBNG_DLL} ${BROTLI_DLLS} ${ZSTD_DLL} ${ILBC_DLL} ${OPUS_DLL}
+	${XXHASH_DLL} ${ZLIB_DLLS_RELEASE} ${ZLIBNG_DLL} ${BROTLI_DLLS} ${ZSTD_DLL} ${ILBC_DLL} ${OPUS_DLL}
 	${SPEEXDSP_DLL}
 	# Required for mmdbresolve
 	${MAXMINDDB_DLL}
@@ -172,6 +150,15 @@ if (MAXMINDDB_FOUND)
 	set(d_mmdbresolve_exe "-dMMDBRESOLVE_EXE")
 endif()
 
+# The Visual C++ Redistributable installed on the target machine must be at
+# least as new as the one that shipped with the toolset used to build
+# Wireshark. VCToolsVersion is set by the Visual Studio developer
+# environment, e.g. "14.38.33135".
+set(d_vcredist_min_version)
+if(DEFINED ENV{VCToolsVersion} AND "$ENV{VCToolsVersion}" MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+	set(d_vcredist_min_version "-dVCRedistMinVersion=$ENV{VCToolsVersion}")
+endif()
+
 set(WIX_CANDLE_DEFINES
 	-v
 	-sw1076
@@ -182,17 +169,17 @@ set(WIX_CANDLE_DEFINES
 	-dWiresharkMinorVersion=${PROJECT_MINOR_VERSION}
 	-dAssetDir=${CMAKE_SOURCE_DIR}/packaging/wix
 	-dBuildOutputDir=${EXECUTABLE_OUTPUT_PATH}/${CMAKE_CFG_INTDIR}
-	-dDiameterDir=${ARCHIVE_OUTPUT_PATH}/${CMAKE_CFG_INTDIR}/diameter
-	-dQualcommDir=${ARCHIVE_OUTPUT_PATH}/${CMAKE_CFG_INTDIR}/qualcomm
+	-dStagingDatafileDir=${WIRESHARK_DATAFILE_DIR}
+	-dDiameterDir=${WIRESHARK_DATAFILE_DIR}/diameter
+	-dQualcommDir=${WIRESHARK_DATAFILE_DIR}/qualcomm
 	-dIconDir=${CMAKE_SOURCE_DIR}/resources/icons
 	-dQtTranslationDir=${ARCHIVE_OUTPUT_PATH}/${CMAKE_CFG_INTDIR}/translations
-	-dRadiusDictDir=${ARCHIVE_OUTPUT_PATH}/${CMAKE_CFG_INTDIR}/radius
+	-dRadiusDictDir=${WIRESHARK_DATAFILE_DIR}/radius
 	-dSnmpMibDir=${ARCHIVE_OUTPUT_PATH}/${CMAKE_CFG_INTDIR}/snmp/mibs
 	-dUsersGuideDir=${ARCHIVE_OUTPUT_PATH}/${CMAKE_CFG_INTDIR}/doc/wsug_html_chunked
-	-dVCRedistVersion=VC${MSVC_TOOLSET_VERSION}
-	-dVCRedistDir=${MERGE_MODULE_DIR}
 	${d_smi_dir}
 	${d_mmdbresolve_exe}
+	${d_vcredist_min_version}
 	-arch ${WIRESHARK_TARGET_PLATFORM}
 	-ext WixUIExtension
 	-I${CMAKE_SOURCE_DIR}/packaging/wix
@@ -260,7 +247,7 @@ macro( ADD_WIX_PACKAGE_TARGET )
 		# RadiusDict.wxs. Collects all Radius dictionary files in
 		# "output" radius directory. Generated with heat.exe
 		add_custom_command(OUTPUT ${_wix_binary_dir}/RadiusDict.wxs
-			COMMAND ${WIX_HEAT_EXECUTABLE} dir ${ARCHIVE_OUTPUT_PATH}/${CMAKE_CFG_INTDIR}/radius
+			COMMAND ${WIX_HEAT_EXECUTABLE} dir ${WIRESHARK_DATAFILE_DIR}/radius
 					${WIX_HEAT_FLAGS} -cg CG.RadiusDict -dr dirRadius -var var.RadiusDictDir
 					-out ${_wix_binary_dir}/RadiusDict.wxs
 		)
@@ -268,7 +255,7 @@ macro( ADD_WIX_PACKAGE_TARGET )
 		# Diameter.wxs. Collects all Diameter XML dictionary files
 		# in "output" diameter directory. Generated with heat.exe
 		add_custom_command(OUTPUT ${_wix_binary_dir}/Diameter.wxs
-			COMMAND ${WIX_HEAT_EXECUTABLE} dir ${ARCHIVE_OUTPUT_PATH}/${CMAKE_CFG_INTDIR}/diameter
+			COMMAND ${WIX_HEAT_EXECUTABLE} dir ${WIRESHARK_DATAFILE_DIR}/diameter
 					${WIX_HEAT_FLAGS} -cg CG.Diameter -dr dirDiameter -var var.DiameterDir
 					-out ${_wix_binary_dir}/Diameter.wxs
 		)
@@ -276,7 +263,7 @@ macro( ADD_WIX_PACKAGE_TARGET )
 		# Qualcomm.wxs. Collects all Qualcomm XML dictionary files
 		# in "output" qualcomm directory. Generated with heat.exe
 		add_custom_command(OUTPUT ${_wix_binary_dir}/Qualcomm.wxs
-			COMMAND ${WIX_HEAT_EXECUTABLE} dir ${ARCHIVE_OUTPUT_PATH}/${CMAKE_CFG_INTDIR}/qualcomm
+			COMMAND ${WIX_HEAT_EXECUTABLE} dir ${WIRESHARK_DATAFILE_DIR}/qualcomm
 					${WIX_HEAT_FLAGS} -cg CG.Qualcomm -dr dirQualcomm -var var.QualcommDir
 					-out ${_wix_binary_dir}/Qualcomm.wxs
 		)

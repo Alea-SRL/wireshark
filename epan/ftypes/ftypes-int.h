@@ -43,7 +43,7 @@ extern const ftype_t* type_list[FT_ENUM_SIZE + 1];
 /* Given an ftenum number, return an ftype_t* */
 #define FTYPE_LOOKUP(ftype, result)		\
 	/* Check input */			\
-	ws_assert(ftype < FT_NUM_TYPES);	\
+	ws_abort_if_fail(ftype < FT_NUM_TYPES);	\
 	result = type_list[ftype];
 
 typedef void (*FvalueNewFunc)(fvalue_t*);
@@ -67,7 +67,7 @@ typedef void (*FvalueSetBytesFunc)(fvalue_t*, GBytes *);
 typedef void (*FvalueSetGuidFunc)(fvalue_t*, const e_guid_t *);
 typedef void (*FvalueSetTimeFunc)(fvalue_t*, const nstime_t *);
 typedef void (*FvalueSetStrbufFunc)(fvalue_t*, wmem_strbuf_t *);
-typedef void (*FvalueSetProtocolFunc)(fvalue_t*, tvbuff_t *value, const char *name, int length);
+typedef void (*FvalueSetProtocolFunc)(fvalue_t*, tvbuff_t *value, const char *name, unsigned length);
 typedef void (*FvalueSetUnsignedIntegerFunc)(fvalue_t*, uint32_t);
 typedef void (*FvalueSetSignedIntegerFunc)(fvalue_t*, int32_t);
 typedef void (*FvalueSetUnsignedInteger64Func)(fvalue_t*, uint64_t);

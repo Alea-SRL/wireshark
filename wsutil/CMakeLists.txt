@@ -128,9 +128,12 @@ set(WSUTIL_PUBLIC_HEADERS
 	plugin_exports.h
 	pow2.h
 	privileges.h
+	packet_endpoints.h
+	process_lookup.h
 	processes.h
 	regex.h
 	report_message.h
+	saplzclzh.h
 	sign_ext.h
 	sober128.h
 	socket.h
@@ -150,7 +153,6 @@ set(WSUTIL_PUBLIC_HEADERS
 	glib-compat.h
 	ws_getopt.h
 	ws_mempbrk.h
-	ws_mempbrk_int.h
 	ws_padding_to.h
 	ws_pipe.h
 	ws_roundup.h
@@ -202,8 +204,12 @@ set(WSUTIL_COMMON_FILES
 	os_version_info.c
 	please_report_bug.c
 	privileges.c
+	packet_endpoints.c
+	process_lookup.c
 	regex.c
 	rsa.c
+	saplzclzh.c
+	saplzclzh/csdecompr.c
 	sober128.c
 	socket.c
 	strnatcmp.c
@@ -250,6 +256,17 @@ if(WIN32)
 		win32-utils.c
 	)
 endif(WIN32)
+
+# The platform backend of the process lookup.
+if(WIN32)
+	list(APPEND WSUTIL_FILES process_lookup-win32.c)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	list(APPEND WSUTIL_FILES process_lookup-linux.c)
+elseif(APPLE)
+	list(APPEND WSUTIL_FILES process_lookup-macos.c)
+else()
+	list(APPEND WSUTIL_FILES process_lookup-stub.c)
+endif()
 
 
 if(HAVE_MACOS_FRAMEWORKS)
@@ -396,7 +413,7 @@ target_compile_definitions(wsutil PRIVATE
 set_target_properties(wsutil PROPERTIES
 	PREFIX "lib"
 	LINK_FLAGS "${WS_LINK_FLAGS}"
-	VERSION "0.0.0" SOVERSION 0
+	VERSION "0.0.${PROJECT_PATCH_VERSION}" SOVERSION 0
 	FOLDER "DLLs"
 	INSTALL_RPATH "${LIBRARY_INSTALL_RPATH}"
 )
@@ -416,12 +433,14 @@ target_link_libraries(wsutil
 		${M_LIBRARIES}
 		${ZLIB_LIBRARIES}
 		${ZLIBNG_LIBRARIES}
-		${LZ4_LIBRARIES}
-		${XXHASH_LIBRARIES}
+		${ZSTD_LIBRARIES}
+		$<TARGET_NAME_IF_EXISTS:LZ4::LZ4>
+		$<TARGET_NAME_IF_EXISTS:XXHASH::XXHASH>
 		$<IF:$<CONFIG:Debug>,${PCRE2_DEBUG_LIBRARIES},${PCRE2_LIBRARIES}>
 		${WIN_IPHLPAPI_LIBRARY}
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 		${WIN_PSAPI_LIBRARY}
+		$<$<BOOL:${CpuInfo_FOUND}>:CpuInfo::CpuInfo>
 )
 
 target_include_directories(wsutil SYSTEM
@@ -429,12 +448,10 @@ target_include_directories(wsutil SYSTEM
 		${GLIB2_INCLUDE_DIRS}
 		${GCRYPT_INCLUDE_DIRS}
 		${GNUTLS_INCLUDE_DIRS}
-		${XXHASH_INCLUDE_DIRS}
 		${GMODULE2_INCLUDE_DIRS}
 		${ZLIB_INCLUDE_DIRS}
 		${ZLIBNG_INCLUDE_DIRS}
 		${ZSTD_INCLUDE_DIRS}
-		${LZ4_INCLUDE_DIRS}
 		${PCRE2_INCLUDE_DIRS}
 )
 
@@ -476,14 +493,16 @@ target_link_libraries(wsutil_static
 		${GCRYPT_LIBRARIES}
 		${GNUTLS_LIBRARIES}
 		${M_LIBRARIES}
-		${XXHASH_LIBRARIES}
+		$<TARGET_NAME_IF_EXISTS:XXHASH::XXHASH>
 		${ZLIB_LIBRARIES}
 		${ZLIBNG_LIBRARIES}
-		${LZ4_LIBRARIES}
+		${ZSTD_LIBRARIES}
+		$<TARGET_NAME_IF_EXISTS:LZ4::LZ4>
 		$<IF:$<CONFIG:Debug>,${PCRE2_DEBUG_LIBRARIES},${PCRE2_LIBRARIES}>
 		${WIN_IPHLPAPI_LIBRARY}
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 		${WIN_PSAPI_LIBRARY}
+		$<$<BOOL:${CpuInfo_FOUND}>:CpuInfo::CpuInfo>
 )
 
 target_include_directories(wsutil_static SYSTEM
@@ -492,13 +511,17 @@ target_include_directories(wsutil_static SYSTEM
 		${GCRYPT_INCLUDE_DIRS}
 		${GNUTLS_INCLUDE_DIRS}
 		${GMODULE2_INCLUDE_DIRS}
-		${XXHASH_INCLUDE_DIRS}
 		${ZLIB_INCLUDE_DIRS}
 		${ZLIBNG_INCLUDE_DIRS}
 		${ZSTD_INCLUDE_DIRS}
-		${LZ4_INCLUDE_DIRS}
 		${PCRE2_INCLUDE_DIRS}
 )
+
+if(WIN32)
+	# For AssocQueryString in win32-utils.c
+	target_link_libraries(wsutil PRIVATE shlwapi)
+	target_link_libraries(wsutil_static PRIVATE shlwapi)
+endif()
 
 if(NOT VCSVERSION_OVERRIDE)
 	add_dependencies(wsutil_static vcs_version)
@@ -519,8 +542,10 @@ add_executable(test_wsutil EXCLUDE_FROM_ALL
 	test_wsutil.c
 )
 
-target_link_libraries(test_wsutil ${M_LIBRARIES} ${GLIB2_LIBRARIES} wsutil)
+target_link_libraries(test_wsutil ${M_LIBRARIES} ${GLIB2_LIBRARIES} ${SOCKET_LIBRARY} wsutil)
 target_include_directories(test_wsutil SYSTEM PRIVATE ${XXHASH_INCLUDE_DIRS})
+target_link_libraries(test_wsutil ${ZSTD_LIBRARIES})
+target_include_directories(test_wsutil SYSTEM PRIVATE ${ZSTD_INCLUDE_DIRS})
 
 set_target_properties(test_wsutil PROPERTIES
 	FOLDER "Tests"

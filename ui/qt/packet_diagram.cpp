@@ -17,10 +17,12 @@
 #include "wsutil/utf8_entities.h"
 
 #include "main_application.h"
+#include <ui/qt/utils/font_manager.h>
 
 #include "ui/qt/main_window.h"
 #include "ui/qt/capture_file_dialog.h"
 #include "ui/qt/utils/proto_node.h"
+#include "ui/qt/utils/theme_manager.h"
 #include "ui/qt/utils/variant_pointer.h"
 #include "ui/recent.h"
 
@@ -180,7 +182,7 @@ public:
         }
     }
 
-    ~FieldInformationGraphicsItem()
+    ~FieldInformationGraphicsItem() override
     {
         delete finfo_;
     }
@@ -204,7 +206,7 @@ public:
         return pt.y();
     }
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *) {
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *) override {
 
         painter->setPen(Qt::NoPen);
         painter->save();
@@ -356,8 +358,11 @@ PacketDiagram::PacketDiagram(QWidget *parent) :
     // XXX Move to setMonospaceFont similar to ProtoTree
     layout_->setFont(font());
 
-    connect(mainApp, &MainApplication::appInitialized, this, &PacketDiagram::connectToMainWindow);
-    connect(mainApp, &MainApplication::zoomRegularFont, this, &PacketDiagram::setFont);
+    mainApp->whenInitialized(this, [this]() { connectToMainWindow(); });
+    connect(FontManager::instance(), &FontManager::applicationFontChanged, this, &PacketDiagram::setFont);
+    connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, [this]() {
+        resetScene(false);
+    });
 
     resetScene();
 }
@@ -485,7 +490,7 @@ void PacketDiagram::contextMenuEvent(QContextMenuEvent *event)
     action = ctx_menu->addAction(tr("Copy as Raster Image"));
     connect(action, &QAction::triggered, this, &PacketDiagram::copyAsRasterTriggered);
 
-#if defined(QT_SVG_LIB) && !defined(Q_OS_MAC)
+#if defined(QT_SVG_LIB) && !defined(Q_OS_MACOS) && 0
     action = ctx_menu->addAction(tr("…as SVG"));
     connect(action, &QAction::triggered, this, &PacketDiagram::copyAsSvgTriggered);
 #endif
@@ -811,7 +816,7 @@ void PacketDiagram::copyAsRasterTriggered()
     mainApp->clipboard()->setImage(raster_diagram);
 }
 
-#if defined(QT_SVG_LIB) && !defined(Q_OS_MAC) && 0
+#if defined(QT_SVG_LIB) && !defined(Q_OS_MACOS) && 0
 void PacketDiagram::copyAsSvgTriggered()
 {
     QByteArray svg_ba = exportToSvg();

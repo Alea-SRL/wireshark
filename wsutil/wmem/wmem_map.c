@@ -507,6 +507,29 @@ wmem_map_get_keys(wmem_allocator_t *list_allocator, const wmem_map_t *map)
     return list;
 }
 
+wmem_list_t*
+wmem_map_get_keys_sorted(wmem_allocator_t *list_allocator, const wmem_map_t *map, GCompareFunc compare_func)
+{
+    size_t capacity, i;
+    wmem_map_item_t *cur;
+    wmem_list_t* list = wmem_list_new(list_allocator);
+
+    if (map->table != NULL) {
+        capacity = CAPACITY(map);
+
+        /* copy all the elements into the list over from table */
+        for (i=0; i<capacity; i++) {
+            cur = map->table[i];
+            while (cur) {
+                wmem_list_insert_sorted(list, (void*)cur->key, compare_func);
+                cur = cur->next;
+            }
+        }
+    }
+
+    return list;
+}
+
 void
 wmem_map_foreach(const wmem_map_t *map, GHFunc foreach_func, void * user_data)
 {
@@ -611,8 +634,8 @@ wmem_map_reserve(wmem_map_t *map, uint64_t capacity)
 
 /* Borrowed from Perl 5.18. This is based on Bob Jenkin's one-at-a-time
  * algorithm with some additional randomness seeded in. It is believed to be
- * generally secure against collision attacks. See
- * http://blog.booking.com/hardening-perls-hash-function.html
+ * generally secure against collision attacks. See "Hardening Perl's Hash Function".
+ * https://medium.com/booking-com-development/hardening-perls-hash-function-d642601f4e54
  */
 uint32_t
 wmem_strong_hash(const uint8_t *buf, const size_t len)

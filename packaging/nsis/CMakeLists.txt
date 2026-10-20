@@ -157,7 +157,7 @@ if (BUILD_wireshark)
 				${GNUTLS_DLLS} ${KERBEROS_DLLS} ${LIBSSH_DLLS} ${LUA_DLL}
 				${LZ4_DLL} ${MINIZIP_DLL} ${MINIZIPNG_DLLS} ${NGHTTP2_DLL} ${NGHTTP3_DLL} ${SBC_DLL} ${SMI_DLL}
 				${SNAPPY_DLL} ${SPANDSP_DLL} ${BCG729_DLL} ${LIBXML2_DLLS} ${WINSPARKLE_DLL}
-				${XXHASH_DLL} ${ZLIB_DLL} ${ZLIBNG_DLL} ${BROTLI_DLLS} ${ZSTD_DLL} ${ILBC_DLL} ${OPUS_DLL}
+				${XXHASH_DLL} ${ZLIB_DLLS_RELEASE} ${ZLIBNG_DLL} ${BROTLI_DLLS} ${ZSTD_DLL} ${ILBC_DLL} ${OPUS_DLL}
 				${SPEEXDSP_DLL}
 				# Needed for mmdbresolve
 				${MAXMINDDB_DLL}
@@ -167,13 +167,13 @@ if (BUILD_wireshark)
 	elseif(USE_MSYSTEM)
 		include(${CMAKE_CURRENT_SOURCE_DIR}/InstallMSYS2.cmake)
 		foreach(_dll ${MINGW_DLLS})
-			file(TO_NATIVE_PATH ${_dll} _path)
+			file(TO_NATIVE_PATH "${_dll}" _path)
 			set(_all_manifest_contents "${_all_manifest_contents}File \"${_path}\"\n")
 		endforeach()
 	else()
 		include(${CMAKE_CURRENT_SOURCE_DIR}/InstallMinGW.cmake)
 		foreach(_dll ${MINGW_DLLS})
-			file(TO_NATIVE_PATH ${_dll} _path)
+			file(TO_NATIVE_PATH "${_dll}" _path)
 			set(_all_manifest_contents "${_all_manifest_contents}File \"${_path}\"\n")
 		endforeach()
 	endif()
@@ -237,10 +237,13 @@ if (BUILD_stratoshark)
 			${GNUTLS_DLLS} ${KERBEROS_DLLS} ${LIBSSH_DLLS} ${LUA_DLL}
 			${LZ4_DLL} ${MINIZIP_DLL} ${MINIZIPNG_DLLS} ${NGHTTP2_DLL} ${NGHTTP3_DLL} ${SBC_DLL} ${SMI_DLL}
 			${SNAPPY_DLL} ${SPANDSP_DLL} ${BCG729_DLL} ${LIBXML2_DLLS} ${WINSPARKLE_DLL}
-			${XXHASH_DLL} ${ZLIB_DLL} ${ZLIBNG_DLL} ${BROTLI_DLLS} ${ZSTD_DLL} ${ILBC_DLL} ${OPUS_DLL}
+			${XXHASH_DLL} ${ZLIB_DLLS_RELEASE} ${ZLIBNG_DLL} ${BROTLI_DLLS} ${ZSTD_DLL} ${ILBC_DLL} ${OPUS_DLL}
 			${SPEEXDSP_DLL}
 			# Needed for mmdbresolve
 			${MAXMINDDB_DLL}
+			# Transitive dependencies for Falco plugins. Rust plugins will at least
+			# need libunwind.
+			${FALCO_PLUGIN_DLLS}
 		)
 		set(_all_manifest_contents "${_all_manifest_contents}File \"\${STAGING_DIR}\\${_dll}\"\n")
 	endforeach()
@@ -267,12 +270,16 @@ if (BUILD_stratoshark)
 endif()
 
 file(TO_NATIVE_PATH "${DATAFILE_DIR}" _staging_dir)
+file(TO_NATIVE_PATH "${WIRESHARK_DATAFILE_DIR}" _wireshark_datafile_dir)
+file(TO_NATIVE_PATH "${STRATOSHARK_DATAFILE_DIR}" _stratoshark_datafile_dir)
 file(TO_NATIVE_PATH "${CMAKE_CURRENT_BINARY_DIR}" _outfile_dir)
 file(TO_NATIVE_PATH "${CMAKE_CURRENT_BINARY_DIR}" _nsis_include_dir)
 
 # Variables we can't set via config.nsh.
 set(NSIS_OPTIONS
 	-DSTAGING_DIR=${_staging_dir}
+	-DWIRESHARK_STAGING_DATAFILE_DIR=${_wireshark_datafile_dir}
+	-DSTRATOSHARK_STAGING_DATAFILE_DIR=${_stratoshark_datafile_dir}
 	-DOUTFILE_DIR=${_outfile_dir}
 	-DNSIS_INCLUDE_DIR=${_nsis_include_dir}
 	-V2

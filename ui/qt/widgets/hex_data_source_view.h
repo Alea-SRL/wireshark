@@ -20,13 +20,13 @@
 #include <QMenu>
 #include <QSize>
 #include <QString>
-#include <QTextLayout>
 #include <QVector>
 
 #include <limits>
 
 #include "base_data_source_view.h"
 
+#include <ui/qt/utils/byte_view_text_cells.h>
 #include <ui/qt/utils/data_printer.h>
 #include <ui/qt/utils/idata_printable.h>
 
@@ -63,7 +63,7 @@ public:
                                 packet_char_enc encoding = PACKET_CHAR_ENC_CHAR_ASCII,
                                 QWidget *parent = nullptr);
 
-    /** @brief Destroy the view and its @c QTextLayout. */
+    /** @brief Destroy the view. */
     ~HexDataSourceView();
 
     /**
@@ -238,7 +238,7 @@ public slots:
      * @brief Update the monospace font and recalculate layout metrics.
      * @param mono_font The new monospace font.
      */
-    void setMonospaceFont(const QFont &mono_font);
+    void setMonospaceFont(const QFont &mono_font) override;
 
     /**
      * @brief Reload byte-view display preferences and repaint.
@@ -251,7 +251,7 @@ public slots:
      * @param start  First byte offset of the protocol span.
      * @param length Number of bytes in the protocol span.
      */
-    void markProtocol(int start, int length);
+    void markProtocol(int start, int length) override;
 
     /**
      * @brief Highlight a specific dissected field byte range.
@@ -261,7 +261,7 @@ public slots:
      * @param scroll_to true (default) to scroll the range into view.
      * @param hover     true to apply hover coloring rather than selection.
      */
-    void markField(int start, int length, bool scroll_to = true, bool hover = false);
+    void markField(int start, int length, bool scroll_to = true, bool hover = false) override;
 
     /**
      * @brief Highlight the appendix (trailing) bytes of the selected field.
@@ -269,12 +269,12 @@ public slots:
      * @param start  First byte offset of the appendix.
      * @param length Number of bytes in the appendix.
      */
-    void markAppendix(int start, int length);
+    void markAppendix(int start, int length) override;
 
     /**
      * @brief Clear field, appendix, and hover highlights.
      */
-    void unmarkField();
+    void unmarkField() override;
 
 protected:
     /**
@@ -282,76 +282,97 @@ protected:
      *
      * @param event Provides the dirty rect used to limit painting.
      */
-    virtual void paintEvent(QPaintEvent *event);
+    virtual void paintEvent(QPaintEvent *event) override;
 
     /**
      * @brief Recalculate scrollbar ranges and repaint after a resize.
      * @param event The resize event (unused beyond triggering the update).
      */
-    virtual void resizeEvent(QResizeEvent *event);
+    virtual void resizeEvent(QResizeEvent *event) override;
 
     /**
      * @brief Ensure the layout is up to date when the widget first becomes visible.
      *
      * @param event The show event.
      */
-    virtual void showEvent(QShowEvent *event);
+    virtual void showEvent(QShowEvent *event) override;
 
     /**
      * @brief Begin a byte selection or move the cursor on mouse press.
      *
      * @param event The mouse press event.
      */
-    virtual void mousePressEvent(QMouseEvent *event);
+    virtual void mousePressEvent(QMouseEvent *event) override;
 
     /**
      * @brief Extend the selection during a mouse drag.
      *
      * @param event The mouse move event.
      */
-    virtual void mouseMoveEvent(QMouseEvent *event);
+    virtual void mouseMoveEvent(QMouseEvent *event) override;
 
     /**
      * @brief Finalise a drag selection on mouse release.
      * @param event The mouse release event.
      */
-    virtual void mouseReleaseEvent(QMouseEvent *event);
+    virtual void mouseReleaseEvent(QMouseEvent *event) override;
 
     /**
      * @brief Clear hover highlights when the pointer leaves the widget.
      * @param event The leave event.
      */
-    virtual void leaveEvent(QEvent *event);
+    virtual void leaveEvent(QEvent *event) override;
 
     /**
      * @brief Show the byte-view context menu.
      *
      * @param event The context menu event.
      */
-    virtual void contextMenuEvent(QContextMenuEvent *event);
+    virtual void contextMenuEvent(QContextMenuEvent *event) override;
 
     /**
      * @brief Handle keyboard navigation and copy commands.
      *
      * @param event The key press event.
      */
-    virtual void keyPressEvent(QKeyEvent *event);
+    virtual void keyPressEvent(QKeyEvent *event) override;
 
 private:
     /**
-     * @brief Semantic highlight modes used when building @c QTextLayout format ranges.
+     * @brief Per-paint state shared by all rows.
      */
-    typedef enum {
-        ModeNormal,       /**< Default foreground/background colors. */
-        ModeField,        /**< Selected field highlight color. */
-        ModeProtocol,     /**< Enclosing protocol layer highlight color. */
-        ModeOffsetNormal, /**< Offset column default color. */
-        ModeOffsetField,  /**< Offset column color within the marked offset range. */
-        ModeNonPrintable, /**< Dimmed color for bytes with no printable ASCII glyph. */
-        ModeHover         /**< Transient hover highlight color. */
-    } HighlightMode;
+    struct RowPaintContext {
+        bool has_selection = false; /**< true if any bytes are selected. */
+        int sel_start = -1;         /**< First selected byte. */
+        int sel_length = 0;         /**< Number of selected bytes. */
+        QColor sel_bg;              /**< Opaque selection color. */
+        QColor sel_fg;              /**< Selection text color. */
+        QColor sel_overlay;         /**< Translucent selection background. */
+        QColor marker_start_bg;     /**< Offset start marker background. */
+        QColor marker_end_bg;       /**< Offset end marker background. */
+        int hover_start = -1;       /**< First byte of the hovered text cell, or -1. */
+        int hover_length = 0;       /**< Number of bytes in the hovered text cell. */
+        QColor invalid_fg;          /**< Text color of bytes that are invalid in the encoding. */
+    };
 
-    QTextLayout *layout_; /**< Reused text layout for rendering one row at a time. */
+    /**
+     * @brief The colors a byte is drawn with; invalid colors mean "default".
+     */
+    struct ByteStyle {
+        QColor bg; /**< Background color. */
+        QColor fg; /**< Text color. */
+    };
+
+    /**
+     * @brief One row of the view, as painted.
+     */
+    struct Row {
+        int offset;                /**< First byte offset of the row. */
+        int last;                  /**< Last byte offset of the row. */
+        int y;                     /**< Top-of-row y coordinate in viewport pixels. */
+        QVector<ByteStyle> styles; /**< The colors of the row's bytes, by column. */
+        QVector<ByteStyle> gaps;   /**< The colors of the space after each byte but the last, by column. */
+    };
 
     /**
      * @brief Recompute character widths, line height, and column pixel offsets.
@@ -369,88 +390,144 @@ private:
      * @brief Paint a single row of the hex dump.
      *
      * @param painter The painter targeting the viewport.
-     * @param offset  First byte offset of the row.
-     * @param row_y   Top-of-row y coordinate in viewport pixels.
+     * @param row     The row.
+     * @param ctx     Per-paint state.
      */
-    void drawLine(QPainter *painter, const int offset, const int row_y);
+    void drawLine(QPainter *painter, const Row &row, const RowPaintContext &ctx);
 
     /**
-     * @brief Append a semantic highlight range to a format list.
-     *
-     * @param fmt_list The format range list to modify.
-     * @param start    Character start index within the layout string.
-     * @param length   Number of characters to cover.
-     * @param mode     The highlight mode that determines the color.
-     * @return true if a range was appended; false if the range was empty.
+     * @brief Paint the offset column of one row.
+     * @param painter The painter targeting the viewport.
+     * @param row     The row.
      */
-    bool addFormatRange(QList<QTextLayout::FormatRange> &fmt_list,
-                        int start, int length, HighlightMode mode);
+    void drawOffsetColumn(QPainter *painter, const Row &row);
 
     /**
-     * @brief Append a semantic highlight range over the hex panel columns.
+     * @brief Paint the hex panel of one row.
      *
-     * @param fmt_list    The format range list to modify.
-     * @param mark_start  Absolute start byte offset of the mark.
-     * @param mark_length Length of the mark in bytes.
-     * @param tvb_offset  First byte offset of the current row.
-     * @param max_tvb_pos One past the last byte of the current row.
-     * @param mode        The highlight mode.
-     * @return true if any columns were covered.
+     * Backgrounds and digits are painted per byte cell.
+     *
+     * @param painter The painter targeting the viewport.
+     * @param row     The row.
+     * @param ctx     Per-paint state.
      */
-    bool addHexFormatRange(QList<QTextLayout::FormatRange> &fmt_list,
-                           int mark_start, int mark_length,
-                           int tvb_offset, int max_tvb_pos,
-                           HighlightMode mode);
+    void drawHexPanel(QPainter *painter, const Row &row, const RowPaintContext &ctx);
 
     /**
-     * @brief Append a semantic highlight range over the ASCII panel columns.
+     * @brief Paint the text panel of one row.
      *
-     * @param fmt_list    The format range list to modify.
-     * @param mark_start  Absolute start byte offset of the mark.
-     * @param mark_length Length of the mark in bytes.
-     * @param tvb_offset  First byte offset of the current row.
-     * @param max_tvb_pos One past the last byte of the current row.
-     * @param mode        The highlight mode.
-     * @return true if any columns were covered.
+     * Backgrounds are painted per byte column; glyphs are painted per
+     * text cell over the column of the cell's first byte, with a dim "]"
+     * over the column of its last byte.
+     *
+     * @param painter The painter targeting the viewport.
+     * @param row     The row.
+     * @param ctx     Per-paint state.
      */
-    bool addAsciiFormatRange(QList<QTextLayout::FormatRange> &fmt_list,
-                             int mark_start, int mark_length,
-                             int tvb_offset, int max_tvb_pos,
-                             HighlightMode mode);
+    void drawTextPanel(QPainter *painter, const Row &row, const RowPaintContext &ctx);
 
     /**
-     * @brief Append a custom-color range over the hex panel columns.
+     * @brief Draw the part of a multi-byte text cell that falls on one row.
      *
-     * @param fmt_list    The format range list to modify.
-     * @param mark_start  Absolute start byte offset of the annotation.
-     * @param mark_length Length of the annotation in bytes.
-     * @param tvb_offset  First byte offset of the current row.
-     * @param max_tvb_pos One past the last byte of the current row.
-     * @param bg          Background color.
-     * @param fg          Foreground (text) color.
-     * @return true if any columns were covered.
+     * @param painter The painter targeting the viewport.
+     * @param cell    The text cell.
+     * @param first   First byte of the cell on this row.
+     * @param last    Last byte of the cell on this row.
+     * @param row     The row.
+     * @param ctx     Per-paint state.
      */
-    bool addHexCustomRange(QList<QTextLayout::FormatRange> &fmt_list,
-                           int mark_start, int mark_length,
-                           int tvb_offset, int max_tvb_pos,
-                           const QColor &bg, const QColor &fg);
+    void drawMultiByteCell(QPainter *painter, const ByteViewTextCells::Cell &cell, int first, int last, const Row &row, const RowPaintContext &ctx);
 
     /**
-     * @brief Append a custom-color range over the ASCII panel columns.
+     * @brief Return the color of a text cell's glyph.
      *
-     * @param fmt_list    The format range list to modify.
-     * @param mark_start  Absolute start byte offset of the annotation.
-     * @param mark_length Length of the annotation in bytes.
-     * @param tvb_offset  First byte offset of the current row.
-     * @param max_tvb_pos One past the last byte of the current row.
-     * @param bg          Background color.
-     * @param fg          Foreground (text) color.
-     * @return true if any columns were covered.
+     * @param cell  The text cell.
+     * @param style The colors of the cell's first byte.
+     * @param ctx   Per-paint state.
      */
-    bool addAsciiCustomRange(QList<QTextLayout::FormatRange> &fmt_list,
-                             int mark_start, int mark_length,
-                             int tvb_offset, int max_tvb_pos,
-                             const QColor &bg, const QColor &fg);
+    QColor cellTextColor(const ByteViewTextCells::Cell &cell, const ByteStyle &style, const RowPaintContext &ctx);
+
+    /**
+     * @brief Combine every highlight that covers a run of bytes into its colors.
+     *
+     * Highlights are applied in a fixed order, later ones overriding the
+     * colors of earlier ones. With a length of 2 this gives the colors of
+     * the space between two bytes: only a highlight that covers both
+     * bytes reaches across it, so a range still reads as one block while
+     * a single highlighted byte inside it keeps its own box.
+     *
+     * @param offset The first byte.
+     * @param ctx    Per-paint state.
+     * @param length The number of bytes the highlight must cover.
+     */
+    ByteStyle byteStyle(int offset, const RowPaintContext &ctx, int length = 1);
+
+    /**
+     * @brief Return the background color of an annotation, dimmed or
+     *        blended where it overlaps the selection or a field.
+     */
+    QColor annotationBackground(const ByteViewAnnotation &ann, const RowPaintContext &ctx);
+
+    /**
+     * @brief Decode the data into text cells if the encoding has changed.
+     */
+    void ensureTextCells();
+
+    /** @return The encoding the text panel is currently displayed in. */
+    ByteViewTextCells::Encoding textEncoding() const;
+
+    /** @return The x pixel position of the first text panel column. */
+    int textPanelX();
+
+    /**
+     * @brief Return the rectangle of one text panel column.
+     * @param col   The byte column within the row.
+     * @param row_y Top-of-row y coordinate in viewport pixels.
+     */
+    QRect textCellRect(int col, int row_y);
+
+    /**
+     * @brief Return the rectangle covering a range of text panel columns.
+     * @param first_col The first byte column within the row.
+     * @param last_col  The last byte column within the row.
+     * @param row_y     Top-of-row y coordinate in viewport pixels.
+     */
+    QRect textSpanRect(int first_col, int last_col, int row_y);
+
+    /** @brief Return the number of digits a byte takes in the hex panel. */
+    int hexCharsPerByte();
+
+    /**
+     * @brief Return a byte's digits in the current base, padded to hexCharsPerByte().
+     * @param c The byte.
+     */
+    QString byteText(uint8_t c);
+
+    /** @brief Return the x pixel position of the first hex panel cell. */
+    int hexPanelX();
+
+    /**
+     * @brief Return the rectangle of one hex panel cell.
+     * @param col   The byte column within the row.
+     * @param row_y Top-of-row y coordinate in viewport pixels.
+     */
+    QRect hexCellRect(int col, int row_y);
+
+    /**
+     * @brief Convert an x pixel position within the hex panel to a byte column.
+     * @param x           Absolute x pixel position.
+     * @param allow_fuzzy true to snap positions outside the cells to the nearest one.
+     * @return The byte column, or -1.
+     */
+    int hexColumnAtX(int x, bool allow_fuzzy);
+
+    /**
+     * @brief Convert an x pixel position within the text panel to a byte column.
+     * @param x           Absolute x pixel position.
+     * @param allow_fuzzy true to snap positions outside the columns to the nearest one.
+     * @return The byte column, or -1.
+     */
+    int textColumnAtX(int x, bool allow_fuzzy);
 
     /**
      * @brief Return the index of the annotation that covers @p byte_offset.
@@ -544,7 +621,7 @@ private:
      * @brief Return the raw data buffer for printing (IDataPrintable).
      * @return A copy of @c data_.
      */
-    const QByteArray printableData() { return data_; }
+    const QByteArray printableData() override { return data_; }
 
     // ── Constants ─────────────────────────────────────────────────────────
 
@@ -576,7 +653,7 @@ private:
     // Display settings
     bool show_offset_;  /**< Whether the offset column is rendered. */
     bool show_hex_;     /**< Whether the hex values panel is rendered. */
-    bool show_ascii_;   /**< Whether the ASCII/EBCDIC panel is rendered. */
+    bool show_ascii_;   /**< Whether the text panel is rendered. */
     int row_width_;     /**< Number of bytes displayed per row. */
     int em_width_;      /**< Width of a single monospace character in pixels; also the text margin. */
     int line_height_;   /**< Vertical distance between row baselines in pixels. */
@@ -601,15 +678,8 @@ private:
     bool selected_field_is_protocol_;   /**< true if the packet-tree selection is a protocol node. */
     bool selected_field_use_own_range_; /**< true if the selected field carries its own independent range. */
 
-    /**
-     * @brief Maps x pixel positions to column indices within the current row.
-     *
-     * Built by @c updateLayoutMetrics(). Indexed by x pixel offset from the
-     * left edge of the viewport; each entry holds the byte column number
-     * (0 … @c row_width_-1) nearest to that pixel, enabling O(1) hit-testing
-     * in @c byteOffsetAtPixel().
-     */
-    QVector<int> x_pos_to_column_;
+    ByteViewTextCells text_cells_; /**< The data decoded into text panel cells. */
+    bool text_cells_dirty_;        /**< true when @c text_cells_ must be decoded again. */
 
     // Context menu actions
     QAction *action_allow_hover_selection_; /**< Toggle: update packet tree on mouse hover. */
@@ -626,6 +696,7 @@ private:
     QAction *action_bytes_enc_from_packet_; /**< Use the character encoding declared in the packet. */
     QAction *action_bytes_enc_ascii_;       /**< Force ASCII character encoding. */
     QAction *action_bytes_enc_ebcdic_;      /**< Force EBCDIC character encoding. */
+    QAction *action_bytes_enc_utf8_;        /**< Force UTF-8 character encoding. */
 
 private slots:
     /**

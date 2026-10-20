@@ -5,15 +5,23 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-import os
-import re
-import subprocess
 import argparse
-import signal
 import concurrent.futures
-import platform
+import os
 import pathlib
-from check_common import findDissectorFilesInFolder, getFilesFromOpen, getFilesFromCommits, isGeneratedFile, Result
+import platform
+import re
+import signal
+import subprocess
+import sys
+
+from check_common import (
+    Result,
+    findDissectorFilesInFolder,
+    getFilesFromCommits,
+    getFilesFromOpen,
+    isGeneratedFile,
+)
 
 # Look for dissector symbols that could/should be static.
 
@@ -38,7 +46,7 @@ build_folder = os.getcwd() + '-build'
 class CalledSymbols:
     def __init__(self):
         # Add these - needed for Windows..
-        self.referred = set(['snprintf', 'printf', 'fprintf', 'sscanf'])
+        self.referred = {'snprintf', 'printf', 'fprintf', 'sscanf'}
 
     def getCalls(self, file, current_build_folder, build_type):
         referred = set()
@@ -87,9 +95,8 @@ class CalledSymbols:
                         m = re.search(r'\|\s+([^\s]+)$', line)
                         if m:
                             referred.add(m.group(1))
-            except Exception as e:
+            except RuntimeError as e:
                 print(object_file, e)
-                pass
         else:
             command = ['nm', object_file]
             try:
@@ -109,7 +116,7 @@ class CalledSymbols:
                         # Only interested in undefined/external references to symbols.
                         if letter == 'U':
                             referred.add(function_name)
-            except Exception:  # Wanted to capture SIGINT ideally..
+            except ValueError:  # Wanted to capture SIGINT ideally..
                 pass
         return referred
 
@@ -166,11 +173,10 @@ class DefinedSymbols:
 
         # Get header file contents if available
         header_file = file.replace('.c', '.h')
-        try:
-            f = open(header_file, 'r')
-            self.header_file_contents = f.read()
-        except IOError:
-            pass
+
+        if os.path.exists(header_file):
+            with open(header_file, 'r') as f:
+                self.header_file_contents = f.read()
 
         # Run command to see which symbols are defined
         if platform.system() == 'Windows':
@@ -184,9 +190,8 @@ class DefinedSymbols:
                             fun = m.group(1)
                             # Dumpcap output is quite long..
                             self.addDefinedSymbol(fun, line)
-            except Exception as e:
+            except RuntimeError as e:
                 print('exception while checking symbols:', e)
-                pass
         else:
             command = ['nm', object_file]
             try:
@@ -201,7 +206,7 @@ class DefinedSymbols:
                         # Globally-defined symbols. Would be 't' or 'd' if already static..
                         if letter in 'TD':
                             self.addDefinedSymbol(function_name, line)
-            except Exception:  # Wanted to capture SIGINT ideally..
+            except RuntimeError:  # Wanted to capture SIGINT ideally..
                 pass
 
     def addDefinedSymbol(self, symbol, line):
@@ -262,7 +267,7 @@ def findFilesInFolder(folder):
     for f in sorted(os.listdir(folder)):
         if should_exit:
             return tmp_files
-        if f.endswith('.c') or f.endswith('.cpp'):
+        if f.endswith(('.c', 'cpp')):
             filename = os.path.join(folder, f)
             tmp_files.append(filename)
     return tmp_files
@@ -302,7 +307,7 @@ if __name__ == '__main__':
                 f = os.path.join('epan', 'dissectors', f)
             if not os.path.isfile(f):
                 print('Chosen file', f, 'does not exist.')
-                exit(1)
+                sys.exit(1)
             else:
                 files.append(f)
     elif args.commits:
@@ -332,7 +337,7 @@ if __name__ == '__main__':
 
     if not os.path.isdir(build_folder):
         print('Build directory not valid', build_folder, '- please set with --build-folder')
-        exit(1)
+        sys.exit(1)
 
 
     # Get the set of called functions and referred-to data.
@@ -366,7 +371,7 @@ if __name__ == '__main__':
             issues_found += result.notes
 
             if result.should_exit:
-                exit(1)
+                sys.exit(1)
 
     # Show summary.
     print(issues_found, 'issues found')

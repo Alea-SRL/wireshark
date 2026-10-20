@@ -35,10 +35,10 @@ struct epan_session;
    should we keep that stuff in the "packet_info" structure, instead, to
    save memory? */
 
-/* Types of character encodings */
+/** @brief Types of character encodings */
 typedef enum {
-  PACKET_CHAR_ENC_CHAR_ASCII     = 0, /* ASCII */
-  PACKET_CHAR_ENC_CHAR_EBCDIC    = 1  /* EBCDIC */
+  PACKET_CHAR_ENC_CHAR_ASCII     = 0, /**< ASCII */
+  PACKET_CHAR_ENC_CHAR_EBCDIC    = 1  /**< EBCDIC */
 } packet_char_enc;
 
 
@@ -58,6 +58,8 @@ typedef enum {
    line? */
 struct _color_filter; /* Forward */
 DIAG_OFF_PEDANTIC
+
+/** @brief Frame data structure */
 typedef struct _frame_data {
   uint32_t     num;          /**< Frame number */
   uint32_t     dis_num;      /**< Displayed frame number */
@@ -67,7 +69,7 @@ typedef struct _frame_data {
   /* These two are pointers, meaning 64-bit on LP64 (64-bit UN*X) and
      LLP64 (64-bit Windows) platforms.  Put them here, one after the
      other, so they don't require padding between them. */
-  GSList      *pfd;          /**< Per frame proto data */
+  wmem_list_t *pfd;          /**< Per frame proto data */
   GHashTable  *dependent_frames;     /**< A hash table of frames which this one depends on */
   const struct _color_filter *color_filter;  /**< Per-packet matching color_filter_t object */
   uint32_t     cum_bytes;    /**< Cumulative bytes into the capture */

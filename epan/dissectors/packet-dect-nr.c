@@ -1,8 +1,8 @@
 /* packet-dect-nr.c
  *
  * Routines for DECT NR+ MAC layer, and DLC and Convergence layers
- *  - ETSI TS 103 636-4 V2.1.1 (2024-10)
- *  - ETSI TS 103 636-5 V2.1.1 (2024-10)
+ *  - ETSI TS 103 636-4 V2.2.1 (2026-05)
+ *  - ETSI TS 103 636-5 V2.2.1 (2026-01)
  *
  * Copyright 2025, Stig Bjørlykke <stig@bjorlykke.org>
  *
@@ -25,6 +25,8 @@
 #include <wsutil/str_util.h>
 #include <wiretap/wtap.h>
 #include <gcrypt.h>
+
+#include "packet-dect-nr.h"
 
 static int proto_dect_nr;
 
@@ -99,6 +101,7 @@ static int hf_dect_nr_bc_hdr_tx_addr;
 /* 6.3.3.3: Unicast Header */
 static int hf_dect_nr_uc_hdr;
 static int hf_dect_nr_uc_hdr_res1;
+static int hf_dect_nr_uc_hdr_dwa;
 static int hf_dect_nr_uc_hdr_rst;
 static int hf_dect_nr_uc_hdr_sn;
 static int hf_dect_nr_uc_hdr_rx_addr;
@@ -119,6 +122,7 @@ static int hf_dect_nr_mux_ie_type_long;
 static int hf_dect_nr_mux_ie_type_short_pl0;
 static int hf_dect_nr_mux_ie_type_short_pl1;
 static int hf_dect_nr_mux_mac_ie_len;
+static int hf_dect_nr_mux_mac_sdu;
 
 /* 6.4.2.2: Network Beacon message */
 static int hf_dect_nr_nb_msg;
@@ -437,7 +441,7 @@ static int hf_dect_nr_rds_dur;
 
 /* 6.4.3.15 RD Capability short IE */
 static int hf_dect_nr_rdcs_ie;
-static int hf_dect_nr_rdcs_res1;
+static int hf_dect_nr_rdcs_max_mcs;
 static int hf_dect_nr_rdcs_cb_mc;
 static int hf_dect_nr_rdcs_harq_fb_delay;
 static int hf_dect_nr_rdcs_dwa;
@@ -446,6 +450,7 @@ static int hf_dect_nr_rdcs_dwa;
 static int hf_dect_nr_sr_ie;
 static int hf_dect_nr_sr_id;
 static int hf_dect_nr_sr_hop_limit;
+static int hf_dect_nr_sr_res1;
 static int hf_dect_nr_sr_hop_count;
 static int hf_dect_nr_sr_reg_validity_timer;
 
@@ -460,6 +465,14 @@ static int hf_dect_nr_ac_ie;
 static int hf_dect_nr_ac_cb_m;
 static int hf_dect_nr_ac_dl_data_reception;
 static int hf_dect_nr_ac_ul_period;
+
+/* 6.4.3.19 Access Token IE */
+static int hf_dect_nr_at_ie;
+static int hf_dect_nr_at_nonce;
+
+/* 6.4.3.20 Application Sequence Number IE */
+static int hf_dect_nr_asn_ie;
+static int hf_dect_nr_asn_sn;
 
 /* Escape */
 static int hf_dect_nr_escape;
@@ -509,16 +522,28 @@ static int hf_dect_nr_dlc_ext_invalid_next_hop_addr;
 static int hf_dect_nr_hls_bin;
 
 /* DLC Reassembly */
-static int hf_dect_nr_segments;
-static int hf_dect_nr_segment;
-static int hf_dect_nr_segment_overlap;
-static int hf_dect_nr_segment_overlap_conflict;
-static int hf_dect_nr_segment_multiple_tails;
-static int hf_dect_nr_segment_too_long_segment;
-static int hf_dect_nr_segment_error;
-static int hf_dect_nr_segment_count;
-static int hf_dect_nr_reassembled_in;
-static int hf_dect_nr_reassembled_length;
+static int hf_dect_nr_dlc_segments;
+static int hf_dect_nr_dlc_segment;
+static int hf_dect_nr_dlc_segment_overlap;
+static int hf_dect_nr_dlc_segment_overlap_conflict;
+static int hf_dect_nr_dlc_segment_multiple_tails;
+static int hf_dect_nr_dlc_segment_too_long_segment;
+static int hf_dect_nr_dlc_segment_error;
+static int hf_dect_nr_dlc_segment_count;
+static int hf_dect_nr_dlc_reassembled_in;
+static int hf_dect_nr_dlc_reassembled_length;
+
+/* CVG Reassembly */
+static int hf_dect_nr_cvg_segments;
+static int hf_dect_nr_cvg_segment;
+static int hf_dect_nr_cvg_segment_overlap;
+static int hf_dect_nr_cvg_segment_overlap_conflict;
+static int hf_dect_nr_cvg_segment_multiple_tails;
+static int hf_dect_nr_cvg_segment_too_long_segment;
+static int hf_dect_nr_cvg_segment_error;
+static int hf_dect_nr_cvg_segment_count;
+static int hf_dect_nr_cvg_reassembled_in;
+static int hf_dect_nr_cvg_reassembled_length;
 
 /* CVG */
 static int hf_dect_nr_cvg_pdu;
@@ -533,24 +558,71 @@ static int hf_dect_nr_cvg_header_f2c;
 static int hf_dect_nr_cvg_header_mux_tag;
 static int hf_dect_nr_cvg_header_length;
 
-/* CVG IEs */
+/* 6.3.3 EP Mux IE */
 static int hf_dect_nr_cvg_ep_mux_ie;
-static int hf_dect_nr_cvg_ep_mux_ie_endpoint;
+static int hf_dect_nr_cvg_ep_mux_endpoint;
+
+/* 6.3.4 Data IE */
 static int hf_dect_nr_cvg_data_ie;
-static int hf_dect_nr_cvg_data_ie_si;
-static int hf_dect_nr_cvg_data_ie_sli;
-static int hf_dect_nr_cvg_data_ie_res1;
-static int hf_dect_nr_cvg_data_ie_seq_num;
-static int hf_dect_nr_cvg_data_ie_sdu_len;
-static int hf_dect_nr_cvg_data_ie_seg_offset;
+static int hf_dect_nr_cvg_data_si;
+static int hf_dect_nr_cvg_data_sli;
+static int hf_dect_nr_cvg_data_res1;
+static int hf_dect_nr_cvg_data_seq_num;
+static int hf_dect_nr_cvg_data_sdu_len;
+static int hf_dect_nr_cvg_data_seg_offset;
+static int hf_dect_nr_cvg_data_payload;
+
+/* 6.3.5 Data EP IE */
 static int hf_dect_nr_cvg_data_ep_ie;
-static int hf_dect_nr_cvg_data_ep_ie_endpoint;
-static int hf_dect_nr_cvg_data_transp_ie;
+static int hf_dect_nr_cvg_data_ep_endpoint;
+static int hf_dect_nr_cvg_data_ep_si;
+static int hf_dect_nr_cvg_data_ep_sli;
+static int hf_dect_nr_cvg_data_ep_res1;
+static int hf_dect_nr_cvg_data_ep_seq_num;
+static int hf_dect_nr_cvg_data_ep_sdu_len;
+static int hf_dect_nr_cvg_data_ep_seg_offset;
+
+/* 6.3.6 Data Transparent IE */
+static int hf_dect_nr_cvg_data_transparent_ie;
+static int hf_dect_nr_cvg_data_transparent_payload;
+
+/* 6.3.7 Security IE */
 static int hf_dect_nr_cvg_security_ie;
-static int hf_dect_nr_cvg_tx_services_conf_ie;
+static int hf_dect_nr_cvg_security_res1;
+static int hf_dect_nr_cvg_security_key_index;
+static int hf_dect_nr_cvg_security_sec_iv_type;
+static int hf_dect_nr_cvg_security_hpc;
+
+/* 6.3.8 TX Services Config IE */
+static int hf_dect_nr_cvg_tx_services_config_ie;
+static int hf_dect_nr_cvg_tx_services_config_rq_rs;
+static int hf_dect_nr_cvg_tx_services_config_res1;
+static int hf_dect_nr_cvg_tx_services_config_service_type;
+static int hf_dect_nr_cvg_tx_services_config_lifetime;
+static int hf_dect_nr_cvg_tx_services_config_res2;
+static int hf_dect_nr_cvg_tx_services_config_max_window_size;
+
+/* 6.3.9 ARQ Feedback IE */
 static int hf_dect_nr_cvg_arq_fb_ie;
+static int hf_dect_nr_cvg_arq_fb_a_n;
+static int hf_dect_nr_cvg_arq_fb_info;
+static int hf_dect_nr_cvg_arq_fb_res1;
+static int hf_dect_nr_cvg_arq_fb_seq_num;
+static int hf_dect_nr_cvg_arq_fb_seg_offset;
+static int hf_dect_nr_cvg_arq_fb_seg_offset_start;
+static int hf_dect_nr_cvg_arq_fb_seg_offset_end;
+
+/* 6.3.10 ARQ Poll IE */
 static int hf_dect_nr_cvg_arq_poll_ie;
+static int hf_dect_nr_cvg_arq_poll_res1;
+static int hf_dect_nr_cvg_arq_poll_seq_num;
+
+/* 6.3.11 Flow Status IE */
 static int hf_dect_nr_cvg_flow_status_ie;
+static int hf_dect_nr_cvg_flow_status_res1;
+static int hf_dect_nr_cvg_flow_status_reason;
+
+/* CVG Escape */
 static int hf_dect_nr_cvg_escape;
 
 /* Miscellaneous */
@@ -601,66 +673,44 @@ static int ett_dect_nr_rdcs_ie;
 static int ett_dect_nr_sr_ie;
 static int ett_dect_nr_ji_ie;
 static int ett_dect_nr_ac_ie;
+static int ett_dect_nr_at_ie;
+static int ett_dect_nr_asn_ie;
 static int ett_dect_nr_dlc_pdu;
 static int ett_dect_nr_dlc_routing_hdr;
 static int ett_dect_nr_dlc_ext_hdr;
-static int ett_dect_nr_segment;
-static int ett_dect_nr_segments;
+static int ett_dect_nr_dlc_segment;
+static int ett_dect_nr_dlc_segments;
 static int ett_dect_nr_cvg;
 static int ett_dect_nr_cvg_header;
 static int ett_dect_nr_cvg_ep_mux_ie;
-static int ett_dect_nr_cvg_data_ep_ie;
 static int ett_dect_nr_cvg_data_ie;
-static int ett_dect_nr_cvg_data_transp_ie;
+static int ett_dect_nr_cvg_data_ep_ie;
+static int ett_dect_nr_cvg_data_transparent_ie;
 static int ett_dect_nr_cvg_security_ie;
-static int ett_dect_nr_cvg_tx_services_conf_ie;
+static int ett_dect_nr_cvg_tx_services_config_ie;
 static int ett_dect_nr_cvg_arq_fb_ie;
 static int ett_dect_nr_cvg_arq_poll_ie;
 static int ett_dect_nr_cvg_flow_status_ie;
+static int ett_dect_nr_cvg_segment;
+static int ett_dect_nr_cvg_segments;
 
 static dissector_handle_t dect_nr_handle;
-static dissector_handle_t data_handle;
-static dissector_handle_t ipv6_handle;
 
 static dissector_table_t mac_hdr_dissector_table;
 static dissector_table_t ie_dissector_table;
 static dissector_table_t ie_short_dissector_table;
 static dissector_table_t ie_extension_dissector_table;
+static dissector_table_t ie_cvg_dissector_table;
 static dissector_table_t ep_mux_dissector_table;
-
-static heur_dissector_list_t heur_subdissector_list;
 
 static wmem_map_t *rd_id_map;
 
 /* Preference to configure PHY header type */
-typedef enum {
-	PHF_TYPE_TYPE_1,
-	PHF_TYPE_TYPE_2,
-	PHF_TYPE_TYPE_AUTO,
-} phf_type_t;
-
-static int phf_type_pref = PHF_TYPE_TYPE_AUTO;
+static int phf_type_pref = DECT_NR_PHF_TYPE_AUTO;
 static const enum_val_t phf_type_pref_vals[] = {
-	{ "auto", "Automatic", PHF_TYPE_TYPE_AUTO },
-	{ "type1", "Type 1: 40 bits", PHF_TYPE_TYPE_1 },
-	{ "type2", "Type 2: 80 bits", PHF_TYPE_TYPE_2 },
-	{ NULL, NULL, -1 }
-};
-
-/* Preference to configure DLC data type */
-typedef enum {
-	DLC_DATA_TYPE_AUTO,
-	DLC_DATA_TYPE_BINARY,
-	DLC_DATA_TYPE_CVG,
-	DLC_DATA_TYPE_IPv6,
-} dlc_data_type_t;
-
-static int dlc_data_type_pref = DLC_DATA_TYPE_AUTO;
-static const enum_val_t dlc_data_type_pref_vals[] = {
-	{ "auto", "Automatic", DLC_DATA_TYPE_AUTO },
-	{ "binary", "Binary (data)", DLC_DATA_TYPE_BINARY },
-	{ "cvg", "CVG layer", DLC_DATA_TYPE_CVG },
-	{ "ipv6", "IPv6", DLC_DATA_TYPE_IPv6 },
+	{ "auto", "Automatic", DECT_NR_PHF_TYPE_AUTO },
+	{ "type1", "Type 1: 40 bits", DECT_NR_PHF_TYPE_1 },
+	{ "type2", "Type 2: 80 bits", DECT_NR_PHF_TYPE_2 },
 	{ NULL, NULL, -1 }
 };
 
@@ -669,8 +719,8 @@ static bool mac_pdus_decrypted_pref;
 static const char *cipher_key_pref[KEY_MAX];
 
 static const value_string dect_plcf_size_vals[] = {
-	{ 0, "Type 1: 40 bits" },
-	{ 1, "Type 2: 80 bits" },
+	{ DECT_NR_PHF_TYPE_1, "Type 1: 40 bits" },
+	{ DECT_NR_PHF_TYPE_2, "Type 2: 80 bits" },
 	{ 0, NULL }
 };
 
@@ -919,7 +969,8 @@ static const value_string mux_hdr_ie_type_mac_ext_012_vals[] = {
 	{ 26, "Source Routing IE" },
 	{ 27, "Joining Beacon message" },
 	{ 28, "Joining Information IE" },
-	/* 29 - 61 Reserved */
+	{ 29, "Access Token IE" },
+	/* 30 - 61 Reserved */
 	{ 62, "Escape" },
 	{ 63, "IE type extension" },
 	{ 0, NULL }
@@ -943,7 +994,8 @@ static const value_string mux_hdr_ie_type_mac_ext_3_pl_1_vals[] = {
 	{ 1, "Radio Device Status IE" },
 	{ 2, "RD Capability Short IE" },
 	{ 3, "Association Control IE" },
-	/* 4 - 29 Reserved */
+	{ 4, "Application Sequence Number IE" },
+	/* 5 - 29 Reserved */
 	{ 30, "Escape" },
 	{ 0, NULL }
 };
@@ -1376,10 +1428,10 @@ static const value_string rdc_pwr_class_vals[] = {
 	{ 1, "Power class II" },
 	{ 2, "Power class III" },
 	{ 3, "Power class IV" },
-	{ 4, "Reserved" },
-	{ 5, "Reserved" },
-	{ 6, "Reserved" },
-	{ 7, "Reserved" },
+	{ 4, "Power class V" },
+	{ 5, "Power class VI" },
+	{ 6, "Power class VII" },
+	{ 7, "Power class VIII" },
 	{ 0, NULL }
 };
 
@@ -1619,6 +1671,15 @@ static const value_string rds_duration_vals[] = {
 	{ 0, NULL }
 };
 
+/* Table 6.4.3.15-1: RD Capability Short IE field definitions: Max MCS */
+static const value_string rdcs_max_mcs_vals[] = {
+	{ 0, "Same MCS index as used to transmit beacon message containing this IE" },
+	{ 1, "One MCS index up from MCS used to transmit beacon message containing this IE" },
+	{ 2, "Two MCS indexes up from MCS used to transmit beacon message containing this IE" },
+	{ 3, "Three MCS indexes up from MCS used to transmit beacon message containing this IE" },
+	{ 0, NULL }
+};
+
 /* Table 6.4.3.15-1: RD Capability Short IE field definitions: CB_MC */
 static const true_false_string rdcs_cb_mc_tfs = {
 	"RD in FT mode supports association without monitoring Cluster Beacon messages",
@@ -1833,8 +1894,8 @@ static const value_string dlc_routing_type_vals[] = {
 	{ 0, NULL }
 };
 
-/** ETSI TS 103 636-5 Table 6.3.2-1: CVG Ext coding */
-static const value_string dect_nr_cvg_header_ext_vals[] = {
+/* ETSI TS 103 636-5 Table 6.3.2-1: CVG Ext coding */
+static const value_string cvg_header_ext_vals[] = {
 	{ 0, "No length field included" },
 	{ 1, "8-bit length included" },
 	{ 2, "16-bit length included" },
@@ -1842,8 +1903,8 @@ static const value_string dect_nr_cvg_header_ext_vals[] = {
 	{ 0, NULL }
 };
 
-/** ETSI TS 103 636-5 Table 6.3.2-2: CVG IE Type coding */
-static const value_string dect_nr_cvg_header_ie_type_vals[] = {
+/* ETSI TS 103 636-5 Table 6.3.2-2: CVG IE Type coding */
+static const value_string cvg_header_ie_type_vals[] = {
 	{ 0, "EP mux IE" },
 	{ 1, "Data IE" },
 	{ 2, "Data EP IE" },
@@ -1858,14 +1919,14 @@ static const value_string dect_nr_cvg_header_ie_type_vals[] = {
 	{ 0, NULL }
 };
 
-static const value_string dect_nr_cvg_header_mt_vals[] = {
+static const value_string cvg_header_mt_vals[] = {
 	{ 0, "Header Format 1" },
 	{ 1, "Header Format 2" },
 	{ 0, NULL }
 };
 
-/** ETSI TS 103 636-5 Table 6.3.2-3: F2C coding */
-static const value_string dect_nr_cvg_header_f2c_vals[] = {
+/* ETSI TS 103 636-5 Table 6.3.2-3: F2C coding */
+static const value_string cvg_header_f2c_vals[] = {
 	{ 0, "Data IE" },
 	{ 1, "ARQ Feedback IE" },
 	{ 2, "IE coding with CVG IE Type field" },
@@ -1873,8 +1934,8 @@ static const value_string dect_nr_cvg_header_f2c_vals[] = {
 	{ 0, NULL }
 };
 
-/** ETSI TS 103 636-5 Table 6.3.4-1: CVG SI Coding */
-static const value_string dect_nr_cvg_si_coding[] = {
+/* ETSI TS 103 636-5 Table 6.3.4-1: CVG SI Coding */
+static const value_string cvg_data_si_coding_vals[] = {
 	{ 0, "Payload field contains a complete SDU" },
 	{ 1, "Payload field contains the first segment of an SDU" },
 	{ 2, "Payload field contains the last segment of an SDU" },
@@ -1882,17 +1943,148 @@ static const value_string dect_nr_cvg_si_coding[] = {
 	{ 0, NULL }
 };
 
-/** ETSI TS 103 636-5 Table 6.3.4-2: CVG SLI Coding */
-static const value_string dect_nr_cvg_sli_coding[] = {
+/* ETSI TS 103 636-5 Table 6.3.4-2: CVG SLI Coding */
+static const value_string cvg_data_sli_coding_vals[] = {
 	{ 0, "SDU length not included" },
 	{ 1, "SDU length included" },
+	{ 0, NULL }
+};
+
+/* ETSI TS 103 636-5 Table 6.3.7-1: Security IV Type for Mode 1 */
+static const value_string cvg_sec_iv_type_vals[] = {
+	{ 0, "Current HPC value of the transmitter is provided" },
+	{ 1, "Current HPC value of the transmitter is provided, and the sender requests the peer to provide its own transmitter HPC value" },
+	{ 2, "Reserved" },
+	{ 3, "Reserved" },
+	{ 4, "Reserved" },
+	{ 5, "Reserved" },
+	{ 6, "Reserved" },
+	{ 7, "Reserved" },
+	{ 8, "Reserved" },
+	{ 9, "Reserved" },
+	{ 10, "Reserved" },
+	{ 11, "Reserved" },
+	{ 12, "Reserved" },
+	{ 13, "Reserved" },
+	{ 14, "Reserved" },
+	{ 15, "Reserved" },
+	{ 0, NULL }
+};
+
+/* Table 6.3.8-1: Rq/Rw coding */
+static const value_string cvg_rq_rs_vals[] = {
+	{ 0, "This IE is a request" },
+	{ 1, "This IE is a response" },
+	{ 0, NULL }
+};
+
+/* Table 6.3.8-2: Service Type coding */
+static const value_string cvg_service_type_vals[] = {
+	{ 0, "Service Type 0" },
+	{ 1, "Service Type 1" },
+	{ 2, "Service Type 2" },
+	{ 3, "Service Type 3" },
+	{ 4, "Service Type 4" },
+	{ 5, "Reserved" },
+	{ 6, "Reserved" },
+	{ 7, "Reserved" },
+	{ 0, NULL }
+};
+
+/* Table 6.3.8-3: Lifetime coding */
+static const value_string cvg_lifetime_vals[] = {
+	{ 0, "Not applicable" },
+	{ 1, "0.5 ms" },
+	{ 2, "1 ms" },
+	{ 3, "5 ms" },
+	{ 4, "10 ms" },
+	{ 5, "20 ms" },
+	{ 6, "30 ms" },
+	{ 7, "40 ms" },
+	{ 8, "50 ms" },
+	{ 9, "60 ms" },
+	{ 10, "70 ms" },
+	{ 11, "80 ms" },
+	{ 12, "90 ms" },
+	{ 13, "100 ms" },
+	{ 14, "150 ms" },
+	{ 15, "200 ms" },
+	{ 16, "250 ms" },
+	{ 17, "300 ms" },
+	{ 18, "500 ms" },
+	{ 19, "750 ms" },
+	{ 20, "1 s" },
+	{ 21, "1.5 s" },
+	{ 22, "2 s" },
+	{ 23, "2.5 s" },
+	{ 24, "3 s" },
+	{ 25, "4 s" },
+	{ 26, "5 s" },
+	{ 27, "6 s" },
+	{ 28, "8 s" },
+	{ 29, "16 s" },
+	{ 30, "32 s" },
+	{ 31, "1 min" },
+	{ 32, "1.5 min" },
+	{ 33, "2 min" },
+	{ 34, "3 min" },
+	{ 35, "5 min" },
+	{ 36, "10 min" },
+	{ 37, "30 min" },
+	{ 38, "1 h" },
+	{ 39, "2 h" },
+	{ 40, "5 h" },
+	{ 41, "12 h" },
+	{ 42, "24 h" },
+	{ 255, "Infinity" },
+	{ 0, NULL }
+};
+
+/* ETSI TS 103 636-5 Table 6.3.9-1: A/N coding */
+static const value_string cvg_a_n_vals[] = {
+	{ 0, "The SN refers to a received SDU or segment (ACK)" },
+	{ 1, "The SN refers to a non-received SDU or segment (NACK)" },
+	{ 0, NULL }
+};
+
+/* ETSI TS 103 636-5 Table 6.3.9-2: Feedback info coding */
+static const value_string cvg_fb_info_vals[] = {
+	{ 0, "A complete SDU (sequence number)" },
+	{ 1, "Start of an SDU (sequence number and offset to the last octet of the pointed segment)" },
+	{ 2, "End of an SDU (sequence number and offset to the first octet of the pointed segment)" },
+	{ 3, "Middle of an SDU (sequence number and offset to the first and last octet of the pointed segment)" },
+	{ 4, "Range of complete SDUs (first and last sequence number)" },
+	{ 5, "Complete SDUs up to this (sequence number)" },
+	{ 6, "Reserved" },
+	{ 7, "Reserved" },
+	{ 0, NULL }
+};
+
+/* ETSI TS 103 636-5 Table 6.3.11-1: Reason coding */
+static const value_string cvg_flow_status_reason_vals[] = {
+	{ 0, "Reserved" },
+	{ 1, "Data connection available" },
+	{ 2, "Data connection not available" },
+	{ 3, "Endpoint not supported" },
+	{ 4, "Reserved" },
+	{ 5, "Reserved" },
+	{ 6, "Reserved" },
+	{ 7, "Reserved" },
+	{ 8, "Reserved" },
+	{ 9, "Reserved" },
+	{ 10, "Reserved" },
+	{ 11, "Reserved" },
+	{ 12, "Reserved" },
+	{ 13, "Reserved" },
+	{ 14, "Reserved" },
+	{ 15, "Reserved" },
 	{ 0, NULL }
 };
 
 /** DECT-2020 NR Endpoint Multiplexing Address Allocation: values for public specs */
 /* https://portal.etsi.org/PNNS/Protocol-Specification-Allocation/DECT-2020-NR-Endpoint-Multiplexing-Addresses */
 /* Last update: 18 March 2026 */
-static const range_string dect_nr_cvg_ep_mux_values[] = {
+static const range_string dect_nr_cvg_ep_mux_vals[] = {
 	{ 0x0000, 0x00FF, "Reserved" },
 	{ 0x0100, 0x40FF, "Free use" },
 	{ 0x4100, 0x7FFF, "Reserved" },
@@ -1944,27 +2136,52 @@ static const range_string dect_nr_cvg_ep_mux_values[] = {
 
 /* DLC Reassembly */
 
-static const fragment_items dect_nr_segment_items = {
+static const fragment_items dect_nr_dlc_segment_items = {
 	/* Segment subtrees */
-	&ett_dect_nr_segment,
-	&ett_dect_nr_segments,
+	&ett_dect_nr_dlc_segment,
+	&ett_dect_nr_dlc_segments,
 	/* Segment fields */
-	&hf_dect_nr_segments,
-	&hf_dect_nr_segment,
-	&hf_dect_nr_segment_overlap,
-	&hf_dect_nr_segment_overlap_conflict,
-	&hf_dect_nr_segment_multiple_tails,
-	&hf_dect_nr_segment_too_long_segment,
-	&hf_dect_nr_segment_error,
-	&hf_dect_nr_segment_count,
+	&hf_dect_nr_dlc_segments,
+	&hf_dect_nr_dlc_segment,
+	&hf_dect_nr_dlc_segment_overlap,
+	&hf_dect_nr_dlc_segment_overlap_conflict,
+	&hf_dect_nr_dlc_segment_multiple_tails,
+	&hf_dect_nr_dlc_segment_too_long_segment,
+	&hf_dect_nr_dlc_segment_error,
+	&hf_dect_nr_dlc_segment_count,
 	/* Reassembled in field */
-	&hf_dect_nr_reassembled_in,
+	&hf_dect_nr_dlc_reassembled_in,
 	/* Reassembled length field */
-	&hf_dect_nr_reassembled_length,
+	&hf_dect_nr_dlc_reassembled_length,
 	/* Reassembled data field */
 	NULL,
 	/* Tag */
 	"DLC PDU segments"
+};
+
+/* CVG Reassembly */
+
+static const fragment_items dect_nr_cvg_segment_items = {
+	/* Segment subtrees */
+	&ett_dect_nr_cvg_segment,
+	&ett_dect_nr_cvg_segments,
+	/* Segment fields */
+	&hf_dect_nr_cvg_segments,
+	&hf_dect_nr_cvg_segment,
+	&hf_dect_nr_cvg_segment_overlap,
+	&hf_dect_nr_cvg_segment_overlap_conflict,
+	&hf_dect_nr_cvg_segment_multiple_tails,
+	&hf_dect_nr_cvg_segment_too_long_segment,
+	&hf_dect_nr_cvg_segment_error,
+	&hf_dect_nr_cvg_segment_count,
+	/* Reassembled in field */
+	&hf_dect_nr_cvg_reassembled_in,
+	/* Reassembled length field */
+	&hf_dect_nr_cvg_reassembled_length,
+	/* Reassembled data field */
+	NULL,
+	/* Tag */
+	"CVG PDU segments"
 };
 
 typedef struct dect_nr_sec_info {
@@ -1979,6 +2196,7 @@ typedef struct dect_nr_conv_info {
 } dect_nr_conv_info_t;
 
 typedef struct {
+	dect_nr_phf_type_t phf_type;
 	uint8_t nw_id;
 	uint16_t tx_id;
 	uint16_t rx_id;
@@ -1989,7 +2207,16 @@ typedef struct {
 	dect_nr_sec_info_t sec_info;
 	uint16_t psn;
 	dect_nr_conv_info_t *conv_info;
+	proto_tree *proto_tree;
 } dect_nr_context_t;
+
+typedef struct {
+	uint8_t ie_type;
+	uint32_t ie_length;
+	bool ie_type_present;
+	bool ie_length_present;
+	dect_nr_context_t *dlc_ctx;
+} dect_nr_cvg_context_t;
 
 typedef struct {
 	uint8_t nw_id;
@@ -2047,7 +2274,8 @@ static const reassembly_table_functions dect_nr_reassembly_functions = {
 	dect_nr_reassembly_free_key_func,
 };
 
-static reassembly_table dect_nr_reassembly_table;
+static reassembly_table dect_nr_dlc_reassembly_table;
+static reassembly_table dect_nr_cvg_reassembly_table;
 
 /* Add expert info to reserved bits which is not zero */
 static void dect_tree_add_reserved_item(proto_tree *tree, int hf_index, tvbuff_t *tvb, int offset, int length, packet_info *pinfo, const unsigned encoding)
@@ -2341,26 +2569,23 @@ static int dissect_physical_header_field(tvbuff_t *tvb, int offset, packet_info 
 	uint8_t packet_len;
 	int plcf;
 
-	if (phf_type_pref == PHF_TYPE_TYPE_AUTO) {
+	if (ctx->phf_type == DECT_NR_PHF_TYPE_AUTO) {
 		/* Physical Header Field Type is determined from 6th and 7th packet byte.
 		 * For Type 1 they are always zero.
 		 * (Type 1: 40 bits (HF 000), or Type 2: 80 bits, (HF 000 or 001))
 		 */
-		plcf = (tvb_get_ntohs(tvb, offset + 5) == 0) ? PHF_TYPE_TYPE_1 : PHF_TYPE_TYPE_2;
+		plcf = (tvb_get_ntohs(tvb, offset + 5) == 0) ? DECT_NR_PHF_TYPE_1 : DECT_NR_PHF_TYPE_2;
 	} else {
-		plcf = phf_type_pref;
+		plcf = ctx->phf_type;
 	}
 
-	/* In dect_nr, device always reserves 10 bytes for the PHF.
-	 * If 5-byte version used, the remaining 5 bytes is just padding.
-	 */
 	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_phf, tvb, offset, 10, ENC_NA);
 	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_phf);
 	proto_tree *len_item;
 
 	proto_item_append_text(item, " (%s)", val_to_str_const(plcf, dect_plcf_size_vals, "Unknown"));
 
-	if (plcf == PHF_TYPE_TYPE_1) {
+	if (plcf == DECT_NR_PHF_TYPE_1) {
 		proto_tree_add_item(tree, hf_dect_nr_header_format_type1, tvb, offset, 1, ENC_BIG_ENDIAN);
 	} else {
 		proto_tree_add_item_ret_uint8(tree, hf_dect_nr_header_format_type2, tvb, offset, 1, ENC_BIG_ENDIAN, &header_format);
@@ -2382,7 +2607,7 @@ static int dissect_physical_header_field(tvbuff_t *tvb, int offset, packet_info 
 
 	proto_tree_add_item(tree, hf_dect_nr_tx_pwr, tvb, offset, 1, ENC_BIG_ENDIAN);
 	/* DF MCS length is 3 bits in Type 1 header, and 4 bits in Type 2 header */
-	if (plcf == PHF_TYPE_TYPE_2) {
+	if (plcf == DECT_NR_PHF_TYPE_2) {
 		proto_tree_add_item(tree, hf_dect_nr_df_mcs_t2, tvb, offset, 1, ENC_BIG_ENDIAN);
 	} else {
 		dect_tree_add_reserved_item(tree, hf_dect_nr_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
@@ -2391,7 +2616,7 @@ static int dissect_physical_header_field(tvbuff_t *tvb, int offset, packet_info 
 	offset++;
 
 	/* If 80-bit (type 2) PHF is used */
-	if (plcf == PHF_TYPE_TYPE_2) {
+	if (plcf == DECT_NR_PHF_TYPE_2) {
 		uint16_t fb_format;
 
 		proto_tree_add_item_ret_uint16(tree, hf_dect_nr_receiver_id, tvb, offset, 2, ENC_BIG_ENDIAN, &ctx->rx_id);
@@ -2455,7 +2680,10 @@ static int dissect_physical_header_field(tvbuff_t *tvb, int offset, packet_info 
 			break;
 		}
 		offset += 2;
-	} else if (phf_type_pref == PHF_TYPE_TYPE_AUTO) {
+	} else if (ctx->phf_type == DECT_NR_PHF_TYPE_AUTO) {
+		/* Some DECT NR+ trace tools always reserves 10 bytes for the PHF.
+		 * If 5-byte version used, the remaining 5 bytes is just padding.
+		 */
 		ctx->rx_id = 0;
 		proto_tree_add_item(tree, hf_dect_nr_phf_padding, tvb, offset, 5, ENC_NA);
 		offset += 5;
@@ -2469,7 +2697,7 @@ static int dissect_physical_header_field(tvbuff_t *tvb, int offset, packet_info 
 /* 6.3.3.1: Data MAC PDU Header */
 static int dissect_mac_data_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint32_t long_rd_id;
 
 	dect_nr_context_t *ctx = (dect_nr_context_t *)data;
@@ -2504,7 +2732,7 @@ static int dissect_mac_data_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 /* 6.3.3.2: Beacon Header */
 static int dissect_mac_beacon_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint32_t tx_addr;
 
 	dect_nr_context_t *ctx = (dect_nr_context_t *)data;
@@ -2527,7 +2755,7 @@ static int dissect_mac_beacon_header(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 /* 6.3.3.3: Unicast Header */
 static int dissect_mac_unicast_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint32_t tx_addr;
 	uint32_t rx_addr;
 
@@ -2537,6 +2765,7 @@ static int dissect_mac_unicast_header(tvbuff_t *tvb, packet_info *pinfo, proto_t
 	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_uc_hdr);
 
 	dect_tree_add_reserved_item(tree, hf_dect_nr_uc_hdr_res1, tvb, offset, 2, pinfo, ENC_BIG_ENDIAN);
+	proto_tree_add_item(tree, hf_dect_nr_uc_hdr_dwa, tvb, offset, 2, ENC_BIG_ENDIAN);
 	proto_tree_add_item(tree, hf_dect_nr_uc_hdr_rst, tvb, offset, 2, ENC_BIG_ENDIAN);
 	proto_tree_add_item_ret_uint16(tree, hf_dect_nr_uc_hdr_sn, tvb, offset, 2, ENC_BIG_ENDIAN, &ctx->psn);
 	offset += 2;
@@ -2558,7 +2787,7 @@ static int dissect_mac_unicast_header(tvbuff_t *tvb, packet_info *pinfo, proto_t
 /* 6.3.3.4: RD Broadcasting Header */
 static int dissect_mac_rd_broadcasting_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint32_t tx_addr;
 
 	dect_nr_context_t *ctx = (dect_nr_context_t *)data;
@@ -2677,186 +2906,442 @@ static int dissect_dlc_routing_header(tvbuff_t *tvb, int offset, packet_info *pi
 	return offset;
 }
 
-static int dissect_cvg_ie(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *parent_tree, uint8_t ie_type, uint32_t ie_len)
+/* 6.3.3 EP Mux IE */
+static int dissect_cvg_ep_mux_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data _U_)
 {
-	int start = offset;
-	uint16_t ep_mux;
-	uint16_t seq_num;
-	uint16_t sdu_len;
-	uint16_t seg_offset;
+	unsigned offset = 0;
+
+	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_ep_mux_ie, tvb, offset, -1, ENC_NA);
+	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_cvg_ep_mux_ie);
+
+	proto_tree_add_item(tree, hf_dect_nr_cvg_ep_mux_endpoint, tvb, offset, 2, ENC_BIG_ENDIAN);
+	offset += 2;
+
+	proto_item_set_len(item, offset);
+
+	return offset;
+}
+
+static tvbuff_t *
+cvg_data_reassemble(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree,
+		    dect_nr_cvg_context_t *cvg_ctx, int hf_payload,
+		    uint8_t si, uint16_t seq_num, uint16_t seg_offset,
+		    uint32_t *data_len, bool *data_incomplete, proto_item **data_item,
+		    wmem_strbuf_t **data_info)
+{
+	dect_nr_context_t reassembly_ctx;
+	uint32_t length;
+	wmem_strbuf_t *segm_info;
+	fragment_head *frag_msg;
+	tvbuff_t *subtvb;
+
+	*data_incomplete = false;
+
+	if (cvg_ctx && cvg_ctx->dlc_ctx) {
+		reassembly_ctx = *cvg_ctx->dlc_ctx;
+	} else {
+		memset(&reassembly_ctx, 0, sizeof(reassembly_ctx));
+	}
+
+	length = tvb_captured_length_remaining(tvb, offset);
+	if (!cvg_ctx || !cvg_ctx->ie_length_present) {
+		*data_len = length;
+	} else if (length < (cvg_ctx->ie_length)) {
+		*data_len = length;
+		*data_incomplete = true;
+	} else {
+		*data_len = cvg_ctx->ie_length;
+	}
+
+	*data_item = proto_tree_add_item(tree, hf_payload, tvb, offset, *data_len, ENC_NA);
+
+	segm_info = wmem_strbuf_create(pinfo->pool);
+
+	if (si == 0) {
+		wmem_strbuf_append_printf(segm_info, "SN %u, ", seq_num);
+	} else if (si == 1) {
+		wmem_strbuf_append_printf(segm_info, "SN %u (first segment), ", seq_num);
+	} else if (si == 2) {
+		wmem_strbuf_append_printf(segm_info, "SN %u (last segment at %u), ", seq_num, seg_offset);
+	} else if (si == 3) {
+		wmem_strbuf_append_printf(segm_info, "SN %u (segment at %u), ", seq_num, seg_offset);
+	}
+
+	frag_msg = fragment_add_seq_next(&dect_nr_cvg_reassembly_table, tvb, offset, pinfo,
+					 seq_num, &reassembly_ctx, *data_len, (si == 1 || si == 3));
+	subtvb = process_reassembled_data(tvb, offset, pinfo, "Reassembled CVG",
+					  frag_msg, &dect_nr_cvg_segment_items, NULL, tree);
+
+	*data_info = wmem_strbuf_create(pinfo->pool);
+	wmem_strbuf_append_printf(*data_info, " [ %s%d bytes ]",
+				  wmem_strbuf_finalize(segm_info),
+				  (cvg_ctx && cvg_ctx->ie_length_present) ? cvg_ctx->ie_length : *data_len);
+
+	return subtvb;
+}
+
+static void
+cvg_data_append_col_info(packet_info *pinfo, proto_item *data_item, bool data_incomplete,
+			 wmem_strbuf_t *data_info)
+{
+	if (data_incomplete) {
+		wmem_strbuf_append(data_info, " [data incomplete]");
+		expert_add_info(pinfo, data_item, &ei_dect_nr_pdu_cut_short);
+	}
+
+	col_append_str(pinfo->cinfo, COL_INFO, wmem_strbuf_finalize(data_info));
+}
+
+/* 6.3.4 Data IE */
+static int dissect_cvg_data_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data)
+{
+	unsigned offset = 0;
+	proto_item *data_item;
 	uint8_t si;
 	uint8_t sli;
-
-	proto_item *item;
-	proto_item *tree;
-
+	uint16_t seq_num;
+	uint16_t sdu_len;
+	uint16_t seg_offset = 0;
+	uint32_t data_len;
+	bool data_incomplete;
 	tvbuff_t *subtvb;
-	int sublen;
+	wmem_strbuf_t *data_info;
 
-	switch (ie_type) {
-	case 0: /* EP Mux IE */
-		item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_ep_mux_ie, tvb, offset, ie_len, ENC_NA);
-		tree = proto_item_add_subtree(item, ett_dect_nr_cvg_ep_mux_ie);
-		proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_ep_mux_ie_endpoint, tvb, offset, 2, ENC_BIG_ENDIAN, &ep_mux);
+	dect_nr_cvg_context_t *cvg_ctx = (dect_nr_cvg_context_t *)data;
+
+	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_data_ie, tvb, offset, -1, ENC_NA);
+	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_cvg_data_ie);
+
+	proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_data_si, tvb, offset, 1, ENC_BIG_ENDIAN, &si);
+	proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_data_sli, tvb, offset, 1, ENC_BIG_ENDIAN, &sli);
+	dect_tree_add_reserved_item(tree, hf_dect_nr_cvg_data_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
+	proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_seq_num, tvb, offset, 2, ENC_BIG_ENDIAN, &seq_num);
+	offset += 2;
+
+	if (sli == 1) { /* SDU length included */
+		proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_sdu_len, tvb, offset, 2, ENC_BIG_ENDIAN, &sdu_len);
 		offset += 2;
-		break;
+	}
 
-	case 1: /* Data IE */
-		item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_data_ie, tvb, offset, ie_len, ENC_NA);
-		tree = proto_item_add_subtree(item, ett_dect_nr_cvg_data_ie);
-
-		proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_data_ie_si, tvb, offset, 1, ENC_BIG_ENDIAN, &si);
-		proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_data_ie_sli, tvb, offset, 1, ENC_BIG_ENDIAN, &sli);
-		dect_tree_add_reserved_item(tree, hf_dect_nr_cvg_data_ie_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
-		proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_ie_seq_num, tvb, offset, 2, ENC_BIG_ENDIAN, &seq_num);
+	if (si == 2 || si == 3) { /* The payload field contains an incomplete SDU and is not the first segment */
+		proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_seg_offset, tvb, offset, 2, ENC_BIG_ENDIAN, &seg_offset);
 		offset += 2;
+	}
 
-		if (sli == 1) { /* Length included */
-			proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_ie_sdu_len, tvb, offset, 2, ENC_BIG_ENDIAN, &sdu_len);
-			offset += 2;
-		} else { /* Length not included */
-			sdu_len = ie_len;
-		}
+	subtvb = cvg_data_reassemble(tvb, offset, pinfo, tree, cvg_ctx, hf_dect_nr_cvg_data_payload,
+				     si, seq_num, seg_offset, &data_len, &data_incomplete,
+				     &data_item, &data_info);
 
-		if (si == 2 || si == 3) { /* The payload field contains an incomplete SDU and is not the first segment */
-			proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_ie_seg_offset, tvb, offset, 2, ENC_BIG_ENDIAN, &seg_offset);
-			offset += 2;
-		}
-
-		subtvb = tvb_new_subset_length(tvb, offset, sdu_len);
-
-		/* No COL_INFO updates from the data dissector */
+	if (subtvb) {
 		col_set_writable(pinfo->cinfo, COL_INFO, false);
-		call_dissector(data_handle, subtvb, pinfo, proto_tree_get_root(parent_tree));
+		call_data_dissector(subtvb, pinfo, proto_tree_get_root(parent_tree));
 		col_set_writable(pinfo->cinfo, COL_INFO, true);
-		offset += sdu_len;
-		break;
+	}
 
-	case 2: /* Data EP IE */
-		item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_data_ep_ie, tvb, offset, ie_len, ENC_NA);
-		tree = proto_item_add_subtree(item, ett_dect_nr_cvg_data_ep_ie);
+	cvg_data_append_col_info(pinfo, data_item, data_incomplete, data_info);
+	proto_item_set_len(item, offset + data_len);
 
-		proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_ep_ie_endpoint, tvb, offset, 2, ENC_BIG_ENDIAN, &ep_mux);
+	return offset + data_len;
+}
+
+/* 6.3.5 Data EP IE */
+static int dissect_cvg_data_ep_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data)
+{
+	unsigned offset = 0;
+	proto_item *data_item;
+	uint16_t ep_mux;
+	uint8_t si;
+	uint8_t sli;
+	uint16_t seq_num;
+	uint16_t sdu_len;
+	uint16_t seg_offset = 0;
+	uint32_t data_len;
+	bool data_incomplete;
+	tvbuff_t *subtvb;
+	wmem_strbuf_t *data_info;
+	int sublen;
+	dect_nr_cvg_context_t *cvg_ctx = (dect_nr_cvg_context_t *)data;
+
+	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_data_ep_ie, tvb, offset, -1, ENC_NA);
+	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_cvg_data_ep_ie);
+
+	proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_ep_endpoint, tvb, offset, 2, ENC_BIG_ENDIAN, &ep_mux);
+	offset += 2;
+
+	proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_data_ep_si, tvb, offset, 1, ENC_BIG_ENDIAN, &si);
+	proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_data_ep_sli, tvb, offset, 1, ENC_BIG_ENDIAN, &sli);
+	dect_tree_add_reserved_item(tree, hf_dect_nr_cvg_data_ep_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
+	proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_ep_seq_num, tvb, offset, 2, ENC_BIG_ENDIAN, &seq_num);
+	offset += 2;
+
+	if (sli == 1) { /* SDU length included */
+		proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_ep_sdu_len, tvb, offset, 2, ENC_BIG_ENDIAN, &sdu_len);
 		offset += 2;
+	}
 
-		proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_data_ie_si, tvb, offset, 1, ENC_BIG_ENDIAN, &si);
-		proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_data_ie_sli, tvb, offset, 1, ENC_BIG_ENDIAN, &sli);
-		dect_tree_add_reserved_item(tree, hf_dect_nr_cvg_data_ie_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
-		proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_ie_seq_num, tvb, offset, 2, ENC_BIG_ENDIAN, &seq_num);
+	if (si == 2 || si == 3) { /* The payload field contains an incomplete SDU and is not the first segment */
+		proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_ep_seg_offset, tvb, offset, 2, ENC_BIG_ENDIAN, &seg_offset);
 		offset += 2;
+	}
 
-		if (sli == 1) { /* Length included */
-			proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_ie_sdu_len, tvb, offset, 2, ENC_BIG_ENDIAN, &sdu_len);
-			offset += 2;
-		} else { /* Length not included */
-			sdu_len = ie_len;
-		}
+	subtvb = cvg_data_reassemble(tvb, offset, pinfo, tree, cvg_ctx, hf_dect_nr_cvg_data_payload,
+				     si, seq_num, seg_offset, &data_len, &data_incomplete,
+				     &data_item, &data_info);
 
-		if (si == 2 || si == 3) { /* The payload field contains an incomplete SDU and is not the first segment */
-			proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_data_ie_seg_offset, tvb, offset, 2, ENC_BIG_ENDIAN, &seg_offset);
-			offset += 2;
-		}
-
-		subtvb = tvb_new_subset_length(tvb, offset, sdu_len);
-
+	if (subtvb) {
 		/* No COL_INFO updates from the dect_nr dissector after a matching ep_mux */
 		col_set_writable(pinfo->cinfo, COL_INFO, true);
 		col_append_str(pinfo->cinfo, COL_PROTOCOL, "/");
 		col_set_fence(pinfo->cinfo, COL_PROTOCOL);
-		sublen = dissector_try_uint_with_data(ep_mux_dissector_table, ep_mux, subtvb, pinfo, proto_tree_get_root(tree), false, NULL);
+		sublen = dissector_try_uint_with_data(ep_mux_dissector_table, ep_mux, subtvb, pinfo,
+						      proto_tree_get_root(tree), false, NULL);
 		col_set_writable(pinfo->cinfo, COL_INFO, false);
 
 		if (sublen <= 0) {
-			call_dissector(data_handle, subtvb, pinfo, proto_tree_get_root(parent_tree));
+			call_data_dissector(subtvb, pinfo, proto_tree_get_root(parent_tree));
 			col_set_writable(pinfo->cinfo, COL_INFO, true);
 			col_append_str(pinfo->cinfo, COL_PROTOCOL, "data");
 		}
-		offset += sdu_len;
+	}
+
+	cvg_data_append_col_info(pinfo, data_item, data_incomplete, data_info);
+	proto_item_set_len(item, offset + data_len);
+
+	return offset + data_len;
+}
+
+/* 6.3.6 Data Transparent IE */
+static int dissect_cvg_data_transparent_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
+{
+	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_data_transparent_ie, tvb, 0, -1, ENC_NA);
+	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_cvg_data_transparent_ie);
+	int length = tvb_reported_length(tvb);
+
+	proto_tree_add_item(tree, hf_dect_nr_cvg_data_transparent_payload, tvb, 0, length, ENC_NA);
+
+	/* No COL_INFO updates from the data dissector */
+	col_set_writable(pinfo->cinfo, COL_INFO, false);
+	call_data_dissector(tvb, pinfo, proto_tree_get_root(parent_tree));
+	col_set_writable(pinfo->cinfo, COL_INFO, true);
+
+	col_append_sep_fstr(pinfo->cinfo, COL_INFO, ", ", "Data Transparent IE, Length: %u", length);
+
+	return length;
+}
+
+/* 6.3.7 Security IE */
+static int dissect_cvg_security_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data _U_)
+{
+	unsigned offset = 0;
+
+	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_security_ie, tvb, offset, -1, ENC_NA);
+	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_cvg_security_ie);
+
+	dect_tree_add_reserved_item(tree, hf_dect_nr_cvg_security_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
+	proto_tree_add_item(tree, hf_dect_nr_cvg_security_key_index, tvb, offset, 1, ENC_BIG_ENDIAN);
+	proto_tree_add_item(tree, hf_dect_nr_cvg_security_sec_iv_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset++;
+
+	proto_tree_add_item(tree, hf_dect_nr_cvg_security_hpc, tvb, offset, 4, ENC_BIG_ENDIAN);
+	offset += 4;
+
+	proto_item_set_len(item, offset);
+
+	return offset;
+}
+
+/* 6.3.8 TX Services Config IE */
+static int dissect_cvg_tx_services_config_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
+{
+	unsigned offset = 0;
+
+	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_tx_services_config_ie, tvb, offset, -1, ENC_NA);
+	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_cvg_tx_services_config_ie);
+
+	proto_tree_add_item(tree, hf_dect_nr_cvg_tx_services_config_rq_rs, tvb, offset, 1, ENC_BIG_ENDIAN);
+	dect_tree_add_reserved_item(tree, hf_dect_nr_cvg_tx_services_config_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
+	proto_tree_add_item(tree, hf_dect_nr_cvg_tx_services_config_service_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset++;
+
+	proto_tree_add_item(tree, hf_dect_nr_cvg_tx_services_config_lifetime, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset++;
+
+	dect_tree_add_reserved_item(tree, hf_dect_nr_cvg_tx_services_config_res2, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
+	proto_tree_add_item(tree, hf_dect_nr_cvg_tx_services_config_max_window_size, tvb, offset, 2, ENC_BIG_ENDIAN);
+	offset += 2;
+
+	proto_item_set_len(item, offset);
+
+	return offset;
+}
+
+/* 6.3.9 ARQ Feedback IE */
+static int dissect_cvg_arq_fb_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data)
+{
+	unsigned offset = 0;
+	uint8_t fb_info;
+
+	dect_nr_cvg_context_t *ctx = (dect_nr_cvg_context_t *)data;
+
+	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_arq_fb_ie, tvb, offset, -1, ENC_NA);
+	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_cvg_arq_fb_ie);
+	proto_item *uc_item;
+
+	/* No ie_length is one ARQ Feedback IE format 1 */
+	unsigned length = ((ctx && ctx->ie_length_present) ? ctx->ie_length : 2);
+
+	while (offset < length) {
+		proto_tree_add_item(tree, hf_dect_nr_cvg_arq_fb_a_n, tvb, offset, 1, ENC_BIG_ENDIAN);
+		proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_arq_fb_info, tvb, offset, 1, ENC_BIG_ENDIAN, &fb_info);
+		proto_tree_add_item(tree, hf_dect_nr_cvg_arq_fb_seq_num, tvb, offset, 2, ENC_BIG_ENDIAN);
+		offset += 2;
+
+		switch (fb_info) {
+		case 0: /* Format 1 is used */
+		case 5:
+			break;
+
+		case 1: /* Format 2 is used */
+		case 2:
+			proto_tree_add_item(tree, hf_dect_nr_cvg_arq_fb_seg_offset, tvb, offset, 2, ENC_BIG_ENDIAN);
+			offset += 2;
+			break;
+
+		case 3: /* Format 3 is used */
+			proto_tree_add_item(tree, hf_dect_nr_cvg_arq_fb_seg_offset_start, tvb, offset, 2, ENC_BIG_ENDIAN);
+			offset += 2;
+
+			proto_tree_add_item(tree, hf_dect_nr_cvg_arq_fb_seg_offset_end, tvb, offset, 2, ENC_BIG_ENDIAN);
+			offset += 2;
+			break;
+
+		case 4: /* Format 4 is used */
+			proto_tree_add_item(tree, hf_dect_nr_cvg_arq_fb_res1, tvb, offset, 1, ENC_BIG_ENDIAN);
+			proto_tree_add_item(tree, hf_dect_nr_cvg_arq_fb_seq_num, tvb, offset, 2, ENC_BIG_ENDIAN);
+			offset += 2;
+			break;
+
+		default: /* Reserved */
+			uc_item = proto_tree_add_item(tree, hf_dect_nr_undecoded, tvb, offset, length, ENC_NA);
+			expert_add_info(pinfo, uc_item, &ei_dect_nr_undecoded);
+			offset = length;
+		}
+	}
+
+	proto_item_set_len(item, offset);
+
+	return offset;
+}
+
+/* 6.3.10 ARQ Poll IE */
+static int dissect_cvg_arq_poll_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data _U_)
+{
+	unsigned offset = 0;
+
+	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_arq_poll_ie, tvb, offset, -1, ENC_NA);
+	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_cvg_arq_poll_ie);
+
+	dect_tree_add_reserved_item(tree, hf_dect_nr_cvg_arq_poll_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
+	proto_tree_add_item(tree, hf_dect_nr_cvg_arq_poll_seq_num, tvb, offset, 2, ENC_BIG_ENDIAN);
+	offset += 2;
+
+	proto_item_set_len(item, offset);
+
+	return offset;
+}
+
+/* 6.3.11 Flow Status IE */
+static int dissect_cvg_flow_status_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data _U_)
+{
+	unsigned offset = 0;
+
+	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_flow_status_ie, tvb, offset, -1, ENC_NA);
+	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_cvg_flow_status_ie);
+
+	dect_tree_add_reserved_item(tree, hf_dect_nr_cvg_flow_status_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
+	proto_tree_add_item(tree, hf_dect_nr_cvg_flow_status_reason, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset++;
+
+	proto_item_set_len(item, offset);
+
+	return offset;
+}
+
+static int dissect_cvg_escape_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data)
+{
+	dect_nr_cvg_context_t *ctx = (dect_nr_cvg_context_t *)data;
+	int length = ((ctx && ctx->ie_length_present) ? ctx->ie_length : tvb_reported_length(tvb));
+
+	proto_tree_add_item(parent_tree, hf_dect_nr_cvg_escape, tvb, 0, length, ENC_NA);
+
+	return length;
+}
+
+static int dissect_cvg_ie(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *parent_tree, dect_nr_cvg_context_t *ctx)
+{
+	tvbuff_t *subtvb;
+	int sublen;
+
+	subtvb = tvb_new_subset_length(tvb, offset, tvb_reported_length_remaining(tvb, offset));
+	sublen = dissector_try_uint_with_data(ie_cvg_dissector_table, ctx->ie_type, subtvb, pinfo, parent_tree, false, ctx);
+
+	if (sublen > 0) {
+		offset += sublen;
+	} else if (tvb_reported_length_remaining(tvb, offset) > 0) {
+		/* Unknown message */
+		proto_item *uc_item = proto_tree_add_item(parent_tree, hf_dect_nr_undecoded, tvb, offset, ctx->ie_length, ENC_NA);
+		expert_add_info(pinfo, uc_item, &ei_dect_nr_undecoded);
+		offset += ctx->ie_length;
+	}
+
+	return offset;
+}
+
+static int dissect_cvg_header_f2c(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, uint8_t f2c, dect_nr_cvg_context_t *ctx)
+{
+	tvbuff_t *subtvb;
+	proto_item *uc_item;
+
+	switch (f2c) {
+	case 0: /* Data IE */
+		subtvb = tvb_new_subset_length(tvb, offset, ctx->ie_length);
+		offset += dissect_cvg_data_ie(subtvb, pinfo, tree, ctx);
 		break;
 
-	case 3: /* Data Transparent IE */
-		item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_data_transp_ie, tvb, offset, ie_len, ENC_NA);
-		tree = proto_item_add_subtree(item, ett_dect_nr_cvg_data_transp_ie);
-
-		subtvb = tvb_new_subset_length(tvb, offset, ie_len);
-
-		/* No COL_INFO updates from the data dissector */
-		col_set_writable(pinfo->cinfo, COL_INFO, false);
-		call_dissector(data_handle, subtvb, pinfo, proto_tree_get_root(parent_tree));
-		col_set_writable(pinfo->cinfo, COL_INFO, true);
-
-		col_append_sep_fstr(pinfo->cinfo, COL_INFO, ", ", "Data Transparent IE, Length: %u", ie_len);
-
-		offset += ie_len;
+	case 1: /* ARQ Feedback IE */
+		subtvb = tvb_new_subset_length(tvb, offset, ctx->ie_length);
+		offset += dissect_cvg_arq_fb_ie(subtvb, pinfo, tree, ctx);
 		break;
 
-	case 4: /* Security IE */
-		item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_security_ie, tvb, offset, ie_len, ENC_NA);
-		tree = proto_item_add_subtree(item, ett_dect_nr_cvg_security_ie);
-
-		/* TODO: Dissect Security IE */
-		offset = call_dissector(data_handle, tvb, pinfo, tree);
-		break;
-
-	case 5: /* TX Services Config IE */
-		item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_tx_services_conf_ie, tvb, offset, ie_len, ENC_NA);
-		tree = proto_item_add_subtree(item, ett_dect_nr_cvg_tx_services_conf_ie);
-
-		/* TODO: Dissect TX Services Config IE */
-		offset = call_dissector(data_handle, tvb, pinfo, tree);
-		break;
-
-	case 6: /* ARQ Feedback IE */
-		item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_arq_fb_ie, tvb, offset, ie_len, ENC_NA);
-		tree = proto_item_add_subtree(item, ett_dect_nr_cvg_arq_fb_ie);
-
-		/* TODO: ARQ Feedback IE */
-		offset = call_dissector(data_handle, tvb, pinfo, tree);
-		break;
-
-	case 7: /* ARQ Poll IE */
-		item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_arq_poll_ie, tvb, offset, ie_len, ENC_NA);
-		tree = proto_item_add_subtree(item, ett_dect_nr_cvg_arq_poll_ie);
-
-		/* TODO: ARQ Poll IE */
-		offset = call_dissector(data_handle, tvb, pinfo, tree);
-		break;
-
-	case 8: /* Flow Status IE */
-		item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_flow_status_ie, tvb, offset, ie_len, ENC_NA);
-		tree = proto_item_add_subtree(item, ett_dect_nr_cvg_flow_status_ie);
-
-		/* TODO: Flow Status IE */
-		offset = call_dissector(data_handle, tvb, pinfo, tree);
-		break;
-
-	case 30: /* Escape */
-		item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_escape, tvb, offset, ie_len, ENC_NA);
-		offset += ie_len;
+	case 2: /* IE coding with CVG IE Type field */
+		dect_tree_add_reserved_item(tree, hf_dect_nr_cvg_header_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
+		proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_header_ie_type, tvb, offset, 1, ENC_BIG_ENDIAN, &ctx->ie_type);
+		proto_item_append_text(tree, " (%s)", val_to_str_const(ctx->ie_type, cvg_header_ie_type_vals, "Unknown"));
+		ctx->ie_type_present = true;
+		offset++;
 		break;
 
 	default: /* Reserved */
-		item = proto_tree_add_item(parent_tree, hf_dect_nr_undecoded, tvb, offset, ie_len, ENC_NA);
-		expert_add_info(pinfo, item, &ei_dect_nr_undecoded);
-		offset += ie_len;
+		uc_item = proto_tree_add_item(tree, hf_dect_nr_undecoded, tvb, offset, ctx->ie_length, ENC_NA);
+		expert_add_info(pinfo, uc_item, &ei_dect_nr_undecoded);
+		offset += ctx->ie_length;
 		break;
 	}
-
-	proto_item_set_len(item, offset - start);
 
 	return offset;
 }
 
 /* 6.3.2 CVG Header */
-static int dissect_cvg_header(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *parent_tree)
+static int dissect_cvg_header(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *parent_tree, dect_nr_context_t *dlc_ctx)
 {
 	int start = offset;
-	uint8_t ie_type;
-	bool ie_type_present = false;
 	uint8_t cvg_ext;
 	uint8_t mt;
 	uint8_t f2c;
-	uint16_t len;
+
+	dect_nr_cvg_context_t ctx = { 0 };
+
+	ctx.dlc_ctx = dlc_ctx;
 
 	/* CVG header tree */
 	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_header, tvb, offset, 1, ENC_NA);
@@ -2866,31 +3351,32 @@ static int dissect_cvg_header(tvbuff_t *tvb, int offset, packet_info *pinfo, pro
 	proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_header_mt, tvb, offset, 1, ENC_BIG_ENDIAN, &mt);
 
 	if (mt == 0) { /* CVG Header format 1 */
-		proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_header_ie_type, tvb, offset, 1, ENC_BIG_ENDIAN, &ie_type);
-		proto_item_append_text(tree, " (%s)", val_to_str_const(ie_type, dect_nr_cvg_header_ie_type_vals, "Unknown"));
-		ie_type_present = true;
+		proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_header_ie_type, tvb, offset, 1, ENC_BIG_ENDIAN, &ctx.ie_type);
+		proto_item_append_text(tree, " (%s)", val_to_str_const(ctx.ie_type, cvg_header_ie_type_vals, "Unknown"));
+		ctx.ie_type_present = true;
 	} else { /* CVG Header format 2 */
 		proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_header_f2c, tvb, offset, 1, ENC_BIG_ENDIAN, &f2c);
 		proto_tree_add_item(tree, hf_dect_nr_cvg_header_mux_tag, tvb, offset, 1, ENC_BIG_ENDIAN);
-		proto_item_append_text(tree, " (%s)", val_to_str_const(f2c, dect_nr_cvg_header_f2c_vals, "Unknown"));
-
-		/* TODO: Add Mux Tag checking */
+		proto_item_append_text(tree, " (%s)", val_to_str_const(f2c, cvg_header_f2c_vals, "Unknown"));
 	}
 	offset++;
 
 	/* CVG Ext coding */
 	switch (cvg_ext) {
 	case 0: /* No length field included in CVG header */
-		len = tvb_reported_length_remaining(tvb, offset);
+		ctx.ie_length = tvb_reported_length_remaining(tvb, offset);
+		ctx.ie_length_present = false;
 		break;
 
 	case 1: /* 8-bit length included indicating the length of the IE payload.  */
-		proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_header_length, tvb, offset, 1, ENC_BIG_ENDIAN, &len);
+		proto_tree_add_item_ret_uint(tree, hf_dect_nr_cvg_header_length, tvb, offset, 1, ENC_BIG_ENDIAN, &ctx.ie_length);
+		ctx.ie_length_present = true;
 		offset++;
 		break;
 
 	case 2: /* 16-bit length included indicating the length of the IE payload. */
-		proto_tree_add_item_ret_uint16(tree, hf_dect_nr_cvg_header_length, tvb, offset, 2, ENC_BIG_ENDIAN, &len);
+		proto_tree_add_item_ret_uint(tree, hf_dect_nr_cvg_header_length, tvb, offset, 2, ENC_BIG_ENDIAN, &ctx.ie_length);
+		ctx.ie_length_present = true;
 		offset += 2;
 		break;
 
@@ -2898,16 +3384,12 @@ static int dissect_cvg_header(tvbuff_t *tvb, int offset, packet_info *pinfo, pro
 		return offset;
 	}
 
-	if (mt == 1 && f2c == 2) { /* IE coding with CVG IE Type field */
-		dect_tree_add_reserved_item(tree, hf_dect_nr_cvg_header_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
-		proto_tree_add_item_ret_uint8(tree, hf_dect_nr_cvg_header_ie_type, tvb, offset, 1, ENC_BIG_ENDIAN, &ie_type);
-		proto_item_append_text(tree, " (%s)", val_to_str_const(ie_type, dect_nr_cvg_header_ie_type_vals, "Unknown"));
-		ie_type_present = true;
-		offset++;
+	if (mt == 1) {
+		offset = dissect_cvg_header_f2c(tvb, offset, pinfo, tree, f2c, &ctx);
 	}
 
-	if (ie_type_present) {
-		offset = dissect_cvg_ie(tvb, offset, pinfo, tree, ie_type, len);
+	if (ctx.ie_type_present) {
+		offset = dissect_cvg_ie(tvb, offset, pinfo, tree, &ctx);
 	}
 
 	proto_item_set_len(item, offset - start);
@@ -2915,126 +3397,22 @@ static int dissect_cvg_header(tvbuff_t *tvb, int offset, packet_info *pinfo, pro
 	return offset;
 }
 
-static void dissect_cvg_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
+static void dissect_cvg_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree _U_, dect_nr_context_t *dlc_ctx)
 {
-	int offset = 0;
-	int length;
+	unsigned offset = 0;
+	unsigned length;
 
-	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_cvg_pdu, tvb, offset, -1, ENC_NA);
+	proto_item *item = proto_tree_add_item(dlc_ctx->proto_tree, hf_dect_nr_cvg_pdu, tvb, offset, -1, ENC_NA);
 	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_cvg);
 
 	length = tvb_reported_length(tvb);
 	while (offset < length) {
-		offset = dissect_cvg_header(tvb, offset, pinfo, tree);
-	}
-}
-
-
-static bool dissect_cvg_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
-{
-	uint8_t hdr, cvg_ext, mt, ie_type, f2c;
-	uint16_t len;
-
-	/*
-	 * CVG Header Format 1
-	 *
-	 *  0      1      2      3      4      5      6      7
-	 * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	 * |  CVG Ext   | MT |           CVG IE Type         |
-	 * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	 *
-	 * CVG Header Format 2
-	 *  0      1      2      3      4      5      6      7
-	 * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	 * |  CVG Ext   | MT |     F2C     |     Mux Tag     |
-	 * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	 *
-	 */
-
-	if (tvb_captured_length(tvb) < 1) {
-		return false;
-	}
-
-	hdr = tvb_get_uint8(tvb, 0);
-	cvg_ext = (hdr & 0xC0) >> 6;
-
-	if (cvg_ext == 0) {
-		len = 1; /* At least 1 byte */
-	} else if (cvg_ext == 1) {
-		len = tvb_get_uint8(tvb, 1);
-	} else if (cvg_ext == 2) {
-		len = tvb_get_uint16(tvb, 1, ENC_BIG_ENDIAN);
-	} else {
-		return false;
-	}
-
-	/* Check that len is valid for an IE and that the data exists */
-	if (len == 0 || tvb_reported_length_remaining(tvb, 1 + cvg_ext) < len) {
-		return false;
-	}
-
-	/* indicates the header format */
-	mt = (hdr & 0x20);
-
-	if (mt == 0) { /* header format 1 */
-		ie_type = (hdr & 0x1F);
-		if ((ie_type >= 9 && ie_type <= 29) || ie_type == 31) {
-			return false;
-		}
-	} else { /* header format 2 */
-		f2c = (hdr & 0x18) >> 3;
-		if (f2c == 3) {
-			return false;
-		}
-	}
-
-	dissect_cvg_pdu(tvb, pinfo, tree);
-
-	return true;
-}
-
-static void dissect_dlc_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree)
-{
-	heur_dtbl_entry_t *hdtbl_entry;
-
-	switch (dlc_data_type_pref) {
-	case DLC_DATA_TYPE_AUTO:
-		/* No COL_INFO updates from the dect_nr dissector after heuristic */
-		col_set_writable(pinfo->cinfo, COL_INFO, true);
-		if (dissector_try_heuristic(heur_subdissector_list, tvb, pinfo, parent_tree, &hdtbl_entry, NULL)) {
-			const char *dect_nr_text = col_get_text(pinfo->cinfo, COL_PROTOCOL);
-			if (dect_nr_text && strstr(dect_nr_text, "DECT NR+") == NULL) {
-				col_prepend_fstr(pinfo->cinfo, COL_PROTOCOL, "DECT NR+/");
-			}
-			col_set_writable(pinfo->cinfo, COL_INFO, false);
-			break;
-		}
-		/* FALLTHRU */
-
-	case DLC_DATA_TYPE_BINARY:
-		/* No COL_INFO updates from the data dissector */
-		col_set_writable(pinfo->cinfo, COL_INFO, false);
-		call_dissector(data_handle, tvb, pinfo, parent_tree);
-		col_set_writable(pinfo->cinfo, COL_INFO, true);
-		break;
-
-	case DLC_DATA_TYPE_CVG:
-		/* Standard CVG parsing */
-		dissect_cvg_pdu(tvb, pinfo, parent_tree);
-		break;
-
-	case DLC_DATA_TYPE_IPv6:
-		/* No COL_INFO updates from the dect_nr dissector after IPv6 */
-		col_set_writable(pinfo->cinfo, COL_INFO, true);
-		call_dissector(ipv6_handle, tvb, pinfo, parent_tree);
-		col_prepend_fstr(pinfo->cinfo, COL_PROTOCOL, "DECT NR+/");
-		col_set_writable(pinfo->cinfo, COL_INFO, false);
-		break;
+		offset = dissect_cvg_header(tvb, offset, pinfo, tree, dlc_ctx);
 	}
 }
 
 /* DLC Extension Header */
-static int dissect_dlc_extension_header(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *parent_tree)
+static int dissect_dlc_extension_header(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *parent_tree, dect_nr_context_t *dlc_ctx)
 {
 	int start = offset;
 	uint8_t dlc_ext;
@@ -3078,7 +3456,7 @@ static int dissect_dlc_extension_header(tvbuff_t *tvb, int offset, packet_info *
 	case 1: /* CVG PDU */
 		proto_tree_add_item(tree, hf_dect_nr_hls_bin, tvb, offset, ext_length, ENC_NA);
 		subtvb = tvb_new_subset_length(tvb, offset, ext_length);
-		dissect_dlc_data(subtvb, pinfo, proto_tree_get_root(tree));
+		dissect_cvg_pdu(subtvb, pinfo, tree, dlc_ctx);
 		offset += ext_length;
 		break;
 
@@ -3120,7 +3498,7 @@ static int dissect_dlc_extension_header(tvbuff_t *tvb, int offset, packet_info *
 /* DLC Service Type */
 static int dissect_dlc_service_type(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	proto_item *uc_item;
 	proto_item *data_item = NULL;
 	uint8_t dlc_ie_type;
@@ -3136,12 +3514,17 @@ static int dissect_dlc_service_type(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 
 	dect_nr_context_t *ctx = (dect_nr_context_t *)data;
 
-	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_dlc_pdu, tvb, offset, -1, ENC_NA);
-	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_dlc_pdu);
-
+	proto_tree_add_item(parent_tree, hf_dect_nr_mux_mac_sdu, tvb, offset, -1, ENC_NA);
 	length = tvb_captured_length_remaining(tvb, offset);
 
-	if (!ctx || !ctx->ie_length_present) {
+	if (!ctx) { /* No context */
+		return offset + length;
+	}
+
+	proto_item *item = proto_tree_add_item(ctx->proto_tree, hf_dect_nr_dlc_pdu, tvb, offset, -1, ENC_NA);
+	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_dlc_pdu);
+
+	if (!ctx->ie_length_present) {
 		expert_add_info(pinfo, tree, &ei_dect_nr_ie_length_not_set);
 		return offset + length;
 	}
@@ -3261,10 +3644,10 @@ static int dissect_dlc_service_type(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 		}
 
 		/* Reassemble segments */
-		frag_msg = fragment_add_seq_next(&dect_nr_reassembly_table, tvb, offset, pinfo,
+		frag_msg = fragment_add_seq_next(&dect_nr_dlc_reassembly_table, tvb, offset, pinfo,
 						 sn, ctx, data_len, (si == 1 || si == 3));
 		subtvb = process_reassembled_data(tvb, offset, pinfo, "Reassembled DLC",
-						  frag_msg, &dect_nr_segment_items, NULL, tree);
+						  frag_msg, &dect_nr_dlc_segment_items, NULL, tree);
 	} else {
 		subtvb = tvb_new_subset_length(tvb, offset, data_len);
 	}
@@ -3275,11 +3658,11 @@ static int dissect_dlc_service_type(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 
 	if (subtvb) {
 		if (dlc_ie_type == 5 || dlc_ie_type == 6) {
-			while (offset < (int)ctx->ie_length) {
-				offset = dissect_dlc_extension_header(tvb, offset, pinfo, tree);
+			while (offset < ctx->ie_length) {
+				offset = dissect_dlc_extension_header(tvb, offset, pinfo, tree, ctx);
 			}
 		} else {
-			dissect_dlc_data(subtvb, pinfo, proto_tree_get_root(tree));
+			dissect_cvg_pdu(subtvb, pinfo, tree, ctx);
 			offset += data_len;
 		}
 	} else {
@@ -3336,7 +3719,7 @@ static int dissect_user_plane_data_flow_4(tvbuff_t *tvb, packet_info *pinfo, pro
 /* 6.4.2.2: Network Beacon message */
 static int dissect_network_beacon_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	bool tx_pwr_field;
 	bool nb_current_field;
 	uint8_t nb_channels;
@@ -3395,7 +3778,7 @@ static int dissect_network_beacon_msg(tvbuff_t *tvb, packet_info *pinfo, proto_t
 /* 6.4.2.3: Cluster Beacon message */
 static int dissect_cluster_beacon_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	bool tx_pwr_field;
 	bool fo_field;
 	bool next_chan_field;
@@ -3463,7 +3846,7 @@ static int dissect_cluster_beacon_msg(tvbuff_t *tvb, packet_info *pinfo, proto_t
 /* 6.4.2.4: Association Request message */
 static int dissect_association_request_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t setup_cause;
 	uint8_t num_flows;
 	bool ft_mode_field;
@@ -3530,7 +3913,7 @@ static int dissect_association_request_msg(tvbuff_t *tvb, packet_info *pinfo, pr
 /* 6.4.2.5: Association Response message */
 static int dissect_association_response_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	bool ack_field;
 
 	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_a_rsp_msg, tvb, offset, -1, ENC_NA);
@@ -3603,7 +3986,7 @@ static int dissect_association_response_msg(tvbuff_t *tvb, packet_info *pinfo, p
 /* 6.4.2.6: Association Release message */
 static int dissect_association_release_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t rel_cause;
 
 	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_a_rel_msg, tvb, offset, -1, ENC_NA);
@@ -3622,7 +4005,7 @@ static int dissect_association_release_msg(tvbuff_t *tvb, packet_info *pinfo, pr
 /* 6.4.2.7: Reconfiguration Request message */
 static int dissect_reconfiguration_request_msg(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	bool tx_harq_field;
 	bool rx_harq_field;
 	uint8_t num_flows;
@@ -3667,7 +4050,7 @@ static int dissect_reconfiguration_request_msg(tvbuff_t *tvb, packet_info *pinfo
 /* 6.4.2.8: Reconfiguration Response message */
 static int dissect_reconfiguration_response_msg(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	bool tx_harq_field;
 	bool rx_harq_field;
 	uint8_t num_flows;
@@ -3725,7 +4108,7 @@ static int dissect_additional_mac_msg(tvbuff_t *tvb, packet_info *pinfo _U_, pro
 /* 6.4.2.10 Joining Beacon message */
 static int dissect_joining_beacon_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t nb_channels;
 
 	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_jb_msg, tvb, offset, -1, ENC_NA);
@@ -3750,7 +4133,7 @@ static int dissect_joining_beacon_msg(tvbuff_t *tvb, packet_info *pinfo, proto_t
 /* 6.4.3.1: MAC Security Info IE */
 static int dissect_security_info_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t iv_type;
 
 	dect_nr_context_t *ctx = (dect_nr_context_t *)data;
@@ -3779,7 +4162,7 @@ static int dissect_security_info_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 /* 6.4.3.2: Route Info IE */
 static int dissect_route_info_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_ri_ie, tvb, offset, -1, ENC_NA);
 	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_ri_ie);
@@ -3801,7 +4184,7 @@ static int dissect_route_info_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tr
 /* 6.4.3.3: Resource Allocation IE */
 static int dissect_resource_allocation_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t allocation_type;
 	bool add_field;
 	bool id_field;
@@ -3949,7 +4332,7 @@ static int dissect_resource_allocation_ie(tvbuff_t *tvb, packet_info *pinfo, pro
 /* 6.4.3.4: Random Access Resource IE */
 static int dissect_random_access_resource_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t rar_repeat;
 	bool rar_sfn_field;
 	bool rar_channel_field;
@@ -4041,7 +4424,7 @@ static int dissect_random_access_resource_ie(tvbuff_t *tvb, packet_info *pinfo, 
 /* 6.4.3.5: RD Capability IE */
 static int dissect_rd_capability_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t num_phy_cap;
 
 	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_rdc_ie, tvb, offset, -1, ENC_NA);
@@ -4114,7 +4497,7 @@ static int dissect_rd_capability_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 /* 6.4.3.6: Neighbouring IE */
 static int dissect_neighbouring_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	bool id_field;
 	bool mu_field;
 	bool snr_field;
@@ -4180,7 +4563,7 @@ static int dissect_neighbouring_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 /* 6.4.3.7: Broadcast Indication IE */
 static int dissect_broadcast_indication_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t ind_type;
 	uint8_t idtype;
 	uint8_t feedback = 0;
@@ -4261,7 +4644,7 @@ static int dissect_padding_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree 
 /* 6.4.3.9: Group Assignment IE */
 static int dissect_group_assignment_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	bool single_field;
 	int num_resource_tags;
 
@@ -4295,7 +4678,7 @@ static int dissect_group_assignment_ie(tvbuff_t *tvb, packet_info *pinfo _U_, pr
 /* 6.4.3.10: Load Info IE */
 static int dissect_load_info_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	bool max_assoc_field;
 	bool rd_pt_load_field;
 	bool rach_load_field;
@@ -4350,7 +4733,7 @@ static int dissect_load_info_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *p
 /* 6.4.3.12: Measurement Report IE */
 static int dissect_measurement_report_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	bool snr_field;
 	bool rssi2_field;
 	bool rssi1_field;
@@ -4395,7 +4778,7 @@ static int dissect_measurement_report_ie(tvbuff_t *tvb, packet_info *pinfo, prot
 /* 6.4.3.13: Radio Device Status IE */
 static int dissect_radio_device_status_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t status_field;
 
 	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_rds_ie, tvb, offset, -1, ENC_NA);
@@ -4414,14 +4797,14 @@ static int dissect_radio_device_status_ie(tvbuff_t *tvb, packet_info *pinfo, pro
 }
 
 /* 6.4.3.15 RD Capability short IE */
-static int dissect_rd_capability_short_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
+static int dissect_rd_capability_short_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_rdcs_ie, tvb, offset, -1, ENC_NA);
 	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_rdcs_ie);
 
-	dect_tree_add_reserved_item(tree, hf_dect_nr_rdcs_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
+	proto_tree_add_item(tree, hf_dect_nr_rdcs_max_mcs, tvb, offset, 1, ENC_BIG_ENDIAN);
 	proto_tree_add_item(tree, hf_dect_nr_rdcs_cb_mc, tvb, offset, 1, ENC_BIG_ENDIAN);
 	proto_tree_add_item(tree, hf_dect_nr_rdcs_harq_fb_delay, tvb, offset, 1, ENC_BIG_ENDIAN);
 	proto_tree_add_item(tree, hf_dect_nr_rdcs_dwa, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -4435,7 +4818,7 @@ static int dissect_rd_capability_short_ie(tvbuff_t *tvb, packet_info *pinfo, pro
 /* 6.4.3.16 Source Routing IE */
 static int dissect_source_routing_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_sr_ie, tvb, offset, -1, ENC_NA);
 	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_sr_ie);
@@ -4444,6 +4827,9 @@ static int dissect_source_routing_ie(tvbuff_t *tvb, packet_info *pinfo _U_, prot
 	offset += 4;
 
 	proto_tree_add_item(tree, hf_dect_nr_sr_hop_limit, tvb, offset, 1, ENC_BIG_ENDIAN);
+	dect_tree_add_reserved_item(tree, hf_dect_nr_sr_res1, tvb, offset, 1, pinfo, ENC_BIG_ENDIAN);
+	offset++;
+
 	proto_tree_add_item(tree, hf_dect_nr_sr_hop_count, tvb, offset, 1, ENC_BIG_ENDIAN);
 	offset++;
 
@@ -4458,7 +4844,7 @@ static int dissect_source_routing_ie(tvbuff_t *tvb, packet_info *pinfo _U_, prot
 /* 6.4.3.17 Joining Information IE */
 static int dissect_joining_information_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t num_eps;
 
 	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_ji_ie, tvb, offset, -1, ENC_NA);
@@ -4481,7 +4867,7 @@ static int dissect_joining_information_ie(tvbuff_t *tvb, packet_info *pinfo, pro
 /* 6.4.3.18 Association Control IE */
 static int dissect_association_control_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 
 	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_ac_ie, tvb, offset, -1, ENC_NA);
 	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_ac_ie);
@@ -4489,6 +4875,38 @@ static int dissect_association_control_ie(tvbuff_t *tvb, packet_info *pinfo _U_,
 	proto_tree_add_item(tree, hf_dect_nr_ac_cb_m, tvb, offset, 1, ENC_BIG_ENDIAN);
 	proto_tree_add_item(tree, hf_dect_nr_ac_dl_data_reception, tvb, offset, 1, ENC_BIG_ENDIAN);
 	proto_tree_add_item(tree, hf_dect_nr_ac_ul_period, tvb, offset, 1, ENC_BIG_ENDIAN);
+	offset++;
+
+	proto_item_set_len(item, offset);
+
+	return offset;
+}
+
+/* 6.4.3.19 Access Token IE */
+static int dissect_access_token_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data _U_)
+{
+	unsigned offset = 0;
+
+	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_at_ie, tvb, offset, -1, ENC_NA);
+	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_at_ie);
+
+	proto_tree_add_item(tree, hf_dect_nr_at_nonce, tvb, offset, 4, ENC_BIG_ENDIAN);
+	offset += 4;
+
+	proto_item_set_len(item, offset);
+
+	return offset;
+}
+
+/* 6.4.3.20 Application Sequence Number IE */
+static int dissect_application_sequence_number_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *parent_tree, void *data _U_)
+{
+	unsigned offset = 0;
+
+	proto_item *item = proto_tree_add_item(parent_tree, hf_dect_nr_asn_ie, tvb, offset, -1, ENC_NA);
+	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr_asn_ie);
+
+	proto_tree_add_item(tree, hf_dect_nr_asn_sn, tvb, offset, 1, ENC_BIG_ENDIAN);
 	offset++;
 
 	proto_item_set_len(item, offset);
@@ -4510,7 +4928,7 @@ static int dissect_escape(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tre
 /* IE type Extension */
 static int dissect_ie_type_extension(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t extension_type;
 	tvbuff_t *subtvb;
 	int sublen;
@@ -4809,16 +5227,25 @@ static int dissect_mac_pdu(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_
 	return offset;
 }
 
-static int dissect_dect_nr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data _U_)
+static int dissect_dect_nr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *data)
 {
 	dect_nr_context_t ctx = { 0 };
-	int offset = 0;
+	unsigned offset = 0;
 
 	proto_item *item = proto_tree_add_item(parent_tree, proto_dect_nr, tvb, offset, -1, ENC_NA);
 	proto_tree *tree = proto_item_add_subtree(item, ett_dect_nr);
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "DECT NR+");
 	col_clear(pinfo->cinfo, COL_INFO);
+
+	if (data && phf_type_pref == DECT_NR_PHF_TYPE_AUTO) {
+		dect_nr_info_t *info = (dect_nr_info_t *)data;
+		ctx.phf_type = info->phf_type;
+	} else {
+		/* Use PHF type preference */
+		ctx.phf_type = phf_type_pref;
+	}
+	ctx.proto_tree = tree;
 
 	/* 6.2 Physical Header Field */
 	offset = dissect_physical_header_field(tvb, offset, pinfo, tree, &ctx);
@@ -5048,8 +5475,8 @@ void proto_register_dect_nr(void)
 		/* 6.3: MAC PDU */
 
 		{ &hf_dect_nr_mac_pdu,
-			{ "MAC PDU", "dect_nr.mac", FT_NONE, BASE_NONE,
-			  NULL, 0x0, "Medium Access Control (layer) PDU", HFILL }
+			{ "Medium Access Control (MAC PDU)", "dect_nr.mac", FT_NONE, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
 		},
 		{ &hf_dect_nr_mac_version,
 			{ "Version", "dect_nr.mac.version", FT_UINT8, BASE_DEC,
@@ -5111,7 +5538,11 @@ void proto_register_dect_nr(void)
 		},
 		{ &hf_dect_nr_uc_hdr_res1,
 			{ "Reserved", "dect_nr.mac.hdr.uc.res1", FT_UINT16, BASE_DEC,
-			  NULL, 0xE000, NULL, HFILL }
+			  NULL, 0xC000, NULL, HFILL }
+		},
+		{ &hf_dect_nr_uc_hdr_dwa,
+			{ "DWA", "dect_nr.mac.hdr.uc.dwa", FT_BOOLEAN, 16,
+			  NULL, 0x2000, NULL, HFILL }
 		},
 		{ &hf_dect_nr_uc_hdr_rst,
 			{ "Reset", "dect_nr.mac.hdr.uc.rst", FT_BOOLEAN, 16,
@@ -5179,6 +5610,10 @@ void proto_register_dect_nr(void)
 		},
 		{ &hf_dect_nr_mux_mac_ie_len,
 			{ "IE length in bytes", "dect_nr.mac.mux_hdr.ie_len", FT_UINT16, BASE_DEC,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_mux_mac_sdu,
+			{ "MAC SDU", "dect_nr.mac.mux_hdr.mac_sdu", FT_BYTES, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
 
@@ -6325,9 +6760,9 @@ void proto_register_dect_nr(void)
 			{ "RD Capability short IE", "dect_nr.mac.rdcs", FT_NONE, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_rdcs_res1,
-			{ "Reserved", "dect_nr.mac.rdcs.res1", FT_UINT8, BASE_DEC,
-			  NULL, 0xC0, NULL, HFILL }
+		{ &hf_dect_nr_rdcs_max_mcs,
+			{ "Max MCS", "dect_nr.mac.rdcs.max_mcs", FT_UINT8, BASE_DEC,
+			  VALS(rdcs_max_mcs_vals), 0xC0, NULL, HFILL }
 		},
 		{ &hf_dect_nr_rdcs_cb_mc,
 			{ "CB/MC capability", "dect_nr.mac.rdcs.cb_mc", FT_BOOLEAN, 8,
@@ -6355,12 +6790,16 @@ void proto_register_dect_nr(void)
 			{ "Hop-limit", "dect_nr.mac.sr.hop_limit", FT_UINT8, BASE_DEC,
 			  NULL, 0xF0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_sr_hop_count,
-			{ "Hop-count", "dect_nr.mac.sr.hop_count", FT_UINT8, BASE_DEC,
+		{ &hf_dect_nr_sr_res1,
+			{ "Reserved", "dect_nr.mac.sr.res1", FT_UINT8, BASE_DEC,
 			  NULL, 0x0F, NULL, HFILL }
 		},
+		{ &hf_dect_nr_sr_hop_count,
+			{ "Hop-count", "dect_nr.mac.sr.hop_count", FT_UINT8, BASE_DEC,
+			  NULL, 0x0, NULL, HFILL }
+		},
 		{ &hf_dect_nr_sr_reg_validity_timer,
-			{ "Registration validity timer", "dect_nr.mac.sr.reg_validity_timer", FT_UINT8, BASE_DEC,
+			{ "Validity Timer", "dect_nr.mac.sr.reg_validity_timer", FT_UINT8, BASE_DEC,
 			  VALS(sr_reg_validity_timer_vals), 0x0, NULL, HFILL }
 		},
 
@@ -6400,6 +6839,26 @@ void proto_register_dect_nr(void)
 			  VALS(ac_ul_period_vals), 0x0F, NULL, HFILL }
 		},
 
+		/* 6.4.3.19 Access Token IE */
+		{ &hf_dect_nr_at_ie,
+			{ "Access Token IE", "dect_nr.mac.at", FT_NONE, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_at_nonce,
+			{ "Nonce", "dect_nr.mac.at.nonce", FT_UINT32, BASE_DEC,
+			  NULL, 0x0, NULL, HFILL }
+		},
+
+		/* 6.4.3.20 Application Sequence Number IE */
+		{ &hf_dect_nr_asn_ie,
+			{ "Application Sequence Number IE", "dect_nr.mac.asn", FT_NONE, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_asn_sn,
+			{ "Application Sequence Number", "dect_nr.mac.asn.sn", FT_UINT8, BASE_DEC,
+			  NULL, 0x0, NULL, HFILL }
+		},
+
 		/* Escape */
 		{ &hf_dect_nr_escape,
 			{ "Escape", "dect_nr.mac.escape", FT_BYTES, BASE_NONE,
@@ -6425,8 +6884,8 @@ void proto_register_dect_nr(void)
 		/* DLC Headers and Messages */
 
 		{ &hf_dect_nr_dlc_pdu,
-			{ "DLC PDU", "dect_nr.dlc", FT_NONE, BASE_NONE,
-			  NULL, 0x0, "Data Link Control (layer) PDU", HFILL }
+			{ "Data Link Control (DLC PDU)", "dect_nr.dlc", FT_NONE, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
 		},
 		{ &hf_dect_nr_dlc_ie_type,
 			{ "IE Type", "dect_nr.dlc.ie_type", FT_UINT8, BASE_DEC,
@@ -6554,9 +7013,10 @@ void proto_register_dect_nr(void)
 		},
 
 		/* CVG Headers and Messages */
+
 		{ &hf_dect_nr_cvg_pdu,
-			{ "CVG PDU", "dect_nr.cvg", FT_NONE, BASE_NONE,
-			  NULL, 0x0, "Convergence (layer) PDU", HFILL }
+			{ "Convergence Layer (CVG PDU)", "dect_nr.cvg", FT_NONE, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
 		},
 		{ &hf_dect_nr_cvg_header,
 			{ "CVG Header", "dect_nr.cvg.header", FT_NONE, BASE_NONE,
@@ -6564,11 +7024,11 @@ void proto_register_dect_nr(void)
 		},
 		{ &hf_dect_nr_cvg_header_cvg_ext,
 			{ "Ext", "dect_nr.cvg.header.ext", FT_UINT8, BASE_HEX,
-			  VALS(dect_nr_cvg_header_ext_vals), 0xC0, NULL, HFILL }
+			  VALS(cvg_header_ext_vals), 0xC0, NULL, HFILL }
 		},
 		{ &hf_dect_nr_cvg_header_mt,
 			{ "MT", "dect_nr.cvg.header.mt", FT_UINT8, BASE_HEX,
-			  VALS(dect_nr_cvg_header_mt_vals), 0x20, NULL, HFILL }
+			  VALS(cvg_header_mt_vals), 0x20, NULL, HFILL }
 		},
 		{ &hf_dect_nr_cvg_header_res1,
 			{ "Reserved", "dect_nr.cvg.header.res1", FT_UINT8, BASE_HEX,
@@ -6576,90 +7036,224 @@ void proto_register_dect_nr(void)
 		},
 		{ &hf_dect_nr_cvg_header_ie_type,
 			{ "IE Type", "dect_nr.cvg.header.ie_type", FT_UINT8, BASE_HEX,
-			  VALS(dect_nr_cvg_header_ie_type_vals), 0x1F, NULL, HFILL }
+			  VALS(cvg_header_ie_type_vals), 0x1F, NULL, HFILL }
 		},
 		{ &hf_dect_nr_cvg_header_f2c,
 			{ "F2C", "dect_nr.cvg.header.f2c", FT_UINT8, BASE_HEX,
-			  VALS(dect_nr_cvg_header_f2c_vals), 0x18, NULL, HFILL }
+			  VALS(cvg_header_f2c_vals), 0x18, "Format 2 Coding", HFILL }
 		},
 		{ &hf_dect_nr_cvg_header_mux_tag,
 			{ "Mux Tag", "dect_nr.cvg.header.mux_tag", FT_UINT8, BASE_HEX,
 			  NULL, 0x07, NULL, HFILL }
 		},
 		{ &hf_dect_nr_cvg_header_length,
-			{ "Length", "dect_nr.cvg.header.length", FT_UINT16, BASE_DEC,
+			{ "IE payload length", "dect_nr.cvg.header.length", FT_UINT16, BASE_DEC,
 			  NULL, 0x0, NULL, HFILL }
 		},
 
-		/* CVG IEs */
+		/* 6.3.3 EP Mux IE */
 		{ &hf_dect_nr_cvg_ep_mux_ie,
-			{ "EP mux IE", "dect_nr.cvg.ep_mux_ie", FT_NONE, BASE_NONE,
+			{ "EP mux IE", "dect_nr.cvg.ep_mux", FT_NONE, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_cvg_ep_mux_ie_endpoint,
-			{ "Endpoint Mux", "dect_nr.cvg.ep_mux_ie.endpoint", FT_UINT16, BASE_HEX|BASE_RANGE_STRING,
-			  RVALS(dect_nr_cvg_ep_mux_values), 0x0, NULL, HFILL }
+		{ &hf_dect_nr_cvg_ep_mux_endpoint,
+			{ "Endpoint Mux", "dect_nr.cvg.ep_mux.endpoint", FT_UINT16, BASE_HEX|BASE_RANGE_STRING,
+			  RVALS(dect_nr_cvg_ep_mux_vals), 0x0, NULL, HFILL }
 		},
+
+		/* 6.3.4 Data IE */
 		{ &hf_dect_nr_cvg_data_ie,
-			{ "Data IE", "dect_nr.cvg.data_ie", FT_NONE, BASE_NONE,
+			{ "Data IE", "dect_nr.cvg.data", FT_NONE, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_cvg_data_ie_si,
-			{ "Segmentation Indication", "dect_nr.cvg.data_ie.si", FT_UINT8, BASE_DEC,
-			  VALS(dect_nr_cvg_si_coding), 0xC0, NULL, HFILL }
+		{ &hf_dect_nr_cvg_data_si,
+			{ "Segmentation Indication", "dect_nr.cvg.data.si", FT_UINT8, BASE_DEC,
+			  VALS(cvg_data_si_coding_vals), 0xC0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_cvg_data_ie_sli,
-			{ "SDU Length Indicator", "dect_nr.cvg.data_ie.sli", FT_UINT8, BASE_DEC,
-			  VALS(dect_nr_cvg_sli_coding), 0x20, NULL, HFILL }
+		{ &hf_dect_nr_cvg_data_sli,
+			{ "SDU Length Indicator", "dect_nr.cvg.data.sli", FT_UINT8, BASE_DEC,
+			  VALS(cvg_data_sli_coding_vals), 0x20, NULL, HFILL }
 		},
-		{ &hf_dect_nr_cvg_data_ie_res1,
-			{ "Reserved", "dect_nr.cvg.data_ie.res1", FT_UINT8, BASE_DEC,
+		{ &hf_dect_nr_cvg_data_res1,
+			{ "Reserved", "dect_nr.cvg.data.res1", FT_UINT8, BASE_DEC,
 			  NULL, 0x10, NULL, HFILL }
 		},
-		{ &hf_dect_nr_cvg_data_ie_seq_num,
-			{ "Sequence number", "dect_nr.cvg.data_ie.seq_num", FT_UINT16, BASE_DEC,
+		{ &hf_dect_nr_cvg_data_seq_num,
+			{ "Sequence number", "dect_nr.cvg.data.seq_num", FT_UINT16, BASE_DEC,
 			  NULL, 0x0FFF, NULL, HFILL }
 		},
-		{ &hf_dect_nr_cvg_data_ie_sdu_len,
-			{ "Payload length", "dect_nr.cvg.data_ie.sdu_len", FT_UINT16, BASE_DEC,
+		{ &hf_dect_nr_cvg_data_sdu_len,
+			{ "Payload length", "dect_nr.cvg.data.sdu_len", FT_UINT16, BASE_DEC,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_cvg_data_ie_seg_offset,
-			{ "Sequence number", "dect_nr.cvg.data_ie.seg_offset", FT_UINT16, BASE_DEC,
+		{ &hf_dect_nr_cvg_data_seg_offset,
+			{ "Segmentation offset", "dect_nr.cvg.data.seg_offset", FT_UINT16, BASE_DEC,
 			  NULL, 0x0, NULL, HFILL }
 		},
+		{ &hf_dect_nr_cvg_data_payload,
+			{ "Payload", "dect_nr.cvg.data.payload", FT_BYTES, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+
+		/* 6.3.5 Data EP IE */
 		{ &hf_dect_nr_cvg_data_ep_ie,
-			{ "Data EP IE", "dect_nr.cvg.data_ep_ie", FT_NONE, BASE_NONE,
+			{ "Data EP IE", "dect_nr.cvg.data_ep", FT_NONE, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_cvg_data_ep_ie_endpoint,
-			{ "Endpoint Mux", "dect_nr.cvg.data_ep_ie.endpoint", FT_UINT16, BASE_HEX|BASE_RANGE_STRING,
-			  RVALS(dect_nr_cvg_ep_mux_values), 0x0, NULL, HFILL }
+		{ &hf_dect_nr_cvg_data_ep_endpoint,
+			{ "Endpoint Mux", "dect_nr.cvg.data_ep.endpoint", FT_UINT16, BASE_HEX|BASE_RANGE_STRING,
+			  RVALS(dect_nr_cvg_ep_mux_vals), 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_cvg_data_transp_ie,
-			{ "Data Transparent IE", "dect_nr.cvg.data_transparent_ie", FT_NONE, BASE_NONE,
+		{ &hf_dect_nr_cvg_data_ep_si,
+			{ "Segmentation Indication", "dect_nr.cvg.data_ep.si", FT_UINT8, BASE_DEC,
+			  VALS(cvg_data_si_coding_vals), 0xC0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_data_ep_sli,
+			{ "SDU Length Indicator", "dect_nr.cvg.data_ep.sli", FT_UINT8, BASE_DEC,
+			  VALS(cvg_data_sli_coding_vals), 0x20, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_data_ep_res1,
+			{ "Reserved", "dect_nr.cvg.data_ep.res1", FT_UINT8, BASE_DEC,
+			  NULL, 0x10, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_data_ep_seq_num,
+			{ "Sequence number", "dect_nr.cvg.data_ep.seq_num", FT_UINT16, BASE_DEC,
+			  NULL, 0x0FFF, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_data_ep_sdu_len,
+			{ "Payload length", "dect_nr.cvg.data_ep.sdu_len", FT_UINT16, BASE_DEC,
 			  NULL, 0x0, NULL, HFILL }
 		},
+		{ &hf_dect_nr_cvg_data_ep_seg_offset,
+			{ "Segmentation offset", "dect_nr.cvg.data_ep.seg_offset", FT_UINT16, BASE_DEC,
+			  NULL, 0x0, NULL, HFILL }
+		},
+
+		/* 6.3.6 Data Transparent IE */
+		{ &hf_dect_nr_cvg_data_transparent_ie,
+			{ "Data Transparent IE", "dect_nr.cvg.data_transparent", FT_NONE, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_data_transparent_payload,
+			{ "Data Payload", "dect_nr.cvg.data_transparent.payload", FT_BYTES, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+
+		/* 6.3.7 Security IE */
 		{ &hf_dect_nr_cvg_security_ie,
-			{ "Security IE", "dect_nr.cvg.security_ie", FT_NONE, BASE_NONE,
+			{ "Security IE", "dect_nr.cvg.security", FT_NONE, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_cvg_tx_services_conf_ie,
-			{ "TX Services Config IE", "dect_nr.cvg.services_conf_ie", FT_NONE, BASE_NONE,
+		{ &hf_dect_nr_cvg_security_res1,
+			{ "Reserved", "dect_nr.cvg.security.res1", FT_UINT8, BASE_DEC,
+			  NULL, 0x80, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_security_key_index,
+			{ "Key Index", "dect_nr.cvg.security.key_index", FT_UINT8, BASE_DEC,
+			  NULL, 0x70, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_security_sec_iv_type,
+			{ "Security IV Type", "dect_nr.cvg.security.iv_type", FT_UINT8, BASE_DEC,
+			  VALS(cvg_sec_iv_type_vals), 0x0F, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_security_hpc,
+			{ "HPC", "dect_nr.cvg.security.hpc", FT_UINT32, BASE_DEC,
 			  NULL, 0x0, NULL, HFILL }
 		},
+
+		/* 6.3.8 TX Services Config IE */
+		{ &hf_dect_nr_cvg_tx_services_config_ie,
+			{ "TX Services Config IE", "dect_nr.cvg.services_config", FT_NONE, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_tx_services_config_rq_rs,
+			{ "Rq/Rs", "dect_nr.cvg.services_config.rq_rs", FT_UINT8, BASE_DEC,
+			  VALS(cvg_rq_rs_vals), 0x80, "Request/Response", HFILL }
+		},
+		{ &hf_dect_nr_cvg_tx_services_config_res1,
+			{ "Reserved", "dect_nr.cvg.services_config.res1", FT_UINT8, BASE_DEC,
+			  NULL, 0x78, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_tx_services_config_service_type,
+			{ "Service Type", "dect_nr.cvg.services_config.service_type", FT_UINT8, BASE_DEC,
+			  VALS(cvg_service_type_vals), 0x07, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_tx_services_config_lifetime,
+			{ "Lifetime", "dect_nr.cvg.services_config.lifetime", FT_UINT8, BASE_DEC,
+			  VALS(cvg_lifetime_vals), 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_tx_services_config_res2,
+			{ "Reserved", "dect_nr.cvg.services_config.res2", FT_UINT8, BASE_DEC,
+			  NULL, 0xF8, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_tx_services_config_max_window_size,
+			{ "Max window size", "dect_nr.cvg.services_config.max_window_size", FT_UINT16, BASE_DEC,
+			  NULL, 0x07FF, NULL, HFILL }
+		},
+
+		/* 6.3.9 ARQ Feedback IE */
 		{ &hf_dect_nr_cvg_arq_fb_ie,
-			{ "ARQ Feedback IE", "dect_nr.cvg.arq_fb_ie", FT_NONE, BASE_NONE,
+			{ "ARQ Feedback IE", "dect_nr.cvg.arq_fb", FT_NONE, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
+		{ &hf_dect_nr_cvg_arq_fb_a_n,
+			{ "A/N", "dect_nr.cvg.arq_fb.a_n", FT_UINT8, BASE_DEC,
+			  VALS(cvg_a_n_vals), 0x80, "ACK/NACK", HFILL }
+		},
+		{ &hf_dect_nr_cvg_arq_fb_info,
+			{ "Feedback info", "dect_nr.cvg.arq_fb.info", FT_UINT8, BASE_DEC,
+			  VALS(cvg_fb_info_vals), 0x70, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_arq_fb_res1,
+			{ "Reserved", "dect_nr.cvg.arq_fb.res1", FT_UINT8, BASE_DEC,
+			  NULL, 0xF0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_arq_fb_seq_num,
+			{ "Sequence number", "dect_nr.cvg.arq_fb.seq_num", FT_UINT16, BASE_DEC,
+			  NULL, 0x0FFF, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_arq_fb_seg_offset,
+			{ "Segmentation offset", "dect_nr.cvg.arq_fb.seg_offset", FT_UINT16, BASE_DEC,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_arq_fb_seg_offset_start,
+			{ "Segmentation offset (start)", "dect_nr.cvg.arq_fb.seg_offset_start", FT_UINT16, BASE_DEC,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_arq_fb_seg_offset_end,
+			{ "Segmentation offset (end)", "dect_nr.cvg.arq_fb.seg_offset_end", FT_UINT16, BASE_DEC,
+			  NULL, 0x0, NULL, HFILL }
+		},
+
+		/* 6.3.10 ARQ Poll IE */
 		{ &hf_dect_nr_cvg_arq_poll_ie,
-			{ "ARQ Poll IE", "dect_nr.cvg.arq_poll_ie", FT_NONE, BASE_NONE,
+			{ "ARQ Poll IE", "dect_nr.cvg.arq_poll", FT_NONE, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
+		{ &hf_dect_nr_cvg_arq_poll_res1,
+			{ "Reserved", "dect_nr.cvg.arq_poll.res1", FT_UINT8, BASE_DEC,
+			  NULL, 0xF0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_arq_poll_seq_num,
+			{ "Sequence Number", "dect_nr.cvg.arq_poll.seq_num", FT_UINT16, BASE_DEC,
+			  NULL, 0x0FFF, NULL, HFILL }
+		},
+
+		/* 6.3.11 Flow Status IE */
 		{ &hf_dect_nr_cvg_flow_status_ie,
-			{ "Flow Status IE", "dect_nr.cvg.flow_status_ie", FT_NONE, BASE_NONE,
+			{ "Flow Status IE", "dect_nr.cvg.flow_status", FT_NONE, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
+		{ &hf_dect_nr_cvg_flow_status_res1,
+			{ "Reserved", "dect_nr.cvg.flow_status.res1", FT_UINT8, BASE_DEC,
+			  NULL, 0xF0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_flow_status_reason,
+			{ "Reason", "dect_nr.cvg.flow_status.reason", FT_UINT8, BASE_DEC,
+			  VALS(cvg_flow_status_reason_vals), 0x0F, NULL, HFILL }
+		},
+
+		/* CVG Escape */
 		{ &hf_dect_nr_cvg_escape,
 			{ "Escape", "dect_nr.cvg.escape", FT_BYTES, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
@@ -6679,45 +7273,87 @@ void proto_register_dect_nr(void)
 			  NULL, 0x0, NULL, HFILL }
 		},
 
-		/* Fragment entries */
-		{ &hf_dect_nr_segments,
+		/* DLC Fragment entries */
+		{ &hf_dect_nr_dlc_segments,
 			{ "DLC segments", "dect_nr.dlc.segments", FT_NONE, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_segment,
+		{ &hf_dect_nr_dlc_segment,
 			{ "DLC segment", "dect_nr.dlc.segment", FT_FRAMENUM, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_segment_overlap,
+		{ &hf_dect_nr_dlc_segment_overlap,
 			{ "DLC segment overlap", "dect_nr.dlc.segment.overlap", FT_BOOLEAN, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_segment_overlap_conflict,
+		{ &hf_dect_nr_dlc_segment_overlap_conflict,
 			{ "DLC segment overlapping with conflicting data", "dect_nr.dlc.segment.overlap.conflict", FT_BOOLEAN, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_segment_multiple_tails,
+		{ &hf_dect_nr_dlc_segment_multiple_tails,
 			{ "DLC has multiple tails", "dect_nr.dlc.segment.multiple_tails", FT_BOOLEAN, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_segment_too_long_segment,
+		{ &hf_dect_nr_dlc_segment_too_long_segment,
 			{ "DLC segment too long", "dect_nr.dlc.segment.too_long_segment", FT_BOOLEAN, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_segment_error,
+		{ &hf_dect_nr_dlc_segment_error,
 			{ "DLC segment error", "dect_nr.dlc.segment.error", FT_FRAMENUM, BASE_NONE,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_segment_count,
+		{ &hf_dect_nr_dlc_segment_count,
 			{ "DLC segment count", "dect_nr.dlc.segment.count", FT_UINT32, BASE_DEC,
 			  NULL, 0x0, NULL, HFILL }
 		},
-		{ &hf_dect_nr_reassembled_in,
+		{ &hf_dect_nr_dlc_reassembled_in,
 			{ "Reassembled DLC in frame", "dect_nr.dlc.reassembled.in", FT_FRAMENUM, BASE_NONE,
 			  NULL, 0x0, "This DLC data is reassembled in this frame", HFILL }
 		},
-		{ &hf_dect_nr_reassembled_length,
+		{ &hf_dect_nr_dlc_reassembled_length,
 			{ "Reassembled DLC length", "dect_nr.dlc.reassembled.length", FT_UINT32, BASE_DEC,
+			  NULL, 0x0, "The total length of the reassembled payload", HFILL }
+		},
+
+		/* CVG Fragment entries */
+		{ &hf_dect_nr_cvg_segments,
+			{ "CVG segments", "dect_nr.cvg.segments", FT_NONE, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_segment,
+			{ "CVG segment", "dect_nr.cvg.segment", FT_FRAMENUM, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_segment_overlap,
+			{ "CVG segment overlap", "dect_nr.cvg.segment.overlap", FT_BOOLEAN, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_segment_overlap_conflict,
+			{ "CVG segment overlapping with conflicting data", "dect_nr.cvg.segment.overlap.conflict", FT_BOOLEAN, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_segment_multiple_tails,
+			{ "CVG has multiple tails", "dect_nr.cvg.segment.multiple_tails", FT_BOOLEAN, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_segment_too_long_segment,
+			{ "CVG segment too long", "dect_nr.cvg.segment.too_long_segment", FT_BOOLEAN, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_segment_error,
+			{ "CVG segment error", "dect_nr.cvg.segment.error", FT_FRAMENUM, BASE_NONE,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_segment_count,
+			{ "CVG segment count", "dect_nr.cvg.segment.count", FT_UINT32, BASE_DEC,
+			  NULL, 0x0, NULL, HFILL }
+		},
+		{ &hf_dect_nr_cvg_reassembled_in,
+			{ "Reassembled CVG in frame", "dect_nr.cvg.reassembled.in", FT_FRAMENUM, BASE_NONE,
+			  NULL, 0x0, "This CVG data is reassembled in this frame", HFILL }
+		},
+		{ &hf_dect_nr_cvg_reassembled_length,
+			{ "Reassembled CVG length", "dect_nr.cvg.reassembled.length", FT_UINT32, BASE_DEC,
 			  NULL, 0x0, "The total length of the reassembled payload", HFILL }
 		},
 	};
@@ -6757,19 +7393,23 @@ void proto_register_dect_nr(void)
 		&ett_dect_nr_sr_ie,
 		&ett_dect_nr_ji_ie,
 		&ett_dect_nr_ac_ie,
+		&ett_dect_nr_at_ie,
+		&ett_dect_nr_asn_ie,
 		&ett_dect_nr_dlc_pdu,
 		&ett_dect_nr_dlc_routing_hdr,
 		&ett_dect_nr_dlc_ext_hdr,
-		&ett_dect_nr_segment,
-		&ett_dect_nr_segments,
+		&ett_dect_nr_dlc_segment,
+		&ett_dect_nr_dlc_segments,
+		&ett_dect_nr_cvg_segment,
+		&ett_dect_nr_cvg_segments,
 		&ett_dect_nr_cvg,
 		&ett_dect_nr_cvg_header,
 		&ett_dect_nr_cvg_ep_mux_ie,
-		&ett_dect_nr_cvg_data_ep_ie,
 		&ett_dect_nr_cvg_data_ie,
-		&ett_dect_nr_cvg_data_transp_ie,
+		&ett_dect_nr_cvg_data_ep_ie,
+		&ett_dect_nr_cvg_data_transparent_ie,
 		&ett_dect_nr_cvg_security_ie,
-		&ett_dect_nr_cvg_tx_services_conf_ie,
+		&ett_dect_nr_cvg_tx_services_config_ie,
 		&ett_dect_nr_cvg_arq_fb_ie,
 		&ett_dect_nr_cvg_arq_poll_ie,
 		&ett_dect_nr_cvg_flow_status_ie,
@@ -6809,7 +7449,8 @@ void proto_register_dect_nr(void)
 	expert_module_t *expert = expert_register_protocol(proto_dect_nr);
 	expert_register_field_array(expert, ei, array_length(ei));
 
-	reassembly_table_register(&dect_nr_reassembly_table, &dect_nr_reassembly_functions);
+	reassembly_table_register(&dect_nr_dlc_reassembly_table, &dect_nr_reassembly_functions);
+	reassembly_table_register(&dect_nr_cvg_reassembly_table, &dect_nr_reassembly_functions);
 
 	dect_nr_handle = register_dissector("dect_nr", dissect_dect_nr, proto_dect_nr);
 
@@ -6817,15 +7458,14 @@ void proto_register_dect_nr(void)
 	ie_dissector_table = register_dissector_table("dect_nr.msg_ie", "DECT NR+ IE type", proto_dect_nr, FT_UINT32, BASE_DEC);
 	ie_short_dissector_table = register_dissector_table("dect_nr.msg_ie_short", "DECT NR+ IE 1-byte type", proto_dect_nr, FT_UINT32, BASE_DEC);
 	ie_extension_dissector_table = register_dissector_table("dect_nr.ie_extension", "DECT NR+ IE extension", proto_dect_nr, FT_UINT32, BASE_DEC);
+	ie_cvg_dissector_table = register_dissector_table("dect_nr.cvg_ie", "DECT NR+ CVG IE type", proto_dect_nr, FT_UINT32, BASE_DEC);
 	ep_mux_dissector_table = register_dissector_table("dect_nr.ep_mux", "DECT NR+ EP Mux extension", proto_dect_nr, FT_UINT32, BASE_DEC);
 
 	module_t *module = prefs_register_protocol(proto_dect_nr, NULL);
 	prefs_register_enum_preference(module, "phf_type", "Physical Header Field Type",
 				       "Automatic will determine type from 6th and 7th packet byte.",
 				       &phf_type_pref, phf_type_pref_vals, false);
-	prefs_register_enum_preference(module, "dlc_data_type", "DLC PDU data type",
-				       "Automatic will use heuristics to determine payload.",
-				       &dlc_data_type_pref, dlc_data_type_pref_vals, false);
+	prefs_register_obsolete_preference(module, "dlc_data_type");
 	prefs_register_bool_preference(module, "mac_pdus_decrypted", "Handle MAC PDUs as decrypted",
 				       "Always handle MAC PDUs as decrypted",
 				       &mac_pdus_decrypted_pref);
@@ -6842,16 +7482,11 @@ void proto_register_dect_nr(void)
 					 "Cipher Key 3 as HEX string.",
 					 &cipher_key_pref[3]);
 
-	heur_subdissector_list = register_heur_dissector_list("dect_nr.dlc", proto_dect_nr);
-
 	rd_id_map = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), g_direct_hash, g_direct_equal);
 }
 
 void proto_reg_handoff_dect_nr(void)
 {
-	data_handle = find_dissector("data");
-	ipv6_handle = find_dissector("ipv6");
-
 	/* Table 6.3.2-2: MAC header type field */
 	dissector_add_uint("dect_nr.mac_hdr", 0, create_dissector_handle(dissect_mac_data_header, proto_dect_nr));
 	dissector_add_uint("dect_nr.mac_hdr", 1, create_dissector_handle(dissect_mac_beacon_header, proto_dect_nr));
@@ -6889,7 +7524,8 @@ void proto_reg_handoff_dect_nr(void)
 	dissector_add_uint("dect_nr.msg_ie", 26, create_dissector_handle(dissect_source_routing_ie, proto_dect_nr));
 	dissector_add_uint("dect_nr.msg_ie", 27, create_dissector_handle(dissect_joining_beacon_msg, proto_dect_nr));
 	dissector_add_uint("dect_nr.msg_ie", 28, create_dissector_handle(dissect_joining_information_ie, proto_dect_nr));
-	/* 29 - 61: Reserved */
+	dissector_add_uint("dect_nr.msg_ie", 29, create_dissector_handle(dissect_access_token_ie, proto_dect_nr));
+	/* 30 - 61: Reserved */
 	dissector_add_uint("dect_nr.msg_ie", 62, create_dissector_handle(dissect_escape, proto_dect_nr));
 	dissector_add_uint("dect_nr.msg_ie", 63, create_dissector_handle(dissect_ie_type_extension, proto_dect_nr));
 
@@ -6898,14 +7534,26 @@ void proto_reg_handoff_dect_nr(void)
 	dissector_add_uint("dect_nr.msg_ie_short", 1, create_dissector_handle(dissect_radio_device_status_ie, proto_dect_nr));
 	dissector_add_uint("dect_nr.msg_ie_short", 2, create_dissector_handle(dissect_rd_capability_short_ie, proto_dect_nr));
 	dissector_add_uint("dect_nr.msg_ie_short", 3, create_dissector_handle(dissect_association_control_ie, proto_dect_nr));
-	/* 4 - 29: Reserved */
+	dissector_add_uint("dect_nr.msg_ie_short", 4, create_dissector_handle(dissect_application_sequence_number_ie, proto_dect_nr));
+	/* 5 - 29: Reserved */
 	dissector_add_uint("dect_nr.msg_ie_short", 30, create_dissector_handle(dissect_escape, proto_dect_nr));
 
-	/* DECT-2020 NR Endpoint Multiplexing Address Allocation */
-	dissector_add_uint("dect_nr.ep_mux", 0x8002, ipv6_handle);
-	dissector_add_uint("dect_nr.ep_mux", 0x8003, find_dissector("6lowpan"));
+	/* Table 6.3.2-2: CVG IE Type coding */
+	dissector_add_uint("dect_nr.cvg_ie", 0, create_dissector_handle(dissect_cvg_ep_mux_ie, proto_dect_nr));
+	dissector_add_uint("dect_nr.cvg_ie", 1, create_dissector_handle(dissect_cvg_data_ie, proto_dect_nr));
+	dissector_add_uint("dect_nr.cvg_ie", 2, create_dissector_handle(dissect_cvg_data_ep_ie, proto_dect_nr));
+	dissector_add_uint("dect_nr.cvg_ie", 3, create_dissector_handle(dissect_cvg_data_transparent_ie, proto_dect_nr));
+	dissector_add_uint("dect_nr.cvg_ie", 4, create_dissector_handle(dissect_cvg_security_ie, proto_dect_nr));
+	dissector_add_uint("dect_nr.cvg_ie", 5, create_dissector_handle(dissect_cvg_tx_services_config_ie, proto_dect_nr));
+	dissector_add_uint("dect_nr.cvg_ie", 6, create_dissector_handle(dissect_cvg_arq_fb_ie, proto_dect_nr));
+	dissector_add_uint("dect_nr.cvg_ie", 7, create_dissector_handle(dissect_cvg_arq_poll_ie, proto_dect_nr));
+	dissector_add_uint("dect_nr.cvg_ie", 8, create_dissector_handle(dissect_cvg_flow_status_ie, proto_dect_nr));
+	/* 9 - 29: Reserved */
+	dissector_add_uint("dect_nr.cvg_ie", 30, create_dissector_handle(dissect_cvg_escape_ie, proto_dect_nr));
 
-	heur_dissector_add("dect_nr.dlc", dissect_cvg_heur, "CVG layer over DLC DECT NR+", "cvg_dect_nr", proto_dect_nr, HEURISTIC_ENABLE);
+	/* DECT-2020 NR Endpoint Multiplexing Address Allocation */
+	dissector_add_uint("dect_nr.ep_mux", 0x8002, find_dissector("ipv6"));
+	dissector_add_uint("dect_nr.ep_mux", 0x8003, find_dissector("6lowpan"));
 
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_DECT_NR, dect_nr_handle);
 	dissector_add_for_decode_as_with_preference("udp.port", dect_nr_handle);

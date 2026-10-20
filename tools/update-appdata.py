@@ -27,11 +27,12 @@ Assume that the tag for the most recent release doesn't exist and use
 today's date for it.
 '''
 
-from datetime import date
 import os.path
 import re
 import subprocess
 import time
+from datetime import date
+
 
 def main():
     this_dir = os.path.dirname(__file__)
@@ -70,8 +71,9 @@ def main():
 
     for micro in range(int(next_micro) - 1, -1, -1):
         try:
+            # TODO: use subprocess.checkoutput() ?
             tag_date = subprocess.run(
-                ['git', 'log', '-1', '--format=%cd', '--date=format:%F', 'v{}.{}'.format(maj_min, micro)],
+                ['git', 'log', '-1', '--format=%cd', '--date=format:%F', f'v{maj_min}.{micro}'],
                 check=True,
                 encoding='UTF-8',
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.strip()

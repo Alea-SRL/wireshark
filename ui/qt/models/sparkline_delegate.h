@@ -25,6 +25,22 @@ public:
      */
     SparkLineDelegate(QWidget *parent = 0) : QStyledItemDelegate(parent) {}
 
+    /**
+     * @brief Optional second value series, drawn over the primary one.
+     *
+     * The primary series is read from Qt::UserRole (unchanged). A model may
+     * additionally provide a second QList<int> at this role (e.g. dropped
+     * packets); when present it is drawn on the same scale in a distinct theme
+     * color. Models that don't provide it render exactly one line as before.
+     */
+    static constexpr int SecondaryPointsRole = Qt::UserRole + 1;
+
+    /**
+     * @brief A negative value in either series marks a gap (a line break with a
+     *        dashed bridge), used to show an interval where no data was sampled.
+     */
+    static constexpr int GapValue = -1;
+
 protected:
     /**
      * @brief Renders the spark-line chart for the cell at @p index.
@@ -33,7 +49,7 @@ protected:
      * @param index   Model index of the cell being painted.
      */
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
-               const QModelIndex &index) const;
+               const QModelIndex &index) const override;
 
     /**
      * @brief Returns the preferred size for a spark-line cell.
@@ -42,7 +58,7 @@ protected:
      * @return Recommended QSize for the cell.
      */
     QSize sizeHint(const QStyleOptionViewItem &option,
-                   const QModelIndex &index) const;
+                   const QModelIndex &index) const override;
 
     /**
      * @brief Suppresses inline editing by returning @c nullptr.
@@ -54,7 +70,7 @@ protected:
      * @param index   Unused model index.
      * @return Always @c nullptr.
      */
-    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &index) const;
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
 
 signals:
 

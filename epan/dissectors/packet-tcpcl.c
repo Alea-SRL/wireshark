@@ -4,7 +4,7 @@
  *     RFC 9174: https://www.rfc-editor.org/rfc/rfc9174.html
  *
  * TCPCLv4 portions copyright 2019-2021, Brian Sipos <brian.sipos@gmail.com>
- * Copyright 2006-2007 The MITRE Corporation.
+ * TCPCLv3 portions copyright 2006-2007 The MITRE Corporation.
  * All Rights Reserved.
  * Approved for Public Release; Distribution Unlimited.
  * Tracking Number 07-0090.
@@ -258,14 +258,14 @@ static int hf_tcpclv4_xferext_transferlen_total_len;
 static int hf_othername_bundleeid;
 
 /*TCP Convergence Layer Reassembly boilerplate*/
-static int hf_xfer_fragments;
-static int hf_xfer_fragment;
-static int hf_xfer_fragment_overlap;
-static int hf_xfer_fragment_overlap_conflicts;
-static int hf_xfer_fragment_multiple_tails;
-static int hf_xfer_fragment_too_long_fragment;
-static int hf_xfer_fragment_error;
-static int hf_xfer_fragment_count;
+static int hf_xfer_segments;
+static int hf_xfer_segment;
+static int hf_xfer_segment_overlap;
+static int hf_xfer_segment_overlap_conflicts;
+static int hf_xfer_segment_multiple_tails;
+static int hf_xfer_segment_too_long_fragment;
+static int hf_xfer_segment_error;
+static int hf_xfer_segment_count;
 static int hf_xfer_reassembled_in;
 static int hf_xfer_reassembled_length;
 static int hf_xfer_reassembled_data;
@@ -435,31 +435,31 @@ static hf_register_info hf_tcpcl[] = {
     // PKIX other name form
     {&hf_othername_bundleeid, {"BundleEID", "tcpcl.v4.BundleEID", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL}},
 
-    {&hf_xfer_fragments,
-        {"Transfer fragments", "tcpcl.xfer.fragments",
+    {&hf_xfer_segments,
+        {"TCPCL transfer segments", "tcpcl.xfer.fragments",
         FT_NONE, BASE_NONE, NULL, 0x00, NULL, HFILL } },
-    {&hf_xfer_fragment,
-        {"Transfer fragment", "tcpcl.xfer.fragment",
+    {&hf_xfer_segment,
+        {"TCPCL transfer segment", "tcpcl.xfer.fragment",
         FT_FRAMENUM, BASE_NONE, NULL, 0x00, NULL, HFILL } },
-    {&hf_xfer_fragment_overlap,
-        {"Transfer fragment overlap", "tcpcl.xfer.fragment.overlap",
+    {&hf_xfer_segment_overlap,
+        {"Transfer segment overlap", "tcpcl.xfer.fragment.overlap",
         FT_BOOLEAN, BASE_NONE, NULL, 0x00, NULL, HFILL } },
-    {&hf_xfer_fragment_overlap_conflicts,
-        {"Transfer fragment overlapping with conflicting data",
+    {&hf_xfer_segment_overlap_conflicts,
+        {"Transfer segment overlapping with conflicting data",
         "tcpcl.xfer.fragment.overlap.conflicts",
         FT_BOOLEAN, BASE_NONE, NULL, 0x00, NULL, HFILL } },
-    {&hf_xfer_fragment_multiple_tails,
-        {"Message has multiple tail fragments",
+    {&hf_xfer_segment_multiple_tails,
+        {"Message has multiple tail segments",
         "tcpcl.xfer.fragment.multiple_tails",
         FT_BOOLEAN, BASE_NONE, NULL, 0x00, NULL, HFILL } },
-    {&hf_xfer_fragment_too_long_fragment,
-        {"Transfer fragment too long", "tcpcl.xfer.fragment.too_long_fragment",
+    {&hf_xfer_segment_too_long_fragment,
+        {"Transfer segment too long", "tcpcl.xfer.fragment.too_long_fragment",
         FT_BOOLEAN, BASE_NONE, NULL, 0x00, NULL, HFILL } },
-    {&hf_xfer_fragment_error,
-        {"Transfer defragmentation error", "tcpcl.xfer.fragment.error",
+    {&hf_xfer_segment_error,
+        {"Transfer desegmentation error", "tcpcl.xfer.fragment.error",
         FT_FRAMENUM, BASE_NONE, NULL, 0x00, NULL, HFILL } },
-    {&hf_xfer_fragment_count,
-        {"Transfer fragment count", "tcpcl.xfer.fragment.count",
+    {&hf_xfer_segment_count,
+        {"Transfer segment count", "tcpcl.xfer.fragment.count",
         FT_UINT32, BASE_DEC, NULL, 0x00, NULL, HFILL } },
     {&hf_xfer_reassembled_in,
         {"Reassembled in", "tcpcl.xfer.reassembled.in",
@@ -514,8 +514,8 @@ static int ett_tcpclv3_chdr_flags;
 static int ett_tcpclv3_mhdr;
 static int ett_tcpclv3_data_procflags;
 static int ett_tcpclv3_shutdown_flags;
-static int ett_xfer_fragment;
-static int ett_xfer_fragments;
+static int ett_xfer_segment;
+static int ett_xfer_segments;
 static int ett_tcpclv4_chdr_flags;
 static int ett_tcpclv4_mhdr;
 static int ett_tcpclv4_sess_term_flags;
@@ -544,8 +544,8 @@ static int *ett[] = {
     &ett_tcpclv4_xferext,
     &ett_tcpclv4_xferext_flags,
     &ett_tcpclv4_xferext_data,
-    &ett_xfer_fragment,
-    &ett_xfer_fragments,
+    &ett_xfer_segment,
+    &ett_xfer_segments,
 };
 
 static expert_field ei_invalid_magic;
@@ -555,11 +555,8 @@ static expert_field ei_chdr_duplicate;
 static expert_field ei_length_clamped;
 static expert_field ei_chdr_missing;
 
-static expert_field ei_tcpclv3_eid_length;
 static expert_field ei_tcpclv3_invalid_msg_type;
 static expert_field ei_tcpclv3_data_flags;
-static expert_field ei_tcpclv3_segment_length;
-static expert_field ei_tcpclv3_ack_length;
 
 static expert_field ei_tcpclv4_invalid_msg_type;
 static expert_field ei_tcpclv4_invalid_sessext_type;
@@ -590,11 +587,8 @@ static ei_register_info ei_tcpcl[] = {
     {&ei_length_clamped, { "tcpcl.length_clamped", PI_UNDECODED, PI_ERROR, "Length too large for Wireshark to handle", EXPFILL}},
     {&ei_chdr_missing, { "tcpcl.contact_missing", PI_ASSUMPTION, PI_NOTE, "Contact Header is missing, TCPCL version is implied", EXPFILL}},
 
-    {&ei_tcpclv3_eid_length, { "tcpcl.eid_length_invalid", PI_PROTOCOL, PI_ERROR, "Invalid EID Length", EXPFILL }},
     {&ei_tcpclv3_invalid_msg_type, { "tcpcl.unknown_message_type", PI_UNDECODED, PI_ERROR, "Message type is unknown", EXPFILL}},
     {&ei_tcpclv3_data_flags, { "tcpcl.data.flags.invalid", PI_PROTOCOL, PI_WARN, "Invalid TCP CL Data Segment Flags", EXPFILL }},
-    {&ei_tcpclv3_segment_length, { "tcpcl.data.length.invalid", PI_PROTOCOL, PI_ERROR, "Invalid Data Length", EXPFILL }},
-    {&ei_tcpclv3_ack_length, { "tcpcl.ack.length.error", PI_PROTOCOL, PI_WARN, "Ack Length: Error", EXPFILL }},
 
     {&ei_tcpclv4_invalid_msg_type, { "tcpcl.v4.unknown_message_type", PI_UNDECODED, PI_ERROR, "Message type is unknown", EXPFILL}},
     {&ei_tcpclv4_invalid_sessext_type, { "tcpcl.v4.unknown_sessext_type", PI_UNDECODED, PI_WARN, "Session Extension type is unknown", EXPFILL}},
@@ -620,17 +614,17 @@ static ei_register_info ei_tcpcl[] = {
 
 static const fragment_items xfer_frag_items = {
     /*Fragment subtrees*/
-    &ett_xfer_fragment,
-    &ett_xfer_fragments,
+    &ett_xfer_segment,
+    &ett_xfer_segments,
     /*Fragment Fields*/
-    &hf_xfer_fragments,
-    &hf_xfer_fragment,
-    &hf_xfer_fragment_overlap,
-    &hf_xfer_fragment_overlap_conflicts,
-    &hf_xfer_fragment_multiple_tails,
-    &hf_xfer_fragment_too_long_fragment,
-    &hf_xfer_fragment_error,
-    &hf_xfer_fragment_count,
+    &hf_xfer_segments,
+    &hf_xfer_segment,
+    &hf_xfer_segment_overlap,
+    &hf_xfer_segment_overlap_conflicts,
+    &hf_xfer_segment_multiple_tails,
+    &hf_xfer_segment_too_long_fragment,
+    &hf_xfer_segment_error,
+    &hf_xfer_segment_count,
     /*Reassembled in field*/
     &hf_xfer_reassembled_in,
     /*Reassembled length field*/
@@ -638,7 +632,7 @@ static const fragment_items xfer_frag_items = {
     /* Reassembled data field */
     &hf_xfer_reassembled_data,
     /*Tag*/
-    "Transfer fragments"
+    "Transfer segments"
 };
 
 static unsigned tvb_get_sdnv(tvbuff_t *tvb, unsigned offset, uint64_t *value) {
@@ -647,17 +641,11 @@ static unsigned tvb_get_sdnv(tvbuff_t *tvb, unsigned offset, uint64_t *value) {
 
 static void tcpcl_frame_loc_init(tcpcl_frame_loc_t *loc, const packet_info *pinfo, tvbuff_t *tvb, const int offset) {
     loc->frame_num = pinfo->num;
-    // This is a messy way to determine the index,
-    // but no other public functions allow determining how two TVB are related
-    loc->src_ix = -1;
-    for(GSList *srcit = pinfo->data_src; srcit != NULL; srcit = g_slist_next(srcit)) {
-        ++(loc->src_ix);
-        struct data_source *src = srcit->data;
-        if (get_data_source_tvb(src)->real_data == tvb->real_data) {
-            break;
-        }
-    }
+
+    loc->ds_idx = get_data_source_index_by_tvb(pinfo, tvb_get_ds_tvb(tvb));
+    DISSECTOR_ASSERT(loc->ds_idx >= 0);
     loc->raw_offset = tvb_raw_offset(tvb) + offset;
+    DISSECTOR_ASSERT(offset >= 0);
 }
 
 /** Construct a new object on the file allocator.
@@ -691,6 +679,12 @@ static int tcpcl_frame_loc_compare(const void *a, const void *b, void *user_data
         return 1;
     }
 
+    if (aloc->ds_idx < bloc->ds_idx) {
+        return -1;
+    }
+    else if (aloc->ds_idx > bloc->ds_idx) {
+        return 1;
+    }
     if (aloc->raw_offset < bloc->raw_offset) {
         return -1;
     }
@@ -707,6 +701,7 @@ static gboolean tcpcl_frame_loc_equal(const void *a, const void *b) {
     const tcpcl_frame_loc_t *bobj = b;
     return (
         (aobj->frame_num == bobj->frame_num)
+        && (aobj->ds_idx == bobj->ds_idx)
         && (aobj->raw_offset == bobj->raw_offset)
     );
 }
@@ -717,6 +712,7 @@ static unsigned tcpcl_frame_loc_hash(const void *key) {
     const tcpcl_frame_loc_t *obj = key;
     return (
         g_int_hash(&(obj->frame_num))
+        ^ g_int_hash(&(obj->ds_idx))
         ^ g_int_hash(&(obj->raw_offset))
     );
 }
@@ -858,6 +854,7 @@ tcpcl_dissect_ctx_t * tcpcl_dissect_ctx_get(tvbuff_t *tvb, packet_info *pinfo, c
     if (!tcpcl_convo) {
         return NULL;
     }
+
     tcpcl_dissect_ctx_t *ctx = wmem_new0(pinfo->pool, tcpcl_dissect_ctx_t);
     ctx->convo = tcpcl_convo;
     ctx->cur_loc = tcpcl_frame_loc_new(pinfo->pool, pinfo, tvb, offset);
@@ -1013,7 +1010,8 @@ static void transfer_add_segment(tcpcl_dissect_ctx_t *ctx, uint64_t xfer_id, uin
         seg_meta = wmem_list_frame_data(frm);
     }
     else {
-        frm = wmem_list_insert_sorted(xfer->seg_list, seg_meta, tcpcl_seg_meta_compare_loc);
+        wmem_list_append(xfer->seg_list, seg_meta);
+        frm = wmem_list_tail(xfer->seg_list);
         // Set for new item
         seg_meta->flags = flags;
     }
@@ -1111,7 +1109,7 @@ static void transfer_add_ack(tcpcl_dissect_ctx_t *ctx, uint64_t xfer_id, uint8_t
         ack_meta = wmem_list_frame_data(frm);
     }
     else {
-        wmem_list_insert_sorted(xfer->ack_list, ack_meta, tcpcl_ack_meta_compare_loc);
+        wmem_list_append(xfer->ack_list, ack_meta);
         // Set for new item
         ack_meta->flags = flags;
         ack_meta->seen_len = ack_len;
@@ -1272,7 +1270,7 @@ dissect_v3_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     const char *msgtype_name;
     uint8_t        refuse_bundle_hdr;
     int            offset = 0;
-    int sdnv_length;
+    unsigned sdnv_length;
     uint64_t segment_length;
     proto_item    *conv_item, *sub_item;
     proto_tree    *conv_tree, *sub_tree;
@@ -1307,10 +1305,6 @@ dissect_v3_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         }
 
         sub_item = proto_tree_add_item_ret_varint(conv_tree, hf_tcpclv3_data_segment_length, tvb, offset, -1, ENC_VARINT_SDNV, &segment_length, &sdnv_length);
-        if (sdnv_length == 0) {
-            expert_add_info(pinfo, sub_item, &ei_tcpclv3_segment_length);
-            return 0;
-        }
         offset += sdnv_length;
         const int data_len_clamp = get_clamped_length(segment_length, pinfo, sub_item);
 
@@ -1351,7 +1345,7 @@ dissect_v3_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 frag_msg,
                 &xfer_frag_items,
                 NULL,
-                proto_tree_get_parent_tree(tree)
+                tree
             );
         }
         offset += data_len_clamp;
@@ -1362,12 +1356,8 @@ dissect_v3_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         /*No valid flags*/
         offset += 1;
 
-        sub_item = proto_tree_add_item_ret_varint(conv_tree, hf_tcpclv3_ack_length, tvb, offset, -1, ENC_VARINT_SDNV, &segment_length, &sdnv_length);
-        if (sdnv_length == 0) {
-            expert_add_info(pinfo, sub_item, &ei_tcpclv3_ack_length);
-        } else {
-            offset += sdnv_length;
-        }
+        proto_tree_add_item_ret_varint(conv_tree, hf_tcpclv3_ack_length, tvb, offset, -1, ENC_VARINT_SDNV, &segment_length, &sdnv_length);
+        offset += sdnv_length;
 
         // implied transfer ID
         xfer_id = wmem_map_lookup(ctx->rx_peer->frame_loc_to_transfer, ctx->cur_loc);
@@ -1812,7 +1802,7 @@ dissect_v4_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                     xferload_frag_msg,
                     &xfer_frag_items,
                     NULL,
-                    proto_tree_get_parent_tree(tree)
+                    tree
                 );
             }
 
@@ -2109,8 +2099,7 @@ static unsigned get_message_len(packet_info *pinfo, tvbuff_t *tvb, int ext_offse
 }
 
 static int dissect_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_) {
-    bool is_new_item_tcpcl = false;
-    int offset = 0;
+    unsigned offset = 0;
     tcpcl_dissect_ctx_t *ctx = tcpcl_dissect_ctx_get(tvb, pinfo, offset);
     if (!ctx) {
         return 0;
@@ -2124,9 +2113,10 @@ static int dissect_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
         }
     }
 
-    // Don't add more than one TCPCL tree item
+    // Append to the last TCPCL tree item if there is one
     proto_item *item_tcpcl;
     proto_tree *tree_tcpcl;
+    bool is_new_item_tcpcl = false;
     if (tree && (tree->last_child)
             && (PITEM_HFINFO(tree->last_child)->id == proto_tcpcl)) {
         item_tcpcl = tree->last_child;
@@ -2184,12 +2174,8 @@ static int dissect_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
              * New format Contact header has length field followed by EID.
              */
             uint64_t eid_length;
-            int sdnv_length;
+            unsigned sdnv_length;
             proto_item *sub_item = proto_tree_add_item_ret_varint(tree_chdr, hf_tcpclv3_chdr_local_eid_length, tvb, offset, -1, ENC_VARINT_SDNV, &eid_length, &sdnv_length);
-            if (sdnv_length == 0) {
-                expert_add_info(pinfo, sub_item, &ei_tcpclv3_eid_length);
-                return 0;
-            }
             offset += sdnv_length;
             const int eid_len_clamp = get_clamped_length(eid_length, pinfo, sub_item);
 
@@ -2200,7 +2186,7 @@ static int dissect_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
             ctx->tx_peer->segment_mru = UINT64_MAX;
             ctx->tx_peer->transfer_mru = UINT64_MAX;
         }
-        else if (ctx->tx_peer->version == 4) {
+        else {          /* (version == 4) */
             uint8_t flags = tvb_get_uint8(tvb, offset);
             proto_tree_add_bitmask(tree_chdr, tvb, offset, hf_tcpclv4_chdr_flags, ett_tcpclv4_chdr_flags, v4_chdr_flags, ENC_BIG_ENDIAN);
             offset += 1;
@@ -2248,8 +2234,7 @@ static int dissect_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
         proto_item_append_text(item_tcpcl, " Version %d", ctx->tx_peer->version);
     }
     else {
-        const int item_len = proto_item_get_len(item_tcpcl);
-        proto_item_set_len(item_tcpcl, item_len + offset);
+        proto_item_set_len(item_tcpcl, proto_item_get_len(item_tcpcl) + offset);
     }
 
     if (ctx->xferload) {
@@ -2312,7 +2297,7 @@ dissect_tcpcl_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
 }
 
 static int dissect_xferext_transferlen(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data _U_) {
-    int offset = 0;
+    unsigned offset = 0;
     tcpcl_dissect_ctx_t *ctx = tcpcl_dissect_ctx_get(tvb, pinfo, offset);
     if (!ctx) {
         return 0;
@@ -2338,7 +2323,7 @@ static int dissect_xferext_transferlen(tvbuff_t *tvb, packet_info *pinfo _U_, pr
 }
 
 static int dissect_othername_bundleeid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_) {
-    int offset = 0;
+    unsigned offset = 0;
     asn1_ctx_t actx;
     asn1_ctx_init(&actx, ASN1_ENC_BER, true, pinfo);
     offset += dissect_ber_restricted_string(

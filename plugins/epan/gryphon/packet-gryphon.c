@@ -1145,7 +1145,8 @@ decode_misc (tvbuff_t *tvb, int offset, packet_info* pinfo, proto_tree *pt)
 static int
 decode_text (tvbuff_t *tvb, int offset, int msglen, proto_tree *pt)
 {
-    int       padding, length;
+    int       padding;
+    unsigned  length;
 
     padding = 3 - (msglen + 3) % 4;
 
@@ -1462,11 +1463,9 @@ cmd_ioctl_details(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_tree *pt,
             pid = tvb_get_uint8(tvb, offset);
             proto_tree_add_uint_format_value(pt, hf_gryphon_ldf_ioctl_setflags_flags, tvb, offset, 1, pid, "0x%02x ",pid);
             offset += 1;
-            datalen = tvb_get_uint8(tvb, offset);
-            proto_tree_add_item(pt, hf_gryphon_lin_data_length, tvb, offset, 1, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint8(pt, hf_gryphon_lin_data_length, tvb, offset, 1, ENC_BIG_ENDIAN, &datalen);
             offset += 1;
-            extralen = tvb_get_uint8(tvb, offset);
-            proto_tree_add_item(pt, hf_gryphon_data_extra_data_length, tvb, offset, 1, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint8(pt, hf_gryphon_data_extra_data_length, tvb, offset, 1, ENC_BIG_ENDIAN, &extralen);
             offset += 1;
             proto_tree_add_item(pt, hf_gryphon_lin_slave_table_enable, tvb, offset, 1, ENC_BIG_ENDIAN);
             offset += 1;
@@ -1496,11 +1495,9 @@ cmd_ioctl_details(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_tree *pt,
             pid = tvb_get_uint8(tvb, offset);
             proto_tree_add_uint_format_value(pt, hf_gryphon_ldf_ioctl_setflags_flags, tvb, offset, 1, pid, "0x%02x ",pid);
             offset += 1;
-            datalen = tvb_get_uint8(tvb, offset);
-            proto_tree_add_item(pt, hf_gryphon_lin_data_length, tvb, offset, 1, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint8(pt, hf_gryphon_lin_data_length, tvb, offset, 1, ENC_BIG_ENDIAN, &datalen);
             offset += 1;
-            extralen = tvb_get_uint8(tvb, offset);
-            proto_tree_add_item(pt, hf_gryphon_data_extra_data_length, tvb, offset, 1, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint8(pt, hf_gryphon_data_extra_data_length, tvb, offset, 1, ENC_BIG_ENDIAN, &extralen);
             offset += 1;
             proto_tree_add_item(pt, hf_gryphon_lin_slave_table_enable, tvb, offset, 1, ENC_BIG_ENDIAN);
             offset += 1;
@@ -2259,7 +2256,7 @@ static int
 cmd_cnvt_get_values(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
     uint8_t num_signals;
-    int length;
+    unsigned length;
     int i;
     proto_tree_add_item_ret_uint8(pt, hf_gryphon_ldf_get_frame_num_signals, tvb, offset, 1, ENC_BIG_ENDIAN, &num_signals);
     offset += 1;
@@ -2277,13 +2274,12 @@ resp_cnvt_get_values(tvbuff_t *tvb, int offset, proto_tree *pt)
     uint8_t num_signals;
     float fvalue;
     int i;
-    int length;
+    unsigned length;
     proto_tree_add_item_ret_uint8(pt, hf_gryphon_ldf_get_frame_num_signals, tvb, offset, 1, ENC_BIG_ENDIAN, &num_signals);
     offset += 1;
     for(i=0;i< num_signals; i++) {
         /* flag */
-        flag = tvb_get_uint8(tvb, offset);
-        proto_tree_add_item(pt, hf_gryphon_cnvt_flags_getvalues, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item_ret_uint8(pt, hf_gryphon_cnvt_flags_getvalues, tvb, offset, 1, ENC_BIG_ENDIAN, &flag);
         offset += 1;
 
         if(flag & 0x01) {
@@ -2311,7 +2307,7 @@ static int
 cmd_cnvt_get_units(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
     uint8_t num_signals;
-    int length;
+    unsigned length;
     int i;
     proto_tree_add_item_ret_uint8(pt, hf_gryphon_ldf_get_frame_num_signals, tvb, offset, 1, ENC_BIG_ENDIAN, &num_signals);
     offset += 1;
@@ -2327,7 +2323,7 @@ resp_cnvt_get_units(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
     uint8_t num_signals;
     int i;
-    int length;
+    unsigned length;
     proto_tree_add_item_ret_uint8(pt, hf_gryphon_ldf_get_frame_num_signals, tvb, offset, 1, ENC_BIG_ENDIAN, &num_signals);
     offset += 1;
     for(i=0;i< num_signals; i++) {
@@ -2342,7 +2338,7 @@ static int
 cmd_cnvt_set_values(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
     uint8_t num_signals;
-    int length;
+    unsigned length;
     int i;
     float fvalue;
     proto_tree_add_item_ret_uint8(pt, hf_gryphon_ldf_get_frame_num_signals, tvb, offset, 1, ENC_BIG_ENDIAN, &num_signals);
@@ -2361,7 +2357,7 @@ cmd_cnvt_set_values(tvbuff_t *tvb, int offset, proto_tree *pt)
 static int
 cmd_cnvt_destroy_session(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int msglen;
+    unsigned msglen;
     msglen = tvb_reported_length_remaining(tvb, offset);
     proto_tree_add_item(pt, hf_gryphon_ldf_ui, tvb, offset, msglen, ENC_NA);
     offset += msglen;
@@ -2371,11 +2367,10 @@ cmd_cnvt_destroy_session(tvbuff_t *tvb, int offset, proto_tree *pt)
 static int
 resp_ldf_get_node_names(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int length;
+    unsigned length;
     uint16_t us_num;
     /* number */
-    us_num = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(pt, hf_gryphon_ldf_num_node_names, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint16(pt, hf_gryphon_ldf_num_node_names, tvb, offset, 2, ENC_BIG_ENDIAN, &us_num);
     offset += 2;
     /* master node name */
     proto_tree_add_item_ret_length(pt, hf_gryphon_ldf_master_node_name, tvb, offset, -1, ENC_NA | ENC_ASCII, &length);
@@ -2393,7 +2388,7 @@ resp_ldf_get_node_names(tvbuff_t *tvb, int offset, proto_tree *pt)
 static int
 cmd_ldf_get_frames(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int length;
+    unsigned length;
     proto_tree_add_item_ret_length(pt, hf_gryphon_ldf_get_frame, tvb, offset, -1, ENC_NA | ENC_ASCII, &length);
     offset += length;
     return offset;
@@ -2402,12 +2397,11 @@ cmd_ldf_get_frames(tvbuff_t *tvb, int offset, proto_tree *pt)
 static int
 resp_ldf_get_frames(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int length;
+    unsigned length;
     uint16_t us_num;
     uint8_t pid;
     /* number */
-    us_num = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(pt, hf_gryphon_ldf_num_frames, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint16(pt, hf_gryphon_ldf_num_frames, tvb, offset, 2, ENC_BIG_ENDIAN, &us_num);
     offset += 2;
     while(us_num > 0) {
         /* id */
@@ -2445,7 +2439,7 @@ cmd_ldf_get_frame_info(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_tree
 static int
 resp_ldf_get_frame_info(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int length;
+    unsigned length;
     uint8_t count, i;
     proto_tree_add_item(pt, hf_gryphon_ldf_get_frame_num, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
@@ -2464,7 +2458,7 @@ resp_ldf_get_frame_info(tvbuff_t *tvb, int offset, proto_tree *pt)
 static int
 cmd_ldf_get_signal_info(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int length;
+    unsigned length;
     proto_tree_add_item_ret_length(pt, hf_gryphon_ldf_signal_name, tvb, offset, -1, ENC_NA | ENC_ASCII, &length);
     offset += length;
     return offset;
@@ -2473,7 +2467,7 @@ cmd_ldf_get_signal_info(tvbuff_t *tvb, int offset, proto_tree *pt)
 static int
 resp_ldf_get_signal_info(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int length;
+    unsigned length;
 /* offset */
     proto_tree_add_item(pt, hf_gryphon_ldf_signal_offset, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
@@ -2491,7 +2485,7 @@ resp_ldf_get_signal_info(tvbuff_t *tvb, int offset, proto_tree *pt)
 static int
 cmd_ldf_get_signal_detail(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int length;
+    unsigned length;
     proto_tree_add_item_ret_length(pt, hf_gryphon_ldf_signal_name, tvb, offset, -1, ENC_NA | ENC_ASCII, &length);
     offset += length;
     return offset;
@@ -2501,7 +2495,7 @@ static int
 resp_ldf_do_encoding_block(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_tree *pt)
 {
     char *string;
-    int length;
+    unsigned length;
     /* encoding */
     proto_tree_add_item_ret_string(pt, hf_gryphon_ldf_signal_encoding_type, tvb, offset, 12, ENC_ASCII, pinfo->pool, (const uint8_t**)&string);
     offset += 12;
@@ -2541,17 +2535,16 @@ static int
 resp_ldf_get_signal_detail(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_tree *pt)
 {
     uint16_t us_num;
-/* offset */
+    /* offset */
     proto_tree_add_item(pt, hf_gryphon_ldf_signal_offset, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-/* length */
+    /* length */
     proto_tree_add_item(pt, hf_gryphon_ldf_signal_length, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-/* number */
-    us_num = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(pt, hf_gryphon_ldf_num_encodings, tvb, offset, 2, ENC_BIG_ENDIAN);
+    /* number */
+    proto_tree_add_item_ret_uint16(pt, hf_gryphon_ldf_num_encodings, tvb, offset, 2, ENC_BIG_ENDIAN, &us_num);
     offset += 2;
     while(us_num > 0) {
         offset = resp_ldf_do_encoding_block(tvb, pinfo, offset, pt);
@@ -2564,7 +2557,7 @@ resp_ldf_get_signal_detail(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_
 static int
 cmd_ldf_get_encoding_info(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int length;
+    unsigned length;
     proto_tree_add_item_ret_length(pt, hf_gryphon_ldf_signal_encoding_name, tvb, offset, -1, ENC_NA | ENC_ASCII, &length);
     offset += length;
     return offset;
@@ -2575,8 +2568,7 @@ resp_ldf_get_encoding_info(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_
 {
     uint16_t us_num;
     /* number */
-    us_num = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(pt, hf_gryphon_ldf_num_encodings, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint16(pt, hf_gryphon_ldf_num_encodings, tvb, offset, 2, ENC_BIG_ENDIAN, &us_num);
     offset += 2;
     while(us_num > 0) {
         /* encoding data */
@@ -2589,7 +2581,7 @@ resp_ldf_get_encoding_info(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_
 static int
 cmd_ldf_save_session(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int msglen;
+    unsigned msglen;
     msglen = tvb_reported_length_remaining(tvb, offset);
     proto_tree_add_item(pt, hf_gryphon_ldf_restore_session, tvb, offset, msglen, ENC_NA);
     offset += msglen;
@@ -2633,11 +2625,10 @@ cmd_ldf_emulate_nodes(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_tree 
 static int
 resp_ldf_get_schedules(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int length;
+    unsigned length;
     uint16_t us_num;
     /* number */
-    us_num = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(pt, hf_gryphon_ldf_num_schedules, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint16(pt, hf_gryphon_ldf_num_schedules, tvb, offset, 2, ENC_BIG_ENDIAN, &us_num);
     offset += 2;
     while(us_num > 0) {
         /* slave node names */
@@ -2651,7 +2642,7 @@ resp_ldf_get_schedules(tvbuff_t *tvb, int offset, proto_tree *pt)
 static int
 cmd_ldf_start_schedule(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int length;
+    unsigned length;
     proto_tree_add_item_ret_length(pt, hf_gryphon_ldf_schedule_name, tvb, offset, -1, ENC_NA | ENC_ASCII, &length);
     offset += length;
     return offset;
@@ -2660,7 +2651,7 @@ cmd_ldf_start_schedule(tvbuff_t *tvb, int offset, proto_tree *pt)
 static int
 cmd_ldf_get_node_signals(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int length;
+    unsigned length;
     proto_tree_add_item_ret_length(pt, hf_gryphon_ldf_node_name, tvb, offset, -1, ENC_NA | ENC_ASCII, &length);
     offset += length;
     return offset;
@@ -2669,11 +2660,10 @@ cmd_ldf_get_node_signals(tvbuff_t *tvb, int offset, proto_tree *pt)
 static int
 resp_ldf_get_node_signals(tvbuff_t *tvb, int offset, proto_tree *pt)
 {
-    int length;
+    unsigned length;
     uint16_t us_num;
     /* number */
-    us_num = tvb_get_ntohs(tvb, offset);
-    proto_tree_add_item(pt, hf_gryphon_ldf_num_signal_names, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint16(pt, hf_gryphon_ldf_num_signal_names, tvb, offset, 2, ENC_BIG_ENDIAN, &us_num);
     offset += 2;
     while(us_num > 0) {
         /* signal names */
@@ -3478,10 +3468,9 @@ cmd_usdt(tvbuff_t *tvb, int offset, proto_tree *pt)
     proto_tree  *localTree;
     proto_item  *localItem;
 
-    flags = tvb_get_uint8(tvb, offset);
-    proto_tree_add_item(pt, hf_gryphon_usdt_flags_register, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(pt, hf_gryphon_usdt_flags_register, tvb, offset, 1, ENC_BIG_ENDIAN, &flags);
 
-    if (flags & 1) {
+    if (flags) {
         static int * const action_flags[] = {
             &hf_gryphon_usdt_action_flags_register,
             &hf_gryphon_usdt_action_flags_action,

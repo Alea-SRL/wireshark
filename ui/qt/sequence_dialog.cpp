@@ -20,6 +20,7 @@
 #include <wsutil/report_message.h>
 
 #include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/plot_theme.h>
 #include "progress_frame.h"
 #include <ui/qt/utils/qt_ui_utils.h>
 #include "sequence_diagram.h"
@@ -106,16 +107,20 @@ SequenceDialog::SequenceDialog(QWidget &parent, CaptureFile &cf, SequenceInfo *i
     sp->xAxis->setLabelPadding(0);
     sp->xAxis->setTickLabelPadding(0);
 
-    // Light border for the diagram
-    QPen base_pen(ColorUtils::alphaBlend(palette().text(), palette().base(), 0.25));
-    base_pen.setWidthF(0.5);
-    sp->xAxis2->setBasePen(base_pen);
-    sp->yAxis->setBasePen(base_pen);
-    sp->yAxis2->setBasePen(base_pen);
-    // Keep the border the same if/when the axis is selected, instead of blue
-    sp->xAxis2->setSelectedBasePen(base_pen);
-    sp->yAxis->setSelectedBasePen(base_pen);
-    sp->yAxis2->setSelectedBasePen(base_pen);
+    // Light border for the diagram. PlotTheme recolors the axis base pens
+    // with the full text color, so reapply the lighter border after it.
+    auto apply_border = [sp, this]() {
+        QPen base_pen(ColorUtils::alphaBlend(palette().text(), palette().base(), 0.25));
+        base_pen.setWidthF(0.5);
+        sp->xAxis2->setBasePen(base_pen);
+        sp->yAxis->setBasePen(base_pen);
+        sp->yAxis2->setBasePen(base_pen);
+        // Keep the border the same if/when the axis is selected, instead of blue
+        sp->xAxis2->setSelectedBasePen(base_pen);
+        sp->yAxis->setSelectedBasePen(base_pen);
+        sp->yAxis2->setSelectedBasePen(base_pen);
+    };
+    PlotTheme::track(sp, apply_border);
 
     /* QCP documentation for setTicks() says "setting show to false does not imply
      * that tick labels are invisible, too." In practice it seems to make them
@@ -181,11 +186,7 @@ SequenceDialog::SequenceDialog(QWidget &parent, CaptureFile &cf, SequenceInfo *i
     ui->addressComboBox->addItem(tr("Network"), QVariant(false));
     ui->addressComboBox->setCurrentIndex(ui->addressComboBox->findData(QVariant(true)));
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    connect(ui->addressComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SequenceDialog::addressChanged);
-#else
     connect(ui->addressComboBox, &QComboBox::currentIndexChanged, this, &SequenceDialog::addressChanged);
-#endif
 
     sequence_items_t item_data;
 

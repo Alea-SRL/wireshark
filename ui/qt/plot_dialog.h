@@ -38,23 +38,38 @@ class QPushButton;
 class QRubberBand;
 class QTimer;
 class QCustomPlot;
-/* define Plot specific UAT columns */
-enum UatColumnsPlot { plotColEnabled = 0, plotColIdx, plotColName, plotColDFilter, plotColColor, plotColStyle, plotColYField, plotColYAxisFactor, plotColMaxNum };
+
+/**
+ * @brief Column indices for the Plot UAT (User Accessible Table) configuration table.
+ */
+enum UatColumnsPlot {
+    plotColEnabled     = 0, /**< Whether the plot is enabled/visible */
+    plotColIdx,             /**< Numeric index used to identify and order the plot */
+    plotColName,            /**< User-visible display name for the plot */
+    plotColDFilter,         /**< Display filter string restricting which packets contribute to the plot */
+    plotColColor,           /**< Plot line or point colour */
+    plotColStyle,           /**< Plot style (e.g. line, dot, bar) */
+    plotColYField,          /**< Display filter field whose value is used for Y-axis calculations */
+    plotColYAxisFactor,     /**< Multiplicative scaling factor applied to Y-axis values before plotting */
+    plotColMaxNum           /**< Sentinel: total number of UAT columns */
+};
 
 namespace Ui {
     class PlotDialog;
 }
 
-// Saved plot settings
+/**
+ * @brief Persisted configuration for a single plot, corresponding to one UAT row.
+ */
 typedef struct _plot_settings_t {
-    bool enabled;
-    unsigned group;
-    char* name;
-    char* dfilter;
-    unsigned color;
-    uint32_t style;
-    char* yfield;
-    double y_axis_factor;
+    bool     enabled;       /**< True if this plot is active and should be rendered */
+    unsigned group;         /**< Index of the plot group (axis/panel) this plot belongs to */
+    char    *name;          /**< User-visible display name for this plot */
+    char    *dfilter;       /**< Display filter string restricting which packets contribute to this plot */
+    unsigned color;         /**< Plot colour encoded as a packed RGB value */
+    uint32_t style;         /**< Plot style (e.g. line, dot, bar); maps to a plot style enum value */
+    char    *yfield;        /**< Display filter field whose value is used for Y-axis calculations */
+    double   y_axis_factor; /**< Multiplicative scaling factor applied to all Y-axis values before plotting */
 } plot_settings_t;
 
 static const value_string plot_graph_style_vs[] = {
@@ -175,7 +190,7 @@ protected:
      * @param y_axis_factor Multiplier applied to all Y values before plotting
      *                      (default: Graph::default_y_axis_factor_).
      */
-    void addPlot(bool checked, const QString &name, const QString &dfilter, QRgb color_idx,
+    void addPlot(bool checked, const QString& name, const QString& dfilter, QColor color_idx,
                  Graph::PlotStyles style, const QString &yfield,
                  double y_axis_factor = Graph::default_y_axis_factor_);
 
@@ -436,7 +451,28 @@ private:
     bool abs_time_;                      /**< true = absolute time X axis; false = elapsed time. */
     double last_right_clicked_pos_;      /**< X-axis position of the most recent right-click, in plot units. */
 
+    /**
+     * @brief Theme-default color last assigned to each UAT row.
+     *
+     * Indexed by UAT row position.  onThemeChanged() refreshes only rows
+     * whose current color still equals the recorded default — i.e. rows the
+     * user has not customized.  Best-effort: row delete or reorder leaves
+     * stale keys, in which case the affected rows are skipped on the next
+     * theme flip rather than wrongly overwritten.
+     */
+    QHash<int, QColor> themeDefaultColors_;
+
 private slots:
+    /**
+     * @brief Refresh theme-default plot colors after a theme change.
+     *
+     * For each UAT row whose current color still equals the previously
+     * recorded theme default, replace it with the new theme's
+     * graphColor(row) and resync the Plot.  User-customized rows are
+     * left untouched.
+     */
+    void onThemeChanged();
+
     /**
      * @brief Commit pending UAT edits to the registration tables.
      */

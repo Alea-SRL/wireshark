@@ -205,7 +205,7 @@ dissect_ndr_counted_string(tvbuff_t *tvb, unsigned offset,
 }
 
 /* Dissect a counted string as a callback to dissect_ndr_pointer().
-   This doesn't add a adds a proto item and subtreee for the string as
+   This doesn't add a adds a proto item and subtree for the string as
    the pointer dissection already creates one. */
 
 unsigned
@@ -545,7 +545,7 @@ static unsigned pol_hash_fn(const void *k)
 	   reasonable hash value */
 
 	return key->policy_hnd[4] + (key->policy_hnd[5] << 8) +
-		(key->policy_hnd[6] << 16) + (key->policy_hnd[7] << 24);
+		(key->policy_hnd[6] << 16) + ((unsigned)key->policy_hnd[7] << 24);
 }
 
 /* Return true if a policy handle is all zeros */

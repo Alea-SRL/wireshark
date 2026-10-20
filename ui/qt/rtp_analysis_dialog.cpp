@@ -39,6 +39,8 @@
 #include <QCheckBox>
 
 #include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/plot_theme.h>
+#include <ui/qt/utils/theme_manager.h>
 #include <ui/qt/utils/qt_ui_utils.h>
 #include <ui/qt/rtp_player_dialog.h>
 #include <ui/qt/utils/stock_icon.h>
@@ -109,7 +111,7 @@ public:
             bg_color = color_cn_;
         } else if (statinfo->flags & STAT_FLAG_WRONG_SEQ) {
             status = "Wrong sequence number";
-            bg_color = ColorUtils::expert_color_error;
+            bg_color = ThemeManager::instance()->color(ThemeManager::ExpertError);
         } else if (statinfo->flags & STAT_FLAG_DUP_PKT) {
             status = "Suspected duplicate (MAC address) only delta time calculated";
             bg_color = color_rtp_warn_;
@@ -167,7 +169,7 @@ public:
         if (bg_color.isValid()) {
             for (int col = 0; col < columnCount(); col++) {
                 setBackground(col, bg_color);
-                setForeground(col, ColorUtils::expert_color_foreground);
+                setForeground(col, ThemeManager::instance()->color(ThemeManager::ExpertForeground));
             }
         }
     }
@@ -186,7 +188,7 @@ public:
                 << marker_str << status_str;
     }
 
-    bool operator< (const QTreeWidgetItem &other) const
+    bool operator< (const QTreeWidgetItem &other) const override
     {
         if (other.type() != rtp_analysis_type_) return QTreeWidgetItem::operator< (other);
         const RtpAnalysisTreeWidgetItem *other_row = static_cast<const RtpAnalysisTreeWidgetItem *>(&other);
@@ -276,6 +278,7 @@ RtpAnalysisDialog::RtpAnalysisDialog(QWidget &parent, CaptureFile &cf) :
 
     ui->streamGraph->xAxis->setLabel("Arrival Time");
     ui->streamGraph->yAxis->setLabel("Value (ms)");
+    PlotTheme::track(ui->streamGraph);
 
     QPushButton *prepare_button = ui->buttonBox->addButton(ui->actionPrepareButton->text(), QDialogButtonBox::ActionRole);
     prepare_button->setToolTip(ui->actionPrepareButton->toolTip());
@@ -385,7 +388,7 @@ int RtpAnalysisDialog::addTabUI(tab_info_t *new_tab)
     ti->setText(marker_col_, tr("Marker"));
     ti->setText(status_col_, tr("Status"));
 
-    QColor color = ColorUtils::graphColor(tab_seq++);
+    QColor color = ThemeManager::instance()->graphColor(tab_seq++);
     ui->tabWidget->setUpdatesEnabled(false);
     horizontalLayout->addWidget(new_tab->tree_widget);
     new_tab_no = ui->tabWidget->count() - 1;

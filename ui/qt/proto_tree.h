@@ -240,6 +240,12 @@ signals:
      */
     void redissectPacketsRequested();
 
+    /**
+     * @brief Signal emitted to show a Distribution Dialog for a Named Field.
+     * @param abbr_name The name of the Named Field.
+     */
+    void showDistributionDialog(const QString abbr_name);
+
 public slots:
 
     /**
@@ -351,6 +357,11 @@ protected slots:
     void ctxOpenUrlWiki();
 
 private slots:
+    /**
+     * @brief Rebuilds this view's stylesheet from the current theme.
+     */
+    void updateStyleSheet();
+
     /**
      * @brief Updates the content width of the tree columns.
      */

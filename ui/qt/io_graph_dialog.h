@@ -43,25 +43,41 @@ class QCPItemTracer;
 class QCPAxisTicker;
 class QCPAxisTickerDateTime;
 
-// Saved graph settings
+/**
+ * @brief Persisted configuration for a single I/O Graph plot, corresponding to one UAT row.
+ */
 typedef struct _io_graph_settings_t {
-    bool enabled;
-    bool asAOT;
-    char* name;
-    char* dfilter;
-    unsigned color;
-    uint32_t style;
-    uint32_t yaxis;
-    char* yfield;
-    uint32_t sma_period;
-    double y_axis_factor;
+    bool     enabled;       /**< True if this graph is active and should be rendered */
+    bool     asAOT;         /**< True if this graph should be drawn always-on-top of others */
+    char    *name;          /**< User-visible display name for this graph */
+    char    *dfilter;       /**< Display filter string restricting which packets contribute to this graph */
+    unsigned color;         /**< Plot colour encoded as a packed RGB value */
+    uint32_t style;         /**< Plot style (e.g. line, impulse, bar, dot); maps to a ::io_graph_plot_style value */
+    uint32_t yaxis;         /**< Y-axis unit or aggregate mode (see ::io_graph_item_unit_t) */
+    char    *yfield;        /**< Display filter field whose value is used for Y-axis calculations */
+    uint32_t sma_period;    /**< Simple Moving Average period in number of intervals; 0 disables SMA */
+    double   y_axis_factor; /**< Multiplicative scaling factor applied to all Y-axis values before plotting */
 } io_graph_settings_t;
 
 
 extern const value_string moving_avg_vs[];
 
-/* define I/O Graph specific UAT columns */
-enum UatColumnsIOG {colEnabled = 0, colName, colDFilter, colColor, colStyle, colYAxis, colYField, colSMAPeriod, colYAxisFactor, colAOT, colMaxNum};
+/**
+ * @brief Column indices for the I/O Graph UAT (User Accessible Table) configuration table.
+ */
+enum UatColumnsIOG {
+    colEnabled     = 0, /**< Whether the graph is enabled/visible */
+    colName,            /**< Display name of the graph */
+    colDFilter,         /**< Display filter string restricting which packets contribute to the graph */
+    colColor,           /**< Plot line or bar colour */
+    colStyle,           /**< Plot style (e.g. line, bar, dot) */
+    colYAxis,           /**< Y-axis unit or aggregate calculation mode (see ::io_graph_item_unit_t) */
+    colYField,          /**< Display filter field used for Y-axis value calculations */
+    colSMAPeriod,       /**< Simple Moving Average period (number of intervals to average) */
+    colYAxisFactor,     /**< Scaling factor applied to Y-axis values */
+    colAOT,             /**< Always-on-top flag; keeps this graph drawn above others */
+    colMaxNum           /**< Sentinel: total number of UAT columns */
+};
 
 namespace Ui {
 class IOGraphDialog;
@@ -154,7 +170,7 @@ public:
      * @param yaxisfactor    Multiplier applied to all Y values before plotting.
      */
     void addGraph(bool checked, bool asAOT, QString name, QString dfilter,
-                  QRgb color_idx, IOGraph::PlotStyles style,
+                  QColor color_idx, IOGraph::PlotStyles style,
                   io_graph_item_unit_t value_units, QString yfield,
                   int moving_average, double yaxisfactor);
 
@@ -259,7 +275,7 @@ protected:
      * Stops the stat timer and disables graph controls that require an
      * open capture file.
      */
-    void captureFileClosing();
+    void captureFileClosing() override;
 
     /**
      * @brief Handle key press events.
@@ -269,14 +285,14 @@ protected:
      *
      * @param event The key event.
      */
-    void keyPressEvent(QKeyEvent *event);
+    void keyPressEvent(QKeyEvent *event) override;
 
     /**
      * @brief Handle dialog rejection (Close button / Escape).
      *
      * Applies any pending UAT changes before closing.
      */
-    void reject();
+    void reject() override;
 
     /**
      * @brief Return the display-filter-qualified window/tab title suffix.
@@ -463,6 +479,17 @@ private:
     QSharedPointer<QCPAxisTicker>         number_ticker_;   /**< Numeric axis ticker for relative time display. */
     QSharedPointer<QCPAxisTickerDateTime> datetime_ticker_; /**< Date/time axis ticker for time-of-day display. */
 
+    /**
+     * @brief Theme-default color last assigned to each UAT row.
+     *
+     * Indexed by UAT row position.  onThemeChanged() refreshes only rows
+     * whose current color still equals the recorded default — i.e. rows the
+     * user has not customized via the color editor.  The map is best-effort:
+     * row delete or reorder leaves stale keys, in which case the affected
+     * rows are skipped on the next theme flip rather than wrongly overwritten.
+     */
+    QHash<int, QColor> themeDefaultColors_;
+
 
     /** @brief Zoom both axes in or out by a fixed factor. @param in true to zoom in. */
     void zoomAxes(bool in);
@@ -535,6 +562,17 @@ private:
 
 private slots:
     /**
+     * @brief Refresh theme-default graph colors after a theme change.
+     *
+     * For each UAT row whose current color still equals the previously
+     * recorded theme default, replace it with the new theme's
+     * graphColor(row) and resync the IOGraph.  User-customized rows
+     * (where the current color no longer matches the recorded default)
+     * are left untouched.
+     */
+    void onThemeChanged();
+
+    /**
      * @brief Apply pending UAT changes to the registration tables.
      *
      * Static slot called when the dialog is accepted; commits in-progress
@@ -549,7 +587,7 @@ private slots:
     void copyFromProfile(QString filename);
 
     /** @brief Refresh enabled/disabled state of all toolbar and dialog widgets. */
-    void updateWidgets();
+    void updateWidgets() override;
 
     /**
      * @brief Display the plot context menu.
@@ -758,5 +796,11 @@ private slots:
      * @param checked true to use a logarithmic scale; false for linear.
      */
     void actionLogScaleTriggered(bool checked);
+
+    /**
+     * @brief Toggle the Moving Average algo to EWMA or SMA.
+     * @param checked true to use the EWMA algo; false for SMA.
+     */
+    void actionMATriggered(bool checked);
 };
 #endif // IO_GRAPH_DIALOG_H

@@ -73,31 +73,31 @@ public:
      * @brief Retrieves the currently selected values.
      * @return A comma-separated string of selected values.
      */
-    virtual QString value();
+    virtual QString value() override;
 
     /**
      * @brief Checks if the current selection is valid.
      * @return True if valid, false otherwise.
      */
-    virtual bool isValid();
+    virtual bool isValid() override;
 
     /**
      * @brief Retrieves the default values for the selector.
      * @return A comma-separated string of default values.
      */
-    virtual QString defaultValue();
+    virtual QString defaultValue() override;
 
     /**
      * @brief Checks if setting default values is supported.
      * @return True if supported, false otherwise.
      */
-    virtual bool isSetDefaultValueSupported();
+    virtual bool isSetDefaultValueSupported() override;
 
 public Q_SLOTS:
     /**
      * @brief Sets the selector to its default values.
      */
-    virtual void setDefaultValue();
+    virtual void setDefaultValue() override;
 
 protected:
     /**
@@ -120,7 +120,7 @@ protected:
      * @param parent The parent widget.
      * @return A pointer to the created tree view widget.
      */
-    virtual QWidget * createEditor(QWidget * parent);
+    virtual QWidget * createEditor(QWidget * parent) override;
 
     /**
      * @brief Retrieves a list of all currently checked values.
@@ -163,13 +163,13 @@ public:
      * @brief Retrieves the serialized string representing the table's values.
      * @return The serialized values string.
      */
-    virtual QString value();
+    virtual QString value() override;
 
 public Q_SLOTS:
     /**
      * @brief Sets the table to its default state.
      */
-    virtual void setDefaultValue();
+    virtual void setDefaultValue() override;
 
 protected:
     /**
@@ -177,7 +177,7 @@ protected:
      * @param parent The parent widget.
      * @return A pointer to the created table widget.
      */
-    virtual QWidget* createEditor(QWidget* parent);
+    virtual QWidget* createEditor(QWidget* parent) override;
 
     /**
      * @brief Adds a known entry to the table.
@@ -209,10 +209,10 @@ protected:
     virtual void showExtcapOptionsDialogForOptionValue(QStandardItem* item, QString& option_value);
 
     /**
-     * @brief Handles the completion of the extcap options dialog.
+     * @brief Handles the completion of the extcap sub-options dialog.
      * @param item The standard item that was edited.
      */
-    virtual void extcap_options_finished(QStandardItem* item);
+    virtual void extcap_suboptions_accepted(QStandardItem* item);
 
 private:
     /** Dialog for configuring detailed extcap options. */

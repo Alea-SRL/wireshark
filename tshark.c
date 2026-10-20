@@ -52,7 +52,6 @@
 #include <wsutil/report_message.h>
 #include <app/application_flavor.h>
 #include <wsutil/path_config.h>
-#include <cli_main.h>
 #include <wsutil/version_info.h>
 #include <wiretap/wtap_opttypes.h>
 
@@ -144,6 +143,7 @@
 #define LONGOPT_PRINT_TIMERS            LONGOPT_BASE_APPLICATION+9
 #define LONGOPT_GLOBAL_PROFILE          LONGOPT_BASE_APPLICATION+10
 #define LONGOPT_COMPRESS                LONGOPT_BASE_APPLICATION+11
+#define LONGOPT_JSON_COMPACT            LONGOPT_BASE_APPLICATION+12
 
 capture_file cfile;
 
@@ -195,6 +195,7 @@ static char *output_file_name;
 static output_fields_t* output_fields;
 
 static bool no_duplicate_keys;
+static bool json_compact;
 static proto_node_children_grouper_func node_children_grouper = proto_node_group_children_by_unique;
 
 static json_dumper jdumper;
@@ -233,6 +234,8 @@ static void capture_input_error(capture_session *cap_session,
         char *error_msg, char *secondary_error_msg);
 static void capture_input_cfilter_error(capture_session *cap_session,
         unsigned i, const char *error_message);
+static void capture_input_warning(capture_session *cap_session,
+        char *error_msg, char *secondary_error_msg);
 static void capture_input_closed(capture_session *cap_session, char *msg);
 
 static void report_counts(void);
@@ -458,6 +461,10 @@ print_usage(FILE *output)
     fprintf(output, "                           print list of link-layer types of iface and exit\n");
     fprintf(output, "  --list-time-stamp-types  print list of timestamp types for iface and exit\n");
     fprintf(output, "  --no-optimize            do not optimize capture filter\n");
+    fprintf(output, "  --process-info[=basic|full]\n");
+    fprintf(output, "                           record the processes that sent or received each packet:\n");
+    fprintf(output, "                           their ID and name (basic, the default), or their path,\n");
+    fprintf(output, "                           command line and user as well (full)\n");
     fprintf(output, "\n");
     fprintf(output, "Capture display:\n");
     fprintf(output, "  --update-interval        interval between updates with new packets, in milliseconds (def: %dms)\n", DEFAULT_UPDATE_INTERVAL);
@@ -591,6 +598,8 @@ print_usage(FILE *output)
     fprintf(output, "  --no-duplicate-keys      If -T json is specified, merge duplicate keys in an object\n");
     fprintf(output, "                           into a single key with as value a json array containing all\n");
     fprintf(output, "                           values\n");
+    fprintf(output, "  --json-compact           If -T json is specified, output compact one-line JSON\n");
+    fprintf(output, "                           without indentation (significantly faster)\n");
     fprintf(output, "  --elastic-mapping-filter <protocols> If -G elastic-mapping is specified, put only the\n");
     fprintf(output, "                           specified protocols within the mapping file\n");
     fprintf(output, "  --temp-dir <directory>   write temporary files to this directory\n");
@@ -1047,7 +1056,7 @@ capture_opts_get_interface_list(int *err, char **err_str)
         /*
          * This isn't a GUI tool, so no need for a callback.
          */
-        cached_if_list = capture_interface_list(global_capture_opts.app_name, err, err_str, NULL);
+        cached_if_list = capture_interface_list(err, err_str, NULL);
     }
     /*
      * Routines expect to free the returned interface list, so return
@@ -1081,6 +1090,7 @@ main(int argc, char *argv[])
         {"print-timers", ws_no_argument, NULL, LONGOPT_PRINT_TIMERS},
         {"global-profile", ws_no_argument, NULL, LONGOPT_GLOBAL_PROFILE},
         {"compress", ws_required_argument, NULL, LONGOPT_COMPRESS},
+        {"json-compact", ws_no_argument, NULL, LONGOPT_JSON_COMPACT},
         {0, 0, 0, 0}
     };
     bool                 arg_error = false;
@@ -1340,11 +1350,13 @@ main(int argc, char *argv[])
     init_report_failure_message("TShark");
 
 #ifdef HAVE_LIBPCAP
-    capture_opts_init(&global_capture_opts, application_flavor_name_lower(), capture_opts_get_interface_list);
+    capture_opts_init(&global_capture_opts, capture_opts_get_interface_list);
     capture_session_init(&global_capture_session, &cfile,
             capture_input_new_file, capture_input_new_packets,
             capture_input_drops, capture_input_error,
-            capture_input_cfilter_error, capture_input_closed);
+            capture_input_cfilter_error,
+            capture_input_warning, NULL,
+            capture_input_closed);
 #endif
 
     timestamp_set_type(TS_RELATIVE);
@@ -1399,6 +1411,24 @@ main(int argc, char *argv[])
     /* Load libwireshark settings from the current profile. */
     prefs_p = epan_load_settings();
     prefs_loaded = true;
+
+#ifdef HAVE_LIBPCAP
+    /* Pick up the temporary directory from the preferences. This has to
+       happen before the command line is parsed below, so that --temp-dir
+       overrides the preference rather than the other way round.
+     *
+     * The GUI gets this from prefs_to_capture_opts(), but TShark cannot
+     * link ui/preference_utils.c - it pulls in simple_dialog() and the
+     * rest of the GUI - so the one field TShark cares about is copied
+     * here instead. An empty preference means "no preference": leave the
+     * directory unset so the system default applies.
+     */
+    if (prefs_p->capture_temp_dir != NULL && prefs_p->capture_temp_dir[0] != '\0') {
+        g_free(global_capture_opts.temp_dir);
+        global_capture_opts.temp_dir = g_strdup(prefs_p->capture_temp_dir);
+        global_capture_opts.temp_dir_from_prefs = true;
+    }
+#endif
 
     cap_file_init(&cfile);
 
@@ -1456,6 +1486,7 @@ main(int argc, char *argv[])
             case LONGOPT_COMPRESS_TYPE:        /* compress type */
             case LONGOPT_CAPTURE_TMPDIR:       /* capture temp directory */
             case LONGOPT_UPDATE_INTERVAL:      /* sync pipe update interval */
+            case LONGOPT_PROCESS_INFO:         /* record the processes that sent or received each packet */
                 /* These are options only for packet capture. */
 #ifdef HAVE_LIBPCAP
                 exit_status = capture_opts_add_opt(application_configuration_environment_prefix(), &global_capture_opts, opt, ws_optarg);
@@ -1496,7 +1527,7 @@ main(int argc, char *argv[])
             case 'D':        /* Print a list of capture devices and exit */
 #ifdef HAVE_LIBPCAP
                 exit_status = EXIT_SUCCESS;
-                if_list = capture_interface_list(global_capture_opts.app_name, &err, &err_str,NULL);
+                if_list = capture_interface_list(&err, &err_str,NULL);
                 if (err != 0) {
                     /*
                      * An error occurred when fetching the local
@@ -1944,6 +1975,9 @@ main(int argc, char *argv[])
                     goto clean_exit;
                 }
                 break;
+            case LONGOPT_JSON_COMPACT:
+                json_compact = true;
+                break;
             case '?':        /* Bad flag - print usage message */
             default:
                 /* wslog arguments are okay */
@@ -1989,6 +2023,12 @@ main(int argc, char *argv[])
 
     if (no_duplicate_keys && output_action != WRITE_JSON && output_action != WRITE_JSON_RAW) {
         cmdarg_err("--no-duplicate-keys can only be used with \"-T json\" and \"-T jsonraw\"");
+        exit_status = WS_EXIT_INVALID_OPTION;
+        goto clean_exit;
+    }
+
+    if (json_compact && output_action != WRITE_JSON && output_action != WRITE_JSON_RAW) {
+        cmdarg_err("--json-compact can only be used with \"-T json\" and \"-T jsonraw\"");
         exit_status = WS_EXIT_INVALID_OPTION;
         goto clean_exit;
     }
@@ -2747,7 +2787,7 @@ main(int argc, char *argv[])
                 if_cap_queries = g_list_prepend(if_cap_queries, if_cap_query);
             }
             if_cap_queries = g_list_reverse(if_cap_queries);
-            capability_hash = capture_get_if_list_capabilities(global_capture_opts.app_name, if_cap_queries, &err_str, &err_str_secondary, NULL);
+            capability_hash = capture_get_if_list_capabilities(if_cap_queries, &err_str, &err_str_secondary, NULL);
             g_list_free_full(if_cap_queries, g_free);
             for (i = 0; i < global_capture_opts.ifaces->len; i++) {
                 interface_options *interface_opts;
@@ -2981,6 +3021,13 @@ tshark_epan_new(capture_file *cf)
         cap_file_provider_get_process_id,
         cap_file_provider_get_process_name,
         cap_file_provider_get_process_uuid,
+        cap_file_provider_get_process_path,
+        cap_file_provider_get_process_cmdline,
+        cap_file_provider_get_process_parent_id,
+        cap_file_provider_get_process_user_id,
+        cap_file_provider_get_process_user_name,
+        cap_file_provider_get_process_start_time,
+        cap_file_provider_find_process_info,
     };
 
     return epan_new(&cf->provider, &funcs);
@@ -3129,6 +3176,23 @@ capture_input_cfilter_error(capture_session *cap_session, unsigned i, const char
                 "That string isn't a valid capture filter (%s).\n"
                 "See the User's Guide for a description of the capture filter syntax.",
                 interface_opts->cfilter, interface_opts->descr, error_message);
+    }
+}
+
+
+/* capture child detected a warning */
+static void
+capture_input_warning(capture_session *cap_session _U_, char *error_msg, char *secondary_warning_msg)
+{
+    /* The primary message might be an empty string, e.g. when the error was
+     * from extcap. (The extcap stderr is gathered when the session closes
+     * and printed in capture_input_closed below.) */
+    if (*error_msg != '\0') {
+        cmdarg_err("%s", error_msg);
+        if (secondary_warning_msg != NULL && *secondary_warning_msg != '\0') {
+            /* We have both primary and secondary messages. */
+            cmdarg_err_cont("%s", secondary_warning_msg);
+        }
     }
 }
 
@@ -3306,7 +3370,6 @@ capture_input_new_packets(capture_session *cap_session, int to_read)
                     cf->provider.wth = NULL;
                 }
             }
-            wtap_rec_reset(&rec);
         }
 
         epan_dissect_free(edt);
@@ -3539,8 +3602,11 @@ process_packet_first_pass(capture_file *cf, epan_dissect_t *edt,
     }
 
     if (passed) {
+        frame_data *seq_frame;
+
         frame_data_set_after_dissect(&fdlocal, &cum_bytes);
-        cf->provider.prev_cap = cf->provider.prev_dis = frame_data_sequence_add(cf->provider.frames, &fdlocal);
+        seq_frame = frame_data_sequence_add(cf->provider.frames, &fdlocal);
+        cf->provider.prev_cap = cf->provider.prev_dis = seq_frame;
 
         /* If we're not doing dissection then there won't be any dependent frames.
          * More importantly, edt.pi.fd.dependent_frames won't be initialized because
@@ -3550,8 +3616,12 @@ process_packet_first_pass(capture_file *cf, epan_dissect_t *edt,
          */
         if (edt && cf->dfcode) {
             elapsed_start = g_get_monotonic_time();
-            if (dfilter_apply_edt(cf->dfcode, edt) && edt->pi.fd->dependent_frames) {
-                g_hash_table_foreach(edt->pi.fd->dependent_frames, find_and_mark_frame_depended_upon, cf->provider.frames);
+            if (seq_frame->passed_dfilter && dfilter_apply_edt(cf->dfcode, edt)) {
+                if (edt->pi.fd->dependent_frames) {
+                    g_hash_table_foreach(edt->pi.fd->dependent_frames, find_and_mark_frame_depended_upon, cf->provider.frames);
+                }
+            } else {
+                seq_frame->passed_dfilter = 0;
             }
 
             if (selected_frame_number != 0 && selected_frame_number == cf->count + 1) {
@@ -3691,7 +3761,6 @@ process_cap_file_first_pass(capture_file *cf, int max_packet_count,
                 break;
             }
         }
-        wtap_rec_reset(&rec);
     }
     if (*err != 0)
         status = PASS_READ_ERROR;
@@ -3974,7 +4043,6 @@ process_cap_file_second_pass(capture_file *cf, wtap_dumper *pdh,
             status = PASS_PRINT_ERROR;
             break;
         }
-        wtap_rec_reset(&rec);
     }
 
     if (edt)
@@ -4134,7 +4202,6 @@ process_cap_file_single_pass(capture_file *cf, wtap_dumper *pdh,
             *err = 0; /* This is not a read error */
             break;
         }
-        wtap_rec_reset(&rec);
     }
     if (status == PASS_SUCCEEDED) {
         if (*err != 0) {
@@ -4190,6 +4257,7 @@ process_cap_file(capture_file *cf, char *save_file, int out_file_type,
     if (save_file != NULL) {
         /* Set up to write to the capture file. */
         wtap_dump_params_init_no_idbs(&params, cf->provider.wth);
+        params.zstd_compression_level = prefs.capture_zstd_compression_level;
 
         /* If we don't have an application name add TShark */
         if (wtap_block_get_string_option_value(g_array_index(params.shb_hdrs, wtap_block_t, 0), OPT_SHB_USERAPPL, &shb_user_appl) != WTAP_OPTTYPE_SUCCESS) {
@@ -4606,7 +4674,7 @@ write_preamble(capture_file *cf)
 
         case WRITE_JSON:
         case WRITE_JSON_RAW:
-            jdumper = write_json_preamble(stdout);
+            jdumper = write_json_preamble(stdout, json_compact);
             return !ferror(stdout);
 
         case WRITE_EK:
@@ -4925,7 +4993,7 @@ print_packet(capture_file *cf, epan_dissect_t *edt)
             if (print_summary && !print_columns(cf, edt))
                 return false;
             if (print_details) {
-                if (!proto_tree_print(print_details ? print_dissections_expanded : print_dissections_none,
+                if (!proto_tree_print(print_dissections_expanded,
                             print_hex, edt, output_only_tables, print_stream))
                     return false;
                 if (!print_hex) {
@@ -4954,7 +5022,8 @@ print_packet(capture_file *cf, epan_dissect_t *edt)
             }
             if (print_details) {
                 write_fields_proto_tree(output_fields, edt, &cf->cinfo, stdout);
-                printf("\n");
+                if (!output_fields_has_split(output_fields))
+                    printf("\n");
                 return !ferror(stdout);
             }
             break;

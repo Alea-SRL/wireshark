@@ -173,12 +173,12 @@ uint32_t dissect_mqpcf_parm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *mq_tr
     unsigned offset, uint32_t uCount, unsigned bLittleEndian, bool bParse)
 {
     uint32_t u = 0;
-    uint32_t tOfs = 0;
+    uint32_t tOfs;
     uint32_t uLenF;
     char    *strPrm;
     uint32_t uTyp;
-    uint32_t uLen = 0;
-    uint32_t uMax = 0;
+    uint32_t uLen;
+    uint32_t uMax;
     uint32_t uPrm;
     uint32_t uCnt;
     uint32_t uCCS;
@@ -593,7 +593,7 @@ uint32_t dissect_mqpcf_parm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *mq_tr
 
 static void dissect_mqpcf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, mq_parm_t* p_mq_parm)
 {
-    int offset = 0;
+    unsigned offset = 0;
     unsigned bLittleEndian;
 
     if (tvb_reported_length(tvb) < 36)

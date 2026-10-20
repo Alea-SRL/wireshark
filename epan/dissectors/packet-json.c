@@ -35,12 +35,15 @@
 #include <wsutil/inet_addr.h>
 #include <wsutil/filesystem.h>
 #include <wsutil/file_util.h>
+#include <wsutil/regex.h>
 
 #include <wiretap/wtap.h>
 
 #include "packet-media-type.h"
 #include "packet-acdr.h"
 #include "packet-json.h"
+#include "packet-http.h"
+#include "packet-http2.h"
 #include "json-dictionary.h"
 
 void proto_register_json(void);
@@ -55,6 +58,7 @@ static dissector_handle_t json_handle;
 static dissector_handle_t json_file_handle;
 
 static int proto_json;
+static int proto_http = -1;
 
 //Used to get AC DR proto data
 static int proto_acdr;
@@ -109,6 +113,37 @@ static expert_field ei_json_plus_type_mismatch = EI_INIT;
 
 /* Global dictionary for JSON+ (loaded from XML) */
 static json_dictionary_t json_plus_dictionary;
+
+/* Per-packet gate for dictionary field parsing.
+ *
+ * When the loaded dictionary contains at least one <protocol> entry, the user
+ * wants field-level dissection to happen ONLY for packets that match one of
+ * those protocols (via path regex or port). This flag is set at the start of
+ * each JSON dissection inside the dispatch block:
+ *   true  - no <protocol> entries, or a matching <protocol> was found
+ *   false - <protocol> entries exist but none matched (skip dictionary fields)
+ *
+ * Default true preserves behavior when JSON+ is off (no dispatch block runs)
+ * and when no protocols are loaded. */
+static bool jsonplus_dict_active = true;
+
+/* Per-packet: the json_protocol_t* that matched dispatch, or NULL.
+ * Set in the dispatch block before any field lookup.  Drives
+ * jsonplus_lookup_field_by_path() to search proto->fields instead of
+ * the global dict->fields when a protocol is active. */
+static json_protocol_t *jsonplus_current_protocol = NULL;
+
+/* True when `port` is in the protocol's port_list. Used to enforce
+ * condition="and": when a protocol matched on one criterion, this helper
+ * verifies the other criterion (port) also matches. */
+static bool
+jsonplus_proto_port_matches(const json_protocol_t *p, unsigned port)
+{
+	for (GSList *e = p->port_list; e; e = e->next) {
+		if (port == *(unsigned *)e->data) return true;
+	}
+	return false;
+}
 
 /* JSON+ constants */
 #define JSON_PLUS_MAX_TOKENS 4096
@@ -667,16 +702,83 @@ dissect_json(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 	 * column accordingly.
 	 */
 
+	/* Reset per-packet: stale globals from a prior frame must not leak through.
+	 * When protocols are defined, default to inactive until a match is found. */
+	jsonplus_dict_active = !json_plus_dictionary.has_any_protocol;
+	jsonplus_current_protocol = NULL;
+
 	// Check if JSON+ mode is enabled with a custom protocol name
 	if (json_plus && json_plus_dictionary.protocols) {
-		// Look up protocol by destination or source port
-		json_protocol_t *protocol = (json_protocol_t *)wmem_tree_lookup32(
-			json_plus_dictionary.protocols, pinfo->destport);
+		json_protocol_t *protocol = NULL;
 
+		/* Path-based match first - more specific than port. We pull the URI
+		 * from whichever HTTP version is carrying this JSON:
+		 *   - HTTP/2: :path pseudo-header (http2_get_header_value).
+		 *   - HTTP/1.1: request_uri from the HTTP req/res tracker via
+		 *     p_get_proto_data. Same pattern as packet-grpc.c.
+		 * In raw TCP/UDP JSON contexts both lookups return NULL and we fall
+		 * through to the port lookup. */
+		/* Fetch the URI once - used by both path-matching loop and the AND
+		 * cross-check when port matches first.
+		 *
+		 * IMPORTANT: gate http2_get_header_value() on the frame actually
+		 * having http2 in its layer stack. The function calls
+		 * find_or_create_conversation() + get_http2_session() internally,
+		 * which CREATES an HTTP/2 session on the conversation as a side
+		 * effect. Calling it unconditionally would tag plain HTTP/1.1
+		 * (or other non-HTTP/2) traffic as HTTP/2 from then on. */
+		const char *uri = NULL;
+		if (proto_is_frame_protocol(pinfo->layers, "http2")) {
+			uri = http2_get_header_value(pinfo, HTTP2_HEADER_PATH, false);
+		}
+		if (!uri && proto_http != -1 &&
+		    proto_is_frame_protocol(pinfo->layers, "http")) {
+			http_req_res_t *rr = (http_req_res_t *)p_get_proto_data(
+				wmem_file_scope(), pinfo, proto_http,
+				HTTP_PROTO_DATA_REQRES);
+			if (rr) uri = rr->request_uri;
+		}
+
+		if (uri && json_plus_dictionary.path_matchers) {
+			/* Walk the full list and keep the LAST match, not the first.
+			 * path_matchers is appended in load order, so the last entry
+			 * to match is the one loaded most recently — personal
+			 * dictionaries (loaded after system) and later entries in a
+			 * single config.txt both win. Matches the "later loaded wins"
+			 * rule used for ports (wmem_tree_insert32 overwrite) and
+			 * fields (wmem_tree_insert_string overwrite). */
+			for (GSList *m = json_plus_dictionary.path_matchers; m; m = m->next) {
+				json_protocol_t *p = (json_protocol_t *)m->data;
+				if (!p->path_regex || !ws_regex_matches(p->path_regex, uri))
+					continue;
+				/* condition="and" with both path and ports configured: the
+				 * port must also match. Otherwise skip to the next path
+				 * candidate. */
+				if (p->require_all && p->port_list &&
+				    !jsonplus_proto_port_matches(p, pinfo->destport) &&
+				    !jsonplus_proto_port_matches(p, pinfo->srcport)) {
+					continue;
+				}
+				protocol = p;
+			}
+		}
+
+		/* Fall back to port lookup if no path match. */
 		if (!protocol) {
-			// Try source port (for server responses)
-			protocol = (json_protocol_t *)wmem_tree_lookup32(
-				json_plus_dictionary.protocols, pinfo->srcport);
+			json_protocol_t *p = (json_protocol_t *)wmem_tree_lookup32(
+				json_plus_dictionary.protocols, pinfo->destport);
+			if (!p) {
+				p = (json_protocol_t *)wmem_tree_lookup32(
+					json_plus_dictionary.protocols, pinfo->srcport);
+			}
+			/* condition="and" with both path and ports: URI must also match
+			 * this protocol's regex. */
+			if (p && p->require_all && p->path_regex) {
+				if (uri && ws_regex_matches(p->path_regex, uri))
+					protocol = p;
+			} else {
+				protocol = p;
+			}
 		}
 
 		if (protocol && protocol->display_name) {
@@ -686,8 +788,18 @@ dissect_json(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 			// Fallback to default
 			col_append_sep_str(pinfo->cinfo, COL_PROTOCOL, "/", "JSON");
 		}
+
+		/* Gate dictionary field parsing: if the dictionary defines any
+		 * <protocol> entries and none matched, suppress dictionary lookups
+		 * so the JSON tree renders as generic JSON instead of being parsed
+		 * with the wrong dictionary. When no <protocol> entries exist,
+		 * dictionary fields apply globally (backward compat). */
+		jsonplus_dict_active =
+			!json_plus_dictionary.has_any_protocol || (protocol != NULL);
+		jsonplus_current_protocol = protocol;
 	} else {
 		col_append_sep_str(pinfo->cinfo, COL_PROTOCOL, "/", "JSON");
+		jsonplus_dict_active = true;
 	}
 
 	col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "JSON");
@@ -778,6 +890,17 @@ dissect_json(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 		// JSON+ (dictionary-driven) dissection
 		proto_tree* json_tree_plus = json_hide_root_item() ? json_tree :
 			proto_tree_add_subtree(json_tree, tvb, 0, -1, ett_json_plus, NULL, "JSON+ form:");
+
+		/* Add the protocol-presence boolean so the packet is filterable
+		 * by json.<protocol-name> (e.g. json.nudm_sdm). Hidden so it
+		 * doesn't clutter the tree display. */
+		if (jsonplus_current_protocol &&
+		    jsonplus_current_protocol->hf_proto_present != -1) {
+			proto_item *pi = proto_tree_add_boolean(json_tree_plus,
+				jsonplus_current_protocol->hf_proto_present,
+				tvb, 0, 0, true);
+			proto_item_set_hidden(pi);
+		}
 
 		// Get JSON data for JSON+ parser
 		unsigned len = tvb_reported_length_remaining(tvb, offset);
@@ -1498,53 +1621,60 @@ jsonplus_case_insensitive_matcher(const void *key, void *value, void *userdata)
 	return false;
 }
 
-/*
-  Find field with case-insensitive path matching
-  Only called when exact (case-sensitive) match fails
-  Returns first matching field where case_insensitive=true and paths match case-insensitively
- */
+/* Case-insensitive field search over an arbitrary wmem_tree.
+ * Only called when an exact (case-sensitive) match fails and the tree is
+ * known to contain at least one case_insensitive field. */
 static json_field_t *
-jsonplus_find_case_insensitive_field(const char *path)
+jsonplus_find_case_insensitive_field_in(wmem_tree_t *tree, const char *path)
 {
 	case_insensitive_search_t search_data;
 	search_data.search_path = path;
 	search_data.found_field = NULL;
-
-	wmem_tree_foreach(json_plus_dictionary.fields,
-			  jsonplus_case_insensitive_matcher,
-			  &search_data);
-
+	wmem_tree_foreach(tree, jsonplus_case_insensitive_matcher, &search_data);
 	return search_data.found_field;
 }
 
-/*
-  Look up field definition by path in JSON+ dictionary
-  Uses two-phase lookup:
-   First: Try exact case-sensitive match
-   Second: If no match, try case-insensitive search, only if dictionary has case-insensitive fields)
- */
+/* Look up a field by path.  When a specific protocol matched dispatch,
+ * search that protocol's scoped field tree; otherwise fall back to the
+ * global dict->fields (backward-compat / no-protocol mode). */
 static json_field_t *
 jsonplus_lookup_field_by_path(const char *path)
 {
-	json_field_t *field;
-
-	if (!path || !json_plus_dictionary.fields) {
+	if (!path || !jsonplus_dict_active)
 		return NULL;
+
+	wmem_tree_t *search_tree;
+	bool has_ci;
+
+	if (jsonplus_current_protocol && jsonplus_current_protocol->fields) {
+		search_tree = jsonplus_current_protocol->fields;
+		has_ci = jsonplus_current_protocol->has_case_insensitive_fields;
+	} else {
+		if (!json_plus_dictionary.fields) return NULL;
+		search_tree = json_plus_dictionary.fields;
+		has_ci = json_plus_dictionary.has_case_insensitive_fields;
 	}
 
-	//Try exact case-sensitive match
-	field = (json_field_t *)wmem_tree_lookup_string(json_plus_dictionary.fields, path, 0);
+	json_field_t *field = (json_field_t *)wmem_tree_lookup_string(search_tree, path, 0);
+	if (field) return field;
 
-	if (field) {
-		return field;
-	}
-
-	//Try case-insensitive search only if dictionary has case fields
-	if (json_plus_dictionary.has_case_insensitive_fields) {
-		field = jsonplus_find_case_insensitive_field(path);
-	}
+	if (has_ci)
+		field = jsonplus_find_case_insensitive_field_in(search_tree, path);
 
 	return field;
+}
+
+/* Returns true when path_parts[0] is a root-array element index like "[0]", "[12]", etc.
+ * Used to detect that we're inside a root-level array so the bare-path fallback applies. */
+static bool
+jsonplus_path_has_root_array_prefix(const char **path_parts, int path_depth)
+{
+	if (path_depth < 1) return false;
+	const char *p0 = path_parts[0];
+	if (!p0 || p0[0] != '[') return false;
+	const char *p = p0 + 1;
+	while (*p >= '0' && *p <= '9') p++;
+	return (*p == ']' && *(p + 1) == '\0');
 }
 
 /*
@@ -1691,11 +1821,32 @@ jsonplus_execute_parser(json_field_t *field, const char *value, wmem_allocator_t
 		return NULL;
 	}
 
-	// Build full parser path: <datadir>/json/
-	data_dir = get_datafile_dir(NULL);
-	parser_path = wmem_strdup_printf(pool, "%s%cjson%cparsers%c%s",
-		data_dir, G_DIR_SEPARATOR, G_DIR_SEPARATOR, G_DIR_SEPARATOR,
-		field->parser);
+	// Resolve parser script: personal first (<persconfdir>/json/parsers/),
+	// fall back to system (<datadir>/json/parsers/). Matches the dictionary
+	// loader precedence — a personal copy shadows the system copy. Lookup
+	// happens once per dissected field invocation, so the file_exists()
+	// stat is acceptable; cache it later if it shows up in profiles.
+	parser_path = NULL;
+	char *personal_json_dir = get_persconffile_path("json", false, NULL);
+	if (personal_json_dir) {
+		char *personal_path = wmem_strdup_printf(pool,
+			"%s%cparsers%c%s",
+			personal_json_dir, G_DIR_SEPARATOR, G_DIR_SEPARATOR,
+			field->parser);
+		if (file_exists(personal_path)) {
+			parser_path = personal_path;
+		} else {
+			wmem_free(pool, personal_path);
+		}
+		g_free(personal_json_dir);
+	}
+	if (!parser_path) {
+		data_dir = get_datafile_dir(NULL);
+		parser_path = wmem_strdup_printf(pool,
+			"%s%cjson%cparsers%c%s",
+			data_dir, G_DIR_SEPARATOR, G_DIR_SEPARATOR,
+			G_DIR_SEPARATOR, field->parser);
+	}
 
 	// Build argument array
 	field_value_arg = wmem_strdup_printf(pool, "%s::%s", field->name, value);
@@ -2247,6 +2398,21 @@ static int jsonplus_count_json_tokens(jsmntok_t *tokens, int token_idx, int dept
 	return count;
 }
 
+/* Find the first <wildcardfield> on a json_field_t whose regex matches key_str */
+static json_wildcard_field_t *
+jsonplus_find_wildcard_field(json_field_t *field, const char *key_str)
+{
+	if (!field || !field->wildcard_fields || !key_str)
+		return NULL;
+	for (wmem_list_frame_t *wc = wmem_list_head(field->wildcard_fields); wc; wc = wmem_list_frame_next(wc)) {
+		json_wildcard_field_t *jwf = (json_wildcard_field_t *)wmem_list_frame_data(wc);
+		if (jwf->match_re && ws_regex_matches(jwf->match_re, key_str))
+			return jwf;
+	}
+	return NULL;
+}
+
+
 // Dissect an object field using dictionary definition
 // NOLINTNEXTLINE(misc-no-recursion)
 static int jsonplus_dissect_dict_object_field(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, wmem_allocator_t *pool,
@@ -2285,11 +2451,11 @@ static int jsonplus_dissect_dict_object_field(tvbuff_t *tvb, proto_tree *tree, p
 			/* Move to value */
 			child_idx++;
 
-			// Add key to path
+			/* Add key to path — use wildcard alias if matched */
 			if (path_depth < JSON_PLUS_MAX_PATH_DEPTH) {
-				path_parts[path_depth] = key_str;
+				json_wildcard_field_t *jwf = jsonplus_find_wildcard_field(field, key_str);
+				path_parts[path_depth] = jwf ? jwf->alias : key_str;
 
-				// Process value with updated path
 				int consumed = jsonplus_display_json_tree_dict(tvb, NULL, pinfo, pool, tokens,
 					child_idx, json_buf, path_parts, path_depth + 1);
 				child_idx += consumed;
@@ -2328,11 +2494,23 @@ static int jsonplus_dissect_dict_object_field(tvbuff_t *tvb, proto_tree *tree, p
 		// Move to value
 		child_idx++;
 
-		// Add key to path
+		/* Add key to path — substitute alias for wildcard keys */
 		if (path_depth < JSON_PLUS_MAX_PATH_DEPTH) {
-			path_parts[path_depth] = key_str;
+			json_wildcard_field_t *jwf = jsonplus_find_wildcard_field(field, key_str);
+			if (jwf) {
+				/* Emit the actual runtime key as a labeled string field */
+				if (jwf->hf_key_value != -1) {
+					proto_tree_add_string(subtree, jwf->hf_key_value, tvb,
+						key_token->start,
+						key_token->end - key_token->start,
+						key_str);
+				}
+				/* Substitute alias so child paths resolve against dictionary */
+				path_parts[path_depth] = jwf->alias;
+			} else {
+				path_parts[path_depth] = key_str;
+			}
 
-			// Process value with updated path
 			int consumed = jsonplus_display_json_tree_dict(tvb, subtree, pinfo, pool, tokens,
 				child_idx, json_buf, path_parts, path_depth + 1);
 			child_idx += consumed;
@@ -2474,6 +2652,24 @@ static int jsonplus_display_json_tree_dict(tvbuff_t *tvb, proto_tree *tree, pack
 		if (!field && normalized_path && strcmp(normalized_path, current_path) != 0) {
 			field = jsonplus_lookup_field_by_path(normalized_path);
 		}
+
+		/* If still not found and we're inside a root-level array element, try
+		 * stripping the leading "[N]." prefix so that bare dictionary entries
+		 * (e.g. path="singleNssai.sst") match from both root-object and root-array
+		 * JSON without requiring duplicate [].prefixed entries. */
+		if (!field && jsonplus_path_has_root_array_prefix(path_parts, path_depth)) {
+			const char *dot = strchr(current_path, '.');
+			if (dot) {
+				const char *bare_path = dot + 1;
+				field = jsonplus_lookup_field_by_path(bare_path);
+				if (!field) {
+					char *bare_normalized = jsonplus_normalize_array_path(pool, bare_path);
+					if (bare_normalized && strcmp(bare_normalized, bare_path) != 0) {
+						field = jsonplus_lookup_field_by_path(bare_normalized);
+					}
+				}
+			}
+		}
 	}
 
 	// Special handling for root-level object process children with dictionary
@@ -2507,6 +2703,32 @@ static int jsonplus_display_json_tree_dict(tvbuff_t *tvb, proto_tree *tree, pack
 			} else {
 				child_idx++;
 			}
+		}
+
+		tokens_consumed = child_idx - token_idx;
+		return tokens_consumed;
+	}
+
+	/* Special handling for root-level array: process children with dictionary */
+	else if (!field && path_depth == 0 && token->type == JSMN_ARRAY) {
+		proto_item *ti = NULL;
+		proto_tree *subtree = tree;
+
+		if (tree) {
+			ti = proto_tree_add_none_format(tree, hf_json_array, tvb,
+				token->start, token->end - token->start, "[]");
+			if (ti) {
+				subtree = proto_item_add_subtree(ti, ett_json_plus_array);
+			}
+		}
+
+		int child_idx = token_idx + 1;
+		for (int i = 0; i < token->size; i++) {
+			/* "[0]" normalizes to "[]" enabling dictionary lookup for path="[]" entries */
+			path_parts[0] = wmem_strdup_printf(pool, "[%d]", i);
+			int consumed = jsonplus_display_json_tree_dict(tvb, subtree, pinfo, pool, tokens,
+				child_idx, json_buf, path_parts, 1);
+			child_idx += consumed;
 		}
 
 		tokens_consumed = child_idx - token_idx;
@@ -2684,9 +2906,11 @@ static int jsonplus_display_json_tree_dict(tvbuff_t *tvb, proto_tree *tree, pack
 			}
 
 			if (path_depth < JSON_PLUS_MAX_PATH_DEPTH) {
-				/* Update path with array index */
+				/* Update path with array index (guard against path_depth==0 underflow) */
 				const char *orig_path = (path_depth > 0) ? path_parts[path_depth - 1] : NULL;
-				path_parts[path_depth - 1] = elem_path;
+				if (path_depth > 0) {
+					path_parts[path_depth - 1] = elem_path;
+				}
 
 				/* Process element */
 				int consumed = jsonplus_display_json_tree_dict(tvb, subtree, pinfo, pool, tokens,
@@ -2694,7 +2918,7 @@ static int jsonplus_display_json_tree_dict(tvbuff_t *tvb, proto_tree *tree, pack
 				child_idx += consumed;
 
 				/* Restore original path */
-				if (orig_path) {
+				if (path_depth > 0 && orig_path) {
 					path_parts[path_depth - 1] = orig_path;
 				}
 			} else {
@@ -2893,6 +3117,10 @@ json_prefs_apply(void)
 	}
 }
 
+/* Forward declaration: the definition is just below common_register_json,
+ * which references it in register_shutdown_routine(). */
+static void json_plus_dictionary_shutdown(void);
+
 static void
 common_register_json(void)
 {
@@ -3064,6 +3292,10 @@ common_register_json(void)
 	json_plus_dictionary.protocols = wmem_tree_new(wmem_epan_scope());
 	json_plus_dictionary.types = NULL;
 	json_plus_dictionary.has_case_insensitive_fields = false;
+	json_plus_dictionary.path_matchers = NULL;
+	json_plus_dictionary.all_protocols = NULL;
+	json_plus_dictionary.has_any_protocol = false;
+	json_plus_dictionary.wildcard_regexes = NULL;
 
 	/* Load JSON+ dictionary from XML files */
 	wmem_array_t *dynamic_hf_array = wmem_array_new(wmem_epan_scope(),
@@ -3091,6 +3323,12 @@ common_register_json(void)
 	json_file_handle = register_dissector("json_file", dissect_json_file, proto_json);
 
 	init_json_parser();
+	/* Use register_shutdown_routine (program-exit hook), NOT
+	 * register_cleanup_routine — the latter fires on every capture-file
+	 * close (via epan_free → cleanup_dissection), which would wipe the
+	 * dictionary's regex objects and path_matchers list between files,
+	 * leaving subsequent file opens with no protocol dispatch. */
+	register_shutdown_routine(json_plus_dictionary_shutdown);
 
 	json_module = prefs_register_protocol(proto_json, json_prefs_apply);
 	prefs_register_bool_preference(json_module, "compact_form",
@@ -3150,6 +3388,14 @@ common_register_json(void)
 	register_static_headers();
 }
 
+/* Cleanup wrapper for register_shutdown_routine(): free ws_regex_t objects
+ * and GSList scaffolding owned by the JSON+ dictionary at program exit. */
+static void
+json_plus_dictionary_shutdown(void)
+{
+	json_dictionary_cleanup(&json_plus_dictionary);
+}
+
 void
 proto_register_json(void)
 {
@@ -3201,6 +3447,7 @@ proto_reg_handoff_json(void)
 	dissector_add_uint_range_with_preference("udp.port", "", json_file_handle); /* JSON-RPC over UDP */
 
 	proto_acdr = proto_get_id_by_filter_name("acdr");
+	proto_http = proto_get_id_by_filter_name("http");
 }
 
 

@@ -3192,7 +3192,7 @@ static const value_string cycling_power_feature_sensor_measurement_context_vals[
     {0x0, NULL}
 };
 
-static const value_string body_composition_feature_mass_measurement_resolution_vals[] = {
+static const value_string mass_measurement_resolution_vals[] = {
     {0x00,   "Not Specified"},
     {0x01,   "Resolution of 0.5 kg or 1 lb"},
     {0x02,   "Resolution of 0.2 kg or 0.5 lb"},
@@ -3217,18 +3217,6 @@ static const value_string weight_scale_feature_height_measurement_resolution_val
     {0x01,   "Resolution of 0.01 meter or 1 inch"},
     {0x02,   "Resolution of 0.005 meter or 0.5 inch"},
     {0x03,   "Resolution of 0.001 meter or 0.1 inch"},
-    {0x0, NULL}
-};
-
-static const value_string weight_scale_feature_weight_measurement_resolution_vals[] = {
-    {0x00,   "Not Specified"},
-    {0x01,   "Resolution of 0.5 kg or 1 lb"},
-    {0x02,   "Resolution of 0.2 kg or 0.5 lb"},
-    {0x03,   "Resolution of 0.1 kg or 0.2 lb"},
-    {0x04,   "Resolution of 0.05 kg or 0.1 lb"},
-    {0x05,   "Resolution of 0.02 kg or 0.05 lb"},
-    {0x06,   "Resolution of 0.01 kg or 0.02 lb"},
-    {0x07,   "Resolution of 0.005 kg or 0.01 lb"},
     {0x0, NULL}
 };
 
@@ -4203,6 +4191,12 @@ static bool is_writeable_response(uint8_t opcode)
             opcode == ATT_OPCODE_WRITE_PREPARE_RESPONSE);
 }
 
+static bool is_writable_command(uint8_t opcode)
+{
+    return (opcode == ATT_OPCODE_WRITE_COMMAND ||
+            opcode == ATT_OPCODE_WRITE_SIGNED_COMMAND);
+}
+
 static uint16_t
 get_gatt_service_handle_from_handle(packet_info *pinfo, uint32_t handle,
     btl2cap_data_t *l2cap_data);
@@ -4224,7 +4218,8 @@ static bool bluetooth_gatt_has_no_parameter(uint8_t opcode)
 static int
 get_server_direction(uint8_t opcode, int direction)
 {
-    if (is_readable_request(opcode) || is_writeable_request(opcode) || opcode == ATT_OPCODE_HANDLE_VALUE_CONFIRMATION || opcode == ATT_OPCODE_WRITE_REQUEST)
+    if (is_readable_request(opcode) || is_writeable_request(opcode) || is_writable_command(opcode)
+        || opcode == ATT_OPCODE_HANDLE_VALUE_CONFIRMATION || opcode == ATT_OPCODE_WRITE_REQUEST)
         return !direction;
     if (is_readable_response(opcode) || is_writeable_response(opcode))
         return direction;
@@ -4251,7 +4246,7 @@ get_server_bdaddr_from_direction(btl2cap_data_t *l2cap_data, int direction, uint
 }
 
 static request_data_t *
-get_request(tvbuff_t *tvb, int offset, packet_info *pinfo, uint8_t opcode,
+get_request(tvbuff_t *tvb, unsigned offset, packet_info *pinfo, uint8_t opcode,
         btl2cap_data_t *l2cap_data)
 {
     request_data_t  *request_data;
@@ -4716,7 +4711,7 @@ static void col_append_info_by_handle(packet_info *pinfo, uint16_t handle, uint8
     }
 }
 
-static int dissect_gatt_uuid(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, int offset)
+static int dissect_gatt_uuid(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, unsigned offset)
 {
     proto_item       *sub_item;
     bluetooth_uuid_t  sub_uuid;
@@ -4742,7 +4737,7 @@ static int dissect_gatt_uuid(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb
 
 static int
 dissect_handle(proto_tree *tree, packet_info *pinfo, int hf,
-        tvbuff_t *tvb, int offset, btl2cap_data_t *l2cap_data,
+        tvbuff_t *tvb, unsigned offset, btl2cap_data_t *l2cap_data,
         bluetooth_uuid_t *uuid, int32_t handle, uint8_t opcode, uint16_t *p_handle_value)
 {
     proto_item        *handle_item;
@@ -4835,14 +4830,14 @@ btatt_call_dissector_by_dissector_name_with_data(const char *dissector_name,
 /*
     dissects attribute handle and takes care of reassembly:
     If sub-dissector sets pinfo->deseg_offset >0 && < pktlen the leftover bytes are stored and front-attached to the next packet
-    returns 0 if paket was not handled
+    returns 0 if packet was not handled
     returns #bytes consumed
 */
 static int
 btatt_dissect_with_reassmbly(uint16_t handle, tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, btatt_data_t *att_data){
     /*
      * Cases
-     * 1) single paket: deseg_len=0 deseg_offset=pktlen oder 0??
+     * 1) single packet: deseg_len=0 deseg_offset=pktlen oder 0??
      * 2) start stream: deseg_len=MORE_BYTE   deseg_offset>-1<pktlen -> partially consumed, store fragment, finish
      * 3) cont stream:  deseg_len=MORE_BYTE   deseg_offset=-1 (due to header mismatch) -> not consumed, add previous fragment, run again
      * 4) end stream: deseg_len=0              deseg_offset=pktlen -> completely consumed, return pktlen
@@ -5537,8 +5532,7 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
         if (bluetooth_gatt_has_no_parameter(att_data->opcode))
             break;
 
-        proto_tree_add_item(tree, hf_btatt_value_trigger_setting_condition, tvb, offset, 1, ENC_NA);
-        value = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint(tree, hf_btatt_value_trigger_setting_condition, tvb, offset, 1, ENC_NA, &value);
         offset += 1;
 
         if (value >= 1 && value <= 3) {
@@ -6355,13 +6349,11 @@ dissect_attribute_value(proto_tree *tree, proto_item *patron_item, packet_info *
             list_length += 1;
             offset += 1;
 
-            proto_tree_add_item(sub_tree, hf_btatt_regulatory_certification_data_list_item_body_structure_type, tvb, offset, 1, ENC_NA);
-            item_type = tvb_get_uint8(tvb, offset);
+            proto_tree_add_item_ret_uint8(sub_tree, hf_btatt_regulatory_certification_data_list_item_body_structure_type, tvb, offset, 1, ENC_NA, &item_type);
             list_length += 1;
             offset += 1;
 
-            list_length_item = proto_tree_add_item(sub_tree, hf_btatt_regulatory_certification_data_list_item_body_structure_length, tvb, offset, 2, ENC_LITTLE_ENDIAN);
-            item_length = tvb_get_uint16(tvb, offset, ENC_LITTLE_ENDIAN);
+            list_length_item = proto_tree_add_item_ret_uint16(sub_tree, hf_btatt_regulatory_certification_data_list_item_body_structure_length, tvb, offset, 2, ENC_LITTLE_ENDIAN, &item_length);
             list_length += 2 + item_length;
             offset += 2;
 
@@ -10837,7 +10829,7 @@ save_mtu(packet_info *pinfo, btl2cap_data_t *l2cap_data, unsigned mtu)
 }
 
 static void
-save_value_fragment(packet_info *pinfo, tvbuff_t *tvb, int offset,
+save_value_fragment(packet_info *pinfo, tvbuff_t *tvb, unsigned offset,
         uint32_t handle, unsigned data_offset, btl2cap_data_t *l2cap_data)
 {
     wmem_tree_key_t   key[7];
@@ -11493,9 +11485,8 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                     offset = dissect_attribute_value(main_tree, NULL, pinfo, tvb, offset, tvb_captured_length_remaining(tvb, offset), request_data->parameters.read_multiple.handle[i_handle], uuid, &att_data);
                 }
             } else {
-                i_handle = 0;
                 /* Read Multiple Variable Response */
-                for (;;) {
+                for (i_handle = 0; i_handle < request_data->parameters.read_multiple.number_of_handles; i_handle += 1) {
                     int remain = tvb_reported_length_remaining(tvb, offset);
                     uint16_t length;
                     if (remain < 2)
@@ -11509,7 +11500,6 @@ dissect_btatt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                     dissect_handle(main_tree, pinfo, hf_btatt_handle, tvb, offset, l2cap_data, &uuid, request_data->parameters.read_multiple.handle[i_handle], opcode, NULL);
                     dissect_attribute_value(main_tree, NULL, pinfo, tvb, offset, length, request_data->parameters.read_multiple.handle[i_handle], uuid, &att_data);
 
-                    i_handle++;
                     offset += length;
                 }
             }
@@ -11823,7 +11813,7 @@ dissect_btgatt_microbit_accelerometer_data(tvbuff_t *tvb, packet_info *pinfo _U_
     proto_item *sub_item;
     proto_tree *sub_tree;
     double x_axis, y_axis, z_axis;
-    int offset = 0;
+    unsigned offset = 0;
 
     if (bluetooth_gatt_has_no_parameter(att_data->opcode))
         return -1;
@@ -11850,7 +11840,7 @@ static int
 dissect_btgatt_microbit_accelerometer_period(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
     btatt_data_t *att_data = (btatt_data_t *) data;
-    int offset = 0;
+    unsigned offset = 0;
 
     if (bluetooth_gatt_has_no_parameter(att_data->opcode))
         return -1;
@@ -11868,7 +11858,7 @@ dissect_btgatt_microbit_magnetometer_data(tvbuff_t *tvb, packet_info *pinfo _U_,
     proto_item *sub_item;
     proto_tree *sub_tree;
     double x_axis, y_axis, z_axis;
-    int offset = 0;
+    unsigned offset = 0;
 
     if (bluetooth_gatt_has_no_parameter(att_data->opcode))
         return -1;
@@ -11895,7 +11885,7 @@ static int
 dissect_btgatt_microbit_magnetometer_period(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
     btatt_data_t *att_data = (btatt_data_t *) data;
-    int offset = 0;
+    unsigned offset = 0;
 
     if (bluetooth_gatt_has_no_parameter(att_data->opcode))
         return -1;
@@ -11910,7 +11900,7 @@ static int
 dissect_btgatt_microbit_magnetometer_bearing(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
     btatt_data_t *att_data = (btatt_data_t *) data;
-    int offset = 0;
+    unsigned offset = 0;
 
     if (bluetooth_gatt_has_no_parameter(att_data->opcode))
         return -1;
@@ -11925,7 +11915,7 @@ static int
 dissect_btgatt_microbit_button_a_state(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
     btatt_data_t *att_data = (btatt_data_t *) data;
-    int offset = 0;
+    unsigned offset = 0;
 
     if (bluetooth_gatt_has_no_parameter(att_data->opcode))
         return -1;
@@ -11940,7 +11930,7 @@ static int
 dissect_btgatt_microbit_button_b_state(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
     btatt_data_t *att_data = (btatt_data_t *) data;
-    int offset = 0;
+    unsigned offset = 0;
 
     if (bluetooth_gatt_has_no_parameter(att_data->opcode))
         return -1;
@@ -11957,7 +11947,7 @@ dissect_btgatt_microbit_pin_data(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tr
     btatt_data_t *att_data = (btatt_data_t *) data;
     proto_item *sub_item;
     proto_tree *sub_tree;
-    int offset = 0;
+    unsigned offset = 0;
     int num_pins;
     uint32_t number, value;
 
@@ -12060,7 +12050,7 @@ static int
 dissect_btgatt_microbit_scrolling_delay(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
     btatt_data_t *att_data = (btatt_data_t *) data;
-    int offset = 0;
+    unsigned offset = 0;
 
     if (bluetooth_gatt_has_no_parameter(att_data->opcode))
         return -1;
@@ -12127,7 +12117,7 @@ static int
 dissect_btgatt_microbit_dfu_control(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
     btatt_data_t *att_data = (btatt_data_t *) data;
-    int offset = 0;
+    unsigned offset = 0;
 
     if (bluetooth_gatt_has_no_parameter(att_data->opcode))
         return -1;
@@ -12142,7 +12132,7 @@ static int
 dissect_btgatt_microbit_temperature_value(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
     btatt_data_t *att_data = (btatt_data_t *) data;
-    int offset = 0;
+    unsigned offset = 0;
 
     if (bluetooth_gatt_has_no_parameter(att_data->opcode))
         return -1;
@@ -12157,7 +12147,7 @@ static int
 dissect_btgatt_microbit_temperature_period(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
     btatt_data_t *att_data = (btatt_data_t *) data;
-    int offset = 0;
+    unsigned offset = 0;
 
     if (bluetooth_gatt_has_no_parameter(att_data->opcode))
         return -1;
@@ -13861,7 +13851,7 @@ proto_register_btatt(void)
         },
         {&hf_btatt_body_composition_feature_mass_measurement_resolution,
             {"Mass Measurement Resolution", "btatt.body_composition_feature.mass_measurement_resolution",
-            FT_UINT32, BASE_HEX, VALS(body_composition_feature_mass_measurement_resolution_vals), 0x00007800,
+            FT_UINT32, BASE_HEX, VALS(mass_measurement_resolution_vals), 0x00007800,
             NULL, HFILL}
         },
         {&hf_btatt_body_composition_feature_height,
@@ -13936,7 +13926,7 @@ proto_register_btatt(void)
         },
         {&hf_btatt_weight_scale_feature_weight_measurement_resolution,
             {"Mass Measurement Resolution", "btatt.weight_scale_feature.weight_measurement_resolution",
-            FT_UINT32, BASE_HEX, VALS(weight_scale_feature_weight_measurement_resolution_vals), 0x00000078,
+            FT_UINT32, BASE_HEX, VALS(mass_measurement_resolution_vals), 0x00000078,
             NULL, HFILL}
         },
         {&hf_btatt_weight_scale_feature_bmi,

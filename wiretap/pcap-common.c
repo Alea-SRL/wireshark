@@ -376,6 +376,8 @@ static const struct {
 	{ 214,		WTAP_ENCAP_X2E_XORAYA },
 	/* IEEE 802.15.4 Wireless PAN non-ASK PHY */
 	{ 215,		WTAP_ENCAP_IEEE802_15_4_NONASK_PHY },
+	/* "gsmtap" header followed by GSM Um interface packets */
+	{ 217,		WTAP_ENCAP_GSMTAP_UM },
 	/* USB packets with padded Linux-specified header */
 	{ 220,		WTAP_ENCAP_USB_LINUX_MMAPPED },
 	/* Fibre Channel FC-2 frame */
@@ -502,6 +504,9 @@ static const struct {
 	/* Auerswald log file captured from any supported Auerswald device */
 	{ 296,		WTAP_ENCAP_AUERSWALD_LOG },
 
+	/* Z-Wave Tap */
+	{ 297,		WTAP_ENCAP_ZWAVE_TAP },
+
 	/* Silicon Labs debug channel */
 	{ 298,		WTAP_ENCAP_SILABS_DEBUG_CHANNEL },
 
@@ -513,6 +518,9 @@ static const struct {
 
 	/* DECT_NR (DECT-2020 New Radio (NR) MAC layer) */
 	{ 301,		WTAP_ENCAP_DECT_NR },
+
+	/* DECT_NR TAP (DECT-2020 New Radio (NR) TAP header) */
+	{ 304,		WTAP_ENCAP_DECT_NR_TAP },
 
 	/*
 	 * To repeat:
@@ -793,6 +801,9 @@ wtap_max_snaplen_for_encap(int wtap_encap)
 
 	case WTAP_ENCAP_EBHSCR:
 		return WTAP_MAX_PACKET_SIZE_EBHSCR;
+
+	case WTAP_ENCAP_DEKTEC_SDI:
+		return WTAP_MAX_PACKET_SIZE_DEKTEC_SDI;
 
 	case WTAP_ENCAP_USBPCAP:
 	case WTAP_ENCAP_USB_LINUX:

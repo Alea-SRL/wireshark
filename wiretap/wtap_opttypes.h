@@ -138,7 +138,10 @@ extern "C" {
 #define OPT_PKT_PACKETID     5
 #define OPT_PKT_QUEUE        6
 #define OPT_PKT_VERDICT      7
-#define OPT_PKT_PROCIDTHRDID 8
+#define OPT_PKT_PROCIDTHRDID 8    /**< 64-bit value holding the process ID in the upper 32 bits
+                                   *     and the thread ID in the lower 32 bits; 0 means that
+                                   *     the ID is not available.
+                                   */
 
 /* Name Resolution Block (NRB) */
 #define OPT_NS_DNSNAME       2
@@ -154,9 +157,15 @@ extern "C" {
 #define OPT_ISB_OSDROP       7
 #define OPT_ISB_USRDELIV     8
 
-/* Darwin Process Info Block (DPIB) */
-#define OPT_DPIB_NAME        2   /**< Process name: NUL-terminated UTF8 string (limited to 16 characters including the NUL) */
-#define OPT_DPIB_UUID        4   /**< Process UUID: 16 byte */
+/* Process Information Block (PIB) */
+#define OPT_PIB_NAME         2   /**< Short name of the process: UTF-8 string */
+#define OPT_PIB_PATH         3   /**< Full path of the executable image: UTF-8 string */
+#define OPT_PIB_CMDLINE      4   /**< Command line, arguments separated by NULs: bytes */
+#define OPT_PIB_PPID         5   /**< Parent process ID: 32-bit unsigned integer */
+#define OPT_PIB_UID          6   /**< Numeric user ID: 32-bit unsigned integer */
+#define OPT_PIB_USER         7   /**< User name or textual security identifier: UTF-8 string */
+#define OPT_PIB_UUID         8   /**< UUID of the executable image: 16 bytes */
+#define OPT_PIB_STARTTIME    9   /**< Process start time, in nanoseconds since the Epoch: 64-bit unsigned integer */
 
 /* Darwin-specific options for EPB */
 #define OPT_PKT_DARWIN_PIB_ID               32769   /**< 32-bit number of the Darwin PIB that describes the Process ID. */
@@ -171,8 +180,8 @@ extern "C" {
 #define OPT_PKT_DARWIN_COMP_GENCNT          32778   /**< 32-bit current value of the compression generation count (epoch). */
 
 
-/*
- * Currently supported blocks; these are not the pcapng block type values
+/**
+ * @brief Currently supported blocks; these are not the pcapng block type values
  * for them, they're identifiers used internally, and more than one
  * pcapng block type may use a given block type.
  *
@@ -232,20 +241,21 @@ extern "C" {
  * information
  */
 typedef enum {
-    WTAP_BLOCK_SECTION = 0,
-    WTAP_BLOCK_IF_ID_AND_INFO,
-    WTAP_BLOCK_NAME_RESOLUTION,
-    WTAP_BLOCK_IF_STATISTICS,
-    WTAP_BLOCK_DECRYPTION_SECRETS,
-    WTAP_BLOCK_PACKET,
-    WTAP_BLOCK_FT_SPECIFIC_REPORT,
-    WTAP_BLOCK_FT_SPECIFIC_EVENT,
-    WTAP_BLOCK_SYSDIG_EVENT,
-    WTAP_BLOCK_META_EVENT,
-    WTAP_BLOCK_SYSTEMD_JOURNAL_EXPORT,
-    WTAP_BLOCK_CUSTOM,
-    WTAP_BLOCK_FT_SPECIFIC_INFORMATION,
-    MAX_WTAP_BLOCK_TYPE_VALUE
+    WTAP_BLOCK_SECTION             = 0, /**< Section block: groups a set of blocks and carries per-section metadata (pcapng SHB) */
+    WTAP_BLOCK_IF_ID_AND_INFO,          /**< Interface ID and description block: identifies a capture interface and assigns it an ID referenced by packets (pcapng IDB) */
+    WTAP_BLOCK_NAME_RESOLUTION,         /**< Name resolution block: maps addresses to host names (pcapng NRB) */
+    WTAP_BLOCK_IF_STATISTICS,           /**< Interface statistics block: per-interface capture counters (pcapng ISB) */
+    WTAP_BLOCK_DECRYPTION_SECRETS,      /**< Decryption secrets block: embeds key material for post-capture decryption (pcapng DSB) */
+    WTAP_BLOCK_PACKET,                  /**< Packet block: reserved for future use; covers EPB, SPB, and deprecated PB (not currently active) */
+    WTAP_BLOCK_FT_SPECIFIC_REPORT,      /**< File-type-specific report: a timestamped summary measurement, optionally with duration (e.g. "carrier lost N times") */
+    WTAP_BLOCK_FT_SPECIFIC_EVENT,       /**< File-type-specific event: a timestamped state-change occurrence (e.g. "carrier lost", "channel change") */
+    WTAP_BLOCK_SYSDIG_EVENT,            /**< Sysdig event block: a system-call or kernel event record from a Sysdig capture */
+    WTAP_BLOCK_META_EVENT,              /**< Meta-event block: capture-framework metadata event (e.g. Falco/Sysdig container lifecycle events) */
+    WTAP_BLOCK_SYSTEMD_JOURNAL_EXPORT,  /**< systemd journal export block: reserved for future use (not currently active) */
+    WTAP_BLOCK_CUSTOM,                  /**< Custom block: vendor- or application-defined block with a private PEN (pcapng CB) */
+    WTAP_BLOCK_FT_SPECIFIC_INFORMATION, /**< File-type-specific information: non-timestamped static metadata with no time coordinate */
+    WTAP_BLOCK_PROCESS_INFORMATION,     /**< Process information block: describes a process on the capturing host that packets are associated with (pcapng PIB) */
+    MAX_WTAP_BLOCK_TYPE_VALUE           /**< Sentinel: total number of defined block type identifiers */
 } wtap_block_type_t;
 
 struct wtap_block;
@@ -255,27 +265,29 @@ typedef void (*wtap_block_create_func)(wtap_block_t block);
 typedef void (*wtap_mand_free_func)(wtap_block_t block);
 typedef void (*wtap_mand_copy_func)(wtap_block_t dest_block, wtap_block_t src_block);
 
-/*
- * Structure describing a type of block.
+/**
+ * @brief Describes a registered pcapng block type, including its identity, human-readable metadata, lifecycle callbacks, and known options.
  */
 typedef struct wtap_blocktype_t {
-    wtap_block_type_t block_type;    /**< internal type code for block */
-    const char* name;                /**< name of block */
-    const char* description;         /**< human-readable description of block */
-    wtap_block_create_func create;
-    wtap_mand_free_func free_mand;
-    wtap_mand_copy_func copy_mand;
-    GHashTable* options;             /**< hash table of known options */
+    wtap_block_type_t  block_type;  /**< Internal enumeration value identifying this block type. */
+    const char        *name;        /**< Short programmatic name for this block type. */
+    const char        *description; /**< Human-readable description of this block type, suitable for display. */
+    wtap_block_create_func create;  /**< Callback invoked to allocate and initialize the mandatory data for a new block of this type. */
+    wtap_mand_free_func    free_mand; /**< Callback invoked to release resources held by the mandatory data when a block is destroyed. */
+    wtap_mand_copy_func    copy_mand; /**< Callback invoked to deep-copy the mandatory data when a block is duplicated. */
+    GHashTable            *options;   /**< Hash table mapping option codes to their definitions for all options known to this block type. */
 } wtap_blocktype_t;
 
-struct wtap_block
-{
-    struct wtap_blocktype_t* info;
-    void* mandatory_data;
-    GArray* options;
-    int ref_count;
+/**
+ * @brief A single instance of a pcapng block, holding its type descriptor, mandatory data payload, options, and reference count.
+ */
+struct wtap_block {
+    struct wtap_blocktype_t *info;           /**< Pointer to the type descriptor that defines this block's structure and callbacks. */
+    void                    *mandatory_data; /**< Opaque pointer to the block's mandatory fields, allocated and managed by @ref wtap_blocktype_t::create and @ref wtap_blocktype_t::free_mand. */
+    GArray                  *options;        /**< Dynamic array of wtap_option_t entries representing the optional fields present in this block. */
+    int                      ref_count;      /**< Reference count governing the lifetime of this block; the block is freed when the count reaches zero. */
 #ifdef DEBUG_COUNT_REFS
-    unsigned id;
+    unsigned                 id;             /**< Unique numeric identifier assigned to this block instance for reference-count debugging. */
 #endif
 };
 
@@ -300,14 +312,6 @@ typedef struct wtapng_section_mandatory_s {
 typedef struct wtapng_iface_descriptions_s {
     GArray *interface_data;
 } wtapng_iface_descriptions_t;
-
-/** struct holding the information to lookup a Darwin PIB.
- *  the dpibs array holds an array of wtap_block_t
- *  representing Darwin PIBs, one per PIB.
- */
- typedef struct wtapng_dpib_lookup_info_s {
-    GArray     *dpibs;
-} wtapng_dpib_lookup_info_t;
 
 /**
  * Holds the required data from a WTAP_BLOCK_IF_ID_AND_INFO.
@@ -379,11 +383,16 @@ typedef struct wtapng_packet_mandatory_s {
 #endif
 
 /**
- * Holds the required data from a WTAP_BLOCK_LEGACY_DARWIN_PROCESS_EVENT.
+ * Holds the required data from a WTAP_BLOCK_PROCESS_INFORMATION.
  */
- typedef struct wtapng_darwin_process_event_mandatory_s {
-    uint32_t               process_id;      /** Process ID */
-}  wtapng_darwin_process_event_mandatory_t;
+typedef struct wtapng_process_info_mandatory_s {
+    uint32_t               process_id;      /**< Process ID assigned by the OS of the capturing host */
+    uint32_t               block_type;      /**< pcapng block type in which the information was read, and
+                                             *     in which it will be written again: BLOCK_TYPE_CB_COPY
+                                             *     for a Wireshark custom block, BLOCK_TYPE_LEGACY_DPIB
+                                             *     for a Darwin process information block; 0 if unknown
+                                             */
+} wtapng_process_info_mandatory_t;
 
 /**
  * Holds the required data from a WTAP_BLOCK_FT_SPECIFIC_REPORT.
@@ -392,69 +401,71 @@ typedef struct wtapng_ft_specific_mandatory_s {
     unsigned  record_type;      /* the type of record this is - file type-specific value */
 } wtapng_ft_specific_mandatory_t;
 
-/*
- * Currently supported option types.  These are not option types
- * in the sense that each one corresponds to a particular option,
- * they are data types for the data of an option, so, for example,
- * all options with a 32-bit unsigned integer value have the type
- * WTAP_OPTTYPE_UINT32.
+/**
+ * @brief Data types for option values stored within a wtap block.
+ *
+ * @note These are value data types, not per-option identifiers. All options
+ *       sharing the same storage type (e.g. every option holding a 32-bit
+ *       unsigned integer) share the same ::wtap_opttype_e value.
  */
 typedef enum {
-    WTAP_OPTTYPE_UINT8,
-    WTAP_OPTTYPE_UINT32,
-    WTAP_OPTTYPE_UINT64,
-    WTAP_OPTTYPE_STRING,
-    WTAP_OPTTYPE_BYTES,
-    WTAP_OPTTYPE_IPv4,
-    WTAP_OPTTYPE_IPv6,
-    WTAP_OPTTYPE_CUSTOM_STRING,
-    WTAP_OPTTYPE_CUSTOM_BINARY,
-    WTAP_OPTTYPE_IF_FILTER,
-    WTAP_OPTTYPE_PACKET_VERDICT,
-    WTAP_OPTTYPE_PACKET_HASH,
-    WTAP_OPTTYPE_INT8,
-    WTAP_OPTTYPE_INT32,
-    WTAP_OPTTYPE_INT64,
+    WTAP_OPTTYPE_UINT8,          /**< Option value is an 8-bit unsigned integer */
+    WTAP_OPTTYPE_UINT32,         /**< Option value is a 32-bit unsigned integer */
+    WTAP_OPTTYPE_UINT64,         /**< Option value is a 64-bit unsigned integer */
+    WTAP_OPTTYPE_STRING,         /**< Option value is a null-terminated UTF-8 string */
+    WTAP_OPTTYPE_BYTES,          /**< Option value is an arbitrary byte array */
+    WTAP_OPTTYPE_IPv4,           /**< Option value is an IPv4 address */
+    WTAP_OPTTYPE_IPv6,           /**< Option value is an IPv6 address */
+    WTAP_OPTTYPE_CUSTOM_STRING,  /**< Option value is a custom option with a UTF-8 string payload (pcapng CB with PEN) */
+    WTAP_OPTTYPE_CUSTOM_BINARY,  /**< Option value is a custom option with a binary payload (pcapng CB with PEN) */
+    WTAP_OPTTYPE_IF_FILTER,      /**< Option value is an interface capture filter (BPF or display filter string) */
+    WTAP_OPTTYPE_PACKET_VERDICT, /**< Option value is a packet verdict (e.g. XDP or TC eBPF verdict) */
+    WTAP_OPTTYPE_PACKET_HASH,    /**< Option value is a packet hash record (algorithm plus digest bytes) */
+    WTAP_OPTTYPE_INT8,           /**< Option value is an 8-bit signed integer */
+    WTAP_OPTTYPE_INT32,          /**< Option value is a 32-bit signed integer */
+    WTAP_OPTTYPE_INT64,          /**< Option value is a 64-bit signed integer */
 } wtap_opttype_e;
 
+/**
+ * @brief Return codes for wtap block option access and mutation operations.
+ */
 typedef enum {
-    WTAP_OPTTYPE_SUCCESS = 0,
-    WTAP_OPTTYPE_NO_SUCH_OPTION = -1,
-    WTAP_OPTTYPE_NOT_FOUND = -2,
-    WTAP_OPTTYPE_TYPE_MISMATCH = -3,
-    WTAP_OPTTYPE_NUMBER_MISMATCH = -4,
-    WTAP_OPTTYPE_ALREADY_EXISTS = -5,
-    WTAP_OPTTYPE_BAD_BLOCK = -6,
-    WTAP_OPTTYPE_PEN_MISMATCH = -7,
+    WTAP_OPTTYPE_SUCCESS         =  0, /**< Operation completed successfully */
+    WTAP_OPTTYPE_NO_SUCH_OPTION  = -1, /**< The specified option code does not exist for this block type */
+    WTAP_OPTTYPE_NOT_FOUND       = -2, /**< The option exists in the block type but no instance was found */
+    WTAP_OPTTYPE_TYPE_MISMATCH   = -3, /**< The requested value type does not match the option's declared type */
+    WTAP_OPTTYPE_NUMBER_MISMATCH = -4, /**< The option occurrence index is out of range */
+    WTAP_OPTTYPE_ALREADY_EXISTS  = -5, /**< An instance of a single-occurrence option already exists in the block */
+    WTAP_OPTTYPE_BAD_BLOCK       = -6, /**< The block reference is NULL or otherwise invalid */
+    WTAP_OPTTYPE_PEN_MISMATCH    = -7, /**< The Private Enterprise Number (PEN) of a custom option does not match */
 } wtap_opttype_return_val;
 
 /* https://www.iana.org/assignments/enterprise-numbers/enterprise-numbers */
 #define PEN_VCTR 46254
 
-/*
- * Structure giving the value of a custom string option; the value
- * includes both the Private Enterprise Number and the data following it.
+/**
+ * @brief Holds the value of a custom string option, combining a Private Enterprise Number with its associated string payload.
  */
 typedef struct custom_string_opt_s {
-    uint32_t pen;     /* Private Enterprise Number of this option */
-    char* string;
+    uint32_t pen;    /**< IANA Private Enterprise Number (PEN) identifying the organization that defined this custom option. */
+    char    *string; /**< Null-terminated string payload of this custom option, allocated by the option owner. */
 } custom_string_opt_t;
 
-/*
- * Structure giving the data of a custom binary option.
+
+/**
+ * @brief Holds the raw binary payload of a custom binary option.
  */
 typedef struct binary_optdata {
-    size_t custom_data_len;
-    void* custom_data;
+    size_t custom_data_len; /**< Length in bytes of the data pointed to by @ref custom_data. */
+    void  *custom_data;     /**< Opaque pointer to the raw binary payload of this custom option. */
 } binary_optdata_t;
 
-/*
- * Structure giving the value of a custom binary option; the value
- * includes both the Private Enterprise Number and the data following it.
+/**
+ * @brief Holds the value of a custom binary option, combining a Private Enterprise Number with its associated binary payload.
  */
 typedef struct custom_binary_opt_s {
-    uint32_t pen;     /* Private Enterprise Number of this option */
-    binary_optdata_t data;
+    uint32_t         pen;  /**< IANA Private Enterprise Number (PEN) identifying the organization that defined this custom option. */
+    binary_optdata_t data; /**< Binary payload of this custom option, including its length and a pointer to the raw bytes. */
 } custom_binary_opt_t;
 
 /* Interface description data - if_filter option structure */
@@ -483,15 +494,26 @@ typedef enum {
     if_filter_bpf  = 1  /* BPF program */
 } if_filter_type_e;
 
+/**
+ * @brief Holds the value of an interface filter option, expressed as either a pcap filter string or a compiled BPF program.
+ */
 typedef struct if_filter_opt_s {
-    if_filter_type_e type;
+    if_filter_type_e type; /**< Discriminator indicating which member of @ref data is active (filter string or BPF program). */
+
+    /**
+     * @brief The filter payload, interpreted according to @ref type.
+     */
     union {
-        char              *filter_str;   /**< pcap filter string */
+        char *filter_str; /**< Null-terminated pcap filter expression string (e.g. "tcp port 80"); active when @ref type indicates a string filter. */
+
+        /**
+         * @brief A compiled BPF filter program consisting of an array of BPF instructions.
+         */
         struct wtap_bpf_insns {
-            unsigned       bpf_prog_len; /**< number of BPF instructions */
-            wtap_bpf_insn_t *bpf_prog;   /**< BPF instructions */
-        }                  bpf_prog;     /**< BPF program */
-    }                      data;
+            unsigned         bpf_prog_len; /**< Number of BPF instructions in the @ref bpf_prog array. */
+            wtap_bpf_insn_t *bpf_prog;     /**< Pointer to the array of compiled BPF instructions. */
+        } bpf_prog; /**< Compiled BPF filter program; active when @ref type indicates a BPF program filter. */
+    } data;
 } if_filter_opt_t;
 
 /* Packet - packet_verdict option structure */
@@ -552,26 +574,41 @@ typedef union {
     packet_hash_opt_t    packet_hash;        /**< Packet hash/digest option value. */
 } wtap_optval_t;
 
-/*
- * Structure describing an option in a block.
+/**
+ * @brief Represents a single option instance within a pcapng block, pairing an option code with its value.
  */
 typedef struct {
-    unsigned option_id;     /**< option code for the option */
-    wtap_optval_t value; /**< value */
+    unsigned      option_id; /**< Option code identifying the type of this option within its enclosing block type. */
+    wtap_optval_t value;     /**< Union holding the typed value of this option, interpreted according to the option's registered data type. */
 } wtap_option_t;
 
+/**
+ * @brief Callback invoked to allocate and initialize the mandatory data for a newly created block.
+ * @param block The block instance whose mandatory data is to be initialized.
+ */
 typedef void (*wtap_block_create_func)(wtap_block_t block);
+
+/**
+ * @brief Callback invoked to release resources held by a block's mandatory data during destruction.
+ * @param block The block instance whose mandatory data is to be freed.
+ */
 typedef void (*wtap_mand_free_func)(wtap_block_t block);
+
+/**
+ * @brief Callback invoked to deep-copy mandatory data from one block into another.
+ * @param dest_block The destination block that receives the copied mandatory data.
+ * @param src_block  The source block whose mandatory data is to be copied.
+ */
 typedef void (*wtap_mand_copy_func)(wtap_block_t dest_block, wtap_block_t src_block);
 
-/*
- * Structure describing a type of option.
+/**
+ * @brief Describes a registered option type, including its identity, human-readable metadata, data type, and behavioral flags.
  */
 typedef struct {
-    const char* name;                            /**< name of option */
-    const char* description;                     /**< human-readable description of option */
-    wtap_opttype_e data_type;                    /**< data type of that option */
-    unsigned flags;                                 /**< flags for the option */
+    const char    *name;        /**< Short programmatic name for this option type, used for lookup and identification. */
+    const char    *description; /**< Human-readable description of this option type, suitable for display. */
+    wtap_opttype_e data_type;   /**< Enumerated data type of this option's value, used to select the correct @ref wtap_optval_t union member. */
+    unsigned       flags;       /**< Bitmask of option behavioral flags (e.g. whether multiple instances of this option are permitted). */
 } wtap_opttype_t;
 
 #define GET_OPTION_TYPE(options, option_id) \
@@ -799,6 +836,18 @@ wtap_block_set_uint64_option_value(wtap_block_t block, unsigned option_id, uint6
  */
 WS_DLL_PUBLIC wtap_opttype_return_val
 wtap_block_get_uint64_option_value(wtap_block_t block, unsigned option_id, uint64_t* value) G_GNUC_WARN_UNUSED_RESULT;
+
+/** Get nth UINT64 option value in a block
+ *
+ * @param[in] block Block from which to get the option value
+ * @param[in] option_id Identifier value for option
+ * @param[in] idx Instance number of option with that ID
+ * @param[out] value Returned value of option
+ * @return wtap_opttype_return_val - WTAP_OPTTYPE_SUCCESS if successful,
+ * error code otherwise
+ */
+WS_DLL_PUBLIC wtap_opttype_return_val
+wtap_block_get_nth_uint64_option_value(wtap_block_t block, unsigned option_id, unsigned idx, uint64_t *value) G_GNUC_WARN_UNUSED_RESULT;
 
 /**
  * @brief Add INT8 option value to a block

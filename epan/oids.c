@@ -560,7 +560,7 @@ static void register_mibs(const char* app_env_var_prefix) {
 	}
 
 	hfa = wmem_array_sized_new(wmem_epan_scope(), sizeof(hf_register_info), 1024); /* oids 631 */
-	etta = g_array_new(false,true,sizeof(int*));
+	etta = g_array_new(FALSE,TRUE,sizeof(int*));
 
 	smiInit("wireshark");
 	smi_init_done = true;
@@ -605,7 +605,7 @@ static void register_mibs(const char* app_env_var_prefix) {
 	}
 
 	g_free(path_str);
-	g_string_free(smi_errors,TRUE);
+	g_string_free(smi_errors, TRUE);
 
 	for (smiModule = smiGetFirstModule();
 		 smiModule;
@@ -680,7 +680,7 @@ static void register_mibs(const char* app_env_var_prefix) {
 				oid_data->value_hfid = 0;
 
 				if ( IS_ENUMABLE(hf.hfinfo.type) && (smiEnum = smiGetFirstNamedNumber(smiType))) {
-					GArray* vals = g_array_sized_new(true,true,sizeof(value_string), 16);
+					GArray* vals = g_array_sized_new(TRUE,TRUE,sizeof(value_string), 16);
 
 					for(;smiEnum; smiEnum = smiGetNextNamedNumber(smiEnum)) {
 						if (smiEnum->name) {
@@ -1323,10 +1323,16 @@ static void oid_add_unique_path(GHashTable* unique_paths, GString* path_str, con
 }
 
 //Done for more glib-friendly datatypes.
-gboolean
+static guint
+files_hash(gconstpointer key)
+{
+	return (guint)files_identical_hash((const void *)key);
+}
+
+static gboolean
 files_identical_equal(const void* fname1, const void* fname2)
 {
-	return files_identical((const char*)fname1, (const char*)fname2);
+	return files_identical((const char*)fname1, (const char*)fname2) ? TRUE : FALSE;
 }
 #endif
 
@@ -1346,7 +1352,7 @@ oid_get_default_mib_path(const char* app_env_var_prefix _U_) {
 	}
 
 	//To limit the size of the MIB path, we use a hash table to store the unique paths.
-	GHashTable* unique_paths = g_hash_table_new_full(files_identical_hash, files_identical_equal, NULL, g_free);
+	GHashTable* unique_paths = g_hash_table_new_full(files_hash, files_identical_equal, NULL, g_free);
 
 #ifdef _WIN32
 	/* XXX - This is appropriate for MSYS2 installed via package,

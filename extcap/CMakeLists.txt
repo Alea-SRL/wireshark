@@ -74,12 +74,6 @@ macro(set_common_executable_properties _executable _application)
 		endif()
 	endif()
 
-	if (MINGW)
-		set_target_properties(${_executable} PROPERTIES
-			LINK_OPTIONS -municode
-		)
-	endif()
-
 	unset(_application_lower)
 endmacro()
 
@@ -98,11 +92,19 @@ add_custom_target(extcaps)
 # XXX - Should this be a shared library, and the headers installed as public
 # headers, for development of extcaps outside the source tree?
 add_library(extcap-base OBJECT extcap-base.c)
+target_link_libraries(extcap-base
+	PRIVATE
+		capchild
+)
 if(LIBSSH_FOUND)
 	add_library(ssh-base OBJECT ssh-base.c)
 	target_include_directories(ssh-base SYSTEM
-		PRIVATE
+		PUBLIC
 			${LIBSSH_INCLUDE_DIRS}
+	)
+	target_link_libraries(ssh-base
+		PUBLIC
+			${LIBSSH_LIBRARIES}
 	)
 endif()
 
@@ -110,8 +112,9 @@ if(BUILD_androiddump)
 	if(EXTCAP_ANDROIDDUMP_LIBPCAP)
 		if(HAVE_LIBPCAP)
 			set(androiddump_LIBS
+				extcap-base
 				wsutil
-				${WIN_WS2_32_LIBRARY}
+				${SOCKET_LIBRARY}
 				$<$<BOOL:${PCAP_FOUND}>:pcap::pcap>
 			)
 		else()
@@ -119,16 +122,15 @@ if(BUILD_androiddump)
 		endif()
 	else()
 		set(androiddump_LIBS
+			extcap-base
 			ui
 			wiretap
 			wsutil
 			${CMAKE_DL_LIBS}
-			${WIN_WS2_32_LIBRARY}
+			${SOCKET_LIBRARY}
 		)
 	endif()
 	set(androiddump_FILES
-		$<TARGET_OBJECTS:cli_main>
-		$<TARGET_OBJECTS:extcap-base>
 		androiddump.c
 		../app/wireshark_flavor.c
 	)
@@ -143,15 +145,13 @@ endif()
 
 if(BUILD_sshdump AND LIBSSH_FOUND)
 	set(sshdump_LIBS
+		extcap-base
+		ssh-base
 		wsutil
 		${CMAKE_DL_LIBS}
-		${WIN_WS2_32_LIBRARY}
-		${LIBSSH_LIBRARIES}
+		${SOCKET_LIBRARY}
 	)
 	set(sshdump_FILES
-		$<TARGET_OBJECTS:cli_main>
-		$<TARGET_OBJECTS:extcap-base>
-		$<TARGET_OBJECTS:ssh-base>
 		sshdump.c
 		../app/wireshark_flavor.c
 	)
@@ -160,7 +160,6 @@ if(BUILD_sshdump AND LIBSSH_FOUND)
 	add_executable(sshdump ${sshdump_FILES})
 	set_extcap_executable_properties(sshdump)
 	target_link_libraries(sshdump ${sshdump_LIBS})
-	target_include_directories(sshdump SYSTEM PRIVATE ${LIBSSH_INCLUDE_DIRS})
 	install(TARGETS sshdump RUNTIME DESTINATION ${EXTCAP_INSTALL_LIBDIR})
 	add_dependencies(extcaps sshdump)
 elseif (BUILD_sshdump)
@@ -169,16 +168,14 @@ endif()
 
 if(BUILD_ciscodump AND LIBSSH_FOUND)
 	set(ciscodump_LIBS
+		extcap-base
+		ssh-base
 		writecap
 		wsutil
 		${CMAKE_DL_LIBS}
-		${WIN_WS2_32_LIBRARY}
-		${LIBSSH_LIBRARIES}
+		${SOCKET_LIBRARY}
 	)
 	set(ciscodump_FILES
-		$<TARGET_OBJECTS:cli_main>
-		$<TARGET_OBJECTS:extcap-base>
-		$<TARGET_OBJECTS:ssh-base>
 		ciscodump.c
 		../app/wireshark_flavor.c
 	)
@@ -187,7 +184,6 @@ if(BUILD_ciscodump AND LIBSSH_FOUND)
 	add_executable(ciscodump ${ciscodump_FILES})
 	set_extcap_executable_properties(ciscodump)
 	target_link_libraries(ciscodump ${ciscodump_LIBS})
-	target_include_directories(ciscodump SYSTEM PRIVATE ${LIBSSH_INCLUDE_DIRS})
 	install(TARGETS ciscodump RUNTIME DESTINATION ${EXTCAP_INSTALL_LIBDIR})
 	add_dependencies(extcaps ciscodump)
 elseif (BUILD_ciscodump)
@@ -196,16 +192,14 @@ endif()
 
 if(BUILD_wifidump AND LIBSSH_FOUND)
 	set(wifidump_LIBS
+		extcap-base
+		ssh-base
 		writecap
 		wsutil
 		${CMAKE_DL_LIBS}
-		${WIN_WS2_32_LIBRARY}
-		${LIBSSH_LIBRARIES}
+		${SOCKET_LIBRARY}
 	)
 	set(wifidump_FILES
-		$<TARGET_OBJECTS:cli_main>
-		$<TARGET_OBJECTS:extcap-base>
-		$<TARGET_OBJECTS:ssh-base>
 		wifidump.c
 		../app/wireshark_flavor.c
 	)
@@ -214,7 +208,6 @@ if(BUILD_wifidump AND LIBSSH_FOUND)
 	add_executable(wifidump ${wifidump_FILES})
 	set_extcap_executable_properties(wifidump)
 	target_link_libraries(wifidump ${wifidump_LIBS})
-	target_include_directories(wifidump SYSTEM PRIVATE ${LIBSSH_INCLUDE_DIRS})
 	install(TARGETS wifidump RUNTIME DESTINATION ${EXTCAP_INSTALL_LIBDIR})
 	add_dependencies(extcaps wifidump)
 elseif (BUILD_wifidump)
@@ -223,6 +216,7 @@ endif()
 
 if(BUILD_dpauxmon AND HAVE_LIBNL3)
 	set(dpauxmon_LIBS
+		extcap-base
 		wsutil
 		writecap
 		${GLIB2_LIBRARIES}
@@ -230,7 +224,6 @@ if(BUILD_dpauxmon AND HAVE_LIBNL3)
 		${NL_LIBRARIES}
 	)
 	set(dpauxmon_FILES
-		$<TARGET_OBJECTS:extcap-base>
 		dpauxmon.c
 	)
 
@@ -247,14 +240,13 @@ endif()
 
 if(BUILD_udpdump)
 	set(udpdump_LIBS
+		extcap-base
 		wsutil
 		${CMAKE_DL_LIBS}
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 		writecap
 	)
 	set(udpdump_FILES
-		$<TARGET_OBJECTS:cli_main>
-		$<TARGET_OBJECTS:extcap-base>
 		udpdump.c
 		../app/wireshark_flavor.c
 	)
@@ -269,15 +261,14 @@ endif()
 
 if(BUILD_randpktdump)
 	set(randpktdump_LIBS
+		extcap-base
 		randpkt_core
 		wiretap
 		wsutil
 		${CMAKE_DL_LIBS}
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 	)
 	set(randpktdump_FILES
-		$<TARGET_OBJECTS:cli_main>
-		$<TARGET_OBJECTS:extcap-base>
 		randpktdump.c
 		../app/wireshark_flavor.c
 	)
@@ -293,17 +284,16 @@ endif()
 
 if(BUILD_etwdump AND WIN32)
 	set(etwdump_LIBS
+		extcap-base
 		wiretap
 		wsutil
 		tdh
 		wevtapi
 		rpcrt4
 		${CMAKE_DL_LIBS}
-		${WIN_WS2_32_LIBRARY}
+		${SOCKET_LIBRARY}
 	)
 	set(etwdump_FILES
-		$<TARGET_OBJECTS:cli_main>
-		$<TARGET_OBJECTS:extcap-base>
 		etwdump.c
 		etl.c
 		etw_message.c
@@ -321,13 +311,13 @@ endif()
 
 if(BUILD_sdjournal AND SYSTEMD_FOUND)
 	set(sdjournal_LIBS
+		extcap-base
 		writecap
 		wsutil
 		${CMAKE_DL_LIBS}
 		${SYSTEMD_LIBRARIES}
 	)
 	set(sdjournal_FILES
-		$<TARGET_OBJECTS:extcap-base>
 		sdjournal.c
 		../app/stratoshark_flavor.c
 	)
@@ -343,13 +333,13 @@ endif()
 
 if(BUILD_dumpcalls AND SINSP_FOUND)
 	set(dumpcalls_LIBS
+		extcap-base
 		wsutil
-		${SINSP_LINK_LIBRARIES}
+		sinsp::sinsp
 		${CMAKE_DL_LIBS}
 		${GCRYPT_LIBRARIES}
 	)
 	set(dumpcalls_FILES
-		$<TARGET_OBJECTS:extcap-base>
 		dumpcalls.cpp
 		../app/stratoshark_flavor.c
 	)
@@ -358,25 +348,19 @@ if(BUILD_dumpcalls AND SINSP_FOUND)
 	add_executable(dumpcalls ${dumpcalls_FILES})
 	set_extlog_executable_properties(dumpcalls)
 	target_link_libraries(dumpcalls ${dumpcalls_LIBS})
-	target_include_directories(dumpcalls SYSTEM PRIVATE ${SINSP_INCLUDE_DIRS})
-	if(WIN32)
-		# libsinsp/dumper.h includes libscap/scap_savefile_api.h, which includes
-		# libscap/scap_zlib.h.
-		target_include_directories(dumpcalls SYSTEM PRIVATE ${ZLIB_INCLUDE_DIR})
-	endif()
 	install(TARGETS dumpcalls RUNTIME DESTINATION ${STRATOSHARK_EXTCAP_INSTALL_LIBDIR})
 	add_dependencies(extcaps dumpcalls)
 endif()
 
 if(BUILD_falcodump AND SINSP_FOUND)
 	set(falcodump_LIBS
+		extcap-base
 		wsutil
-		${SINSP_LINK_LIBRARIES}
+		sinsp::sinsp
 		${CMAKE_DL_LIBS}
 		${GCRYPT_LIBRARIES}
 	)
 	set(falcodump_FILES
-		$<TARGET_OBJECTS:extcap-base>
 		falcodump.cpp
 		../app/stratoshark_flavor.c
 	)
@@ -385,27 +369,19 @@ if(BUILD_falcodump AND SINSP_FOUND)
 	add_executable(falcodump ${falcodump_FILES})
 	set_extlog_executable_properties(falcodump)
 	target_link_libraries(falcodump ${falcodump_LIBS})
-	target_include_directories(falcodump SYSTEM PRIVATE ${SINSP_INCLUDE_DIRS})
-	if(WIN32)
-		# libsinsp/dumper.h includes libscap/scap_savefile_api.h, which includes
-		# libscap/scap_zlib.h.
-		target_include_directories(falcodump SYSTEM PRIVATE ${ZLIB_INCLUDE_DIR})
-	endif()
 	install(TARGETS falcodump RUNTIME DESTINATION ${STRATOSHARK_EXTCAP_INSTALL_LIBDIR})
 	add_dependencies(extcaps falcodump)
 endif()
 
 if(BUILD_sshdig AND LIBSSH_FOUND)
 	set(sshdig_LIBS
+		extcap-base
+		ssh-base
 		wsutil
 		${CMAKE_DL_LIBS}
-		${WIN_WS2_32_LIBRARY}
-		${LIBSSH_LIBRARIES}
+		${SOCKET_LIBRARY}
 	)
 	set(sshdig_FILES
-		$<TARGET_OBJECTS:cli_main>
-		$<TARGET_OBJECTS:extcap-base>
-		$<TARGET_OBJECTS:ssh-base>
 		sshdig.c
 		../app/stratoshark_flavor.c
 	)
@@ -414,7 +390,6 @@ if(BUILD_sshdig AND LIBSSH_FOUND)
 	add_executable(sshdig ${sshdig_FILES})
 	set_extlog_executable_properties(sshdig)
 	target_link_libraries(sshdig ${sshdig_LIBS})
-	target_include_directories(sshdig SYSTEM PRIVATE ${LIBSSH_INCLUDE_DIRS})
 	install(TARGETS sshdig RUNTIME DESTINATION ${STRATOSHARK_EXTCAP_INSTALL_LIBDIR})
 	add_dependencies(extcaps sshdig)
 elseif (BUILD_sshdig)

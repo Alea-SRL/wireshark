@@ -1812,6 +1812,8 @@ static const value_string v10_template_types_ixia[] = {
     {  384, "Mobile Network Name"},
     {  385, "IMEI Mobile Device Model"},
     {  386, "IMEI Mobile Device Manufacturer"},
+    {  387, "Tunnel Interface Name"},
+    {  510, "HTTP Body"},
     { 0, NULL }
 };
 static value_string_ext v10_template_types_ixia_ext = VALUE_STRING_EXT_INIT(v10_template_types_ixia);
@@ -3749,6 +3751,8 @@ static int      hf_pie_ixia_gtp_mobile_country_name;
 static int      hf_pie_ixia_gtp_mobile_network_name;
 static int      hf_pie_ixia_gtp_mobile_device_model;
 static int      hf_pie_ixia_gtp_mobile_device_manufacturer;
+static int      hf_pie_ixia_gtp_tunnel_interface_name;
+static int      hf_pie_ixia_http_body;
 
 static int      hf_pie_netscaler;
 static int      hf_pie_netscaler_roundtriptime;
@@ -7112,6 +7116,8 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
         case 315: /* Data Link Frame Section */
             {
                 bool save_writable;
+                port_type save_ptype;
+                uint32_t save_srcport, save_destport;
                 address save_dl_src, save_dl_dst, save_net_src, save_net_dst, save_src, save_dst;
                 ti = proto_tree_add_item(pdutree, hf_cflow_data_link_frame_section,
                         tvb, offset, length, ENC_NA);
@@ -7133,13 +7139,16 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
 
                 /* Disable overwriting of the info column by the sub dissectors*/
                 col_set_writable (pinfo->cinfo, -1, false);
-                /* Save the source and destination addresses */
+                /* Save the source and destination addresses and ports */
                 copy_address_shallow(&save_dl_src, &pinfo->dl_src);
                 copy_address_shallow(&save_dl_dst, &pinfo->dl_dst);
                 copy_address_shallow(&save_net_src, &pinfo->net_src);
                 copy_address_shallow(&save_net_dst, &pinfo->net_dst);
                 copy_address_shallow(&save_src, &pinfo->src);
                 copy_address_shallow(&save_dst, &pinfo->dst);
+                save_ptype = pinfo->ptype;
+                save_srcport = pinfo->srcport;
+                save_destport = pinfo->destport;
 
                 /* Call the L2 dissector */
                 call_dissector(eth_handle, tvb_new, pinfo, dl_frame_sec_tree);
@@ -7153,6 +7162,9 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
                 copy_address_shallow(&pinfo->net_dst, &save_net_dst);
                 copy_address_shallow(&pinfo->src, &save_src);
                 copy_address_shallow(&pinfo->dst, &save_dst);
+                pinfo->ptype = save_ptype;
+                pinfo->srcport = save_srcport;
+                pinfo->destport = save_destport;
             }
             break;
 
@@ -11515,6 +11527,14 @@ dissect_v9_v10_pdu_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdutree, 
             ti = proto_tree_add_item(pdutree, hf_pie_ixia_gtp_mobile_device_manufacturer,
                                      tvb, offset, length, ENC_ASCII);
             break;
+        case ((VENDOR_IXIA << 16) | 387):
+            ti = proto_tree_add_item(pdutree, hf_pie_ixia_gtp_tunnel_interface_name,
+                                     tvb, offset, length, ENC_ASCII);
+            break;
+        case ((VENDOR_IXIA << 16) | 510):
+            ti = proto_tree_add_item(pdutree, hf_pie_ixia_http_body,
+                                     tvb, offset, length, ENC_ASCII);
+            break;
             /* END Ixia Communications */
 
             /* START Netscaler Communications */
@@ -13265,7 +13285,6 @@ dissect_v9_v10_options_template(tvbuff_t *tvb, packet_info *pinfo, proto_tree *p
         proto_item_append_text(tmplt_item,
                                " (Scope Count = %u; Data Count = %u)",
                                option_scope_field_count, option_field_count);
-        proto_item_set_len(tmplt_item, 6 +4*(option_scope_field_count+option_field_count));
 
         if (v9_tmplt_max_fields &&
             (option_field_count > v9_tmplt_max_fields)) {
@@ -13322,6 +13341,8 @@ dissect_v9_v10_options_template(tvbuff_t *tvb, packet_info *pinfo, proto_tree *p
         offset = dissect_v9_v10_template_fields(tvb, pinfo, tmplt_tree, offset,
                                                 hdrinfo_p, &tmplt, TF_ENTRIES);
 
+        proto_item_set_len(tmplt_item, offset - orig_offset);
+
         if ((tmplt_p == NULL) && (tmplt.fields_p[TF_SCOPES] || tmplt.fields_p[TF_ENTRIES])) {
             /* create permanent template copy for storage in template table */
             tmplt_p = (v9_v10_tmplt_t *)wmem_memdup(wmem_file_scope(), &tmplt, sizeof(tmplt));
@@ -13365,6 +13386,7 @@ dissect_v9_v10_data_template(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdut
         v9_v10_tmplt_t *tmplt_p;
         v9_v10_tmplt_t  tmplt;
         proto_tree     *tmplt_tree;
+        proto_item     *tmplt_item;
         proto_item     *ti;
         uint16_t        id;
         uint16_t        count;
@@ -13379,9 +13401,8 @@ dissect_v9_v10_data_template(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdut
 
         count = tvb_get_ntohs(tvb, offset + 2);
 
-        tmplt_tree = proto_tree_add_subtree_format(pdutree, tvb, offset,
-                                         4 + 4 * count /* hdrsiz + count*2*(sizeof uint16_t)*/,
-                                         ett_template, NULL, "Template (Id = %u, Count = %u)", id, count);
+        tmplt_tree = proto_tree_add_subtree_format(pdutree, tvb, offset, -1,
+                                         ett_template, &tmplt_item, "Template (Id = %u, Count = %u)", id, count);
 
         proto_tree_add_item(tmplt_tree, hf_cflow_template_id, tvb,
                             offset, 2, ENC_BIG_ENDIAN);
@@ -13427,6 +13448,8 @@ dissect_v9_v10_data_template(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pdut
         }
         offset = dissect_v9_v10_template_fields(tvb, pinfo, tmplt_tree, offset,
                                                 hdrinfo_p, &tmplt, TF_ENTRIES);
+
+        proto_item_set_len(tmplt_item, offset - orig_offset);
 
         if ((tmplt_p == NULL) && tmplt.fields_p[TF_ENTRIES]) {
             netflow_domain_state_t *domain_state;
@@ -20503,6 +20526,20 @@ proto_register_netflow(void)
         /* ixia, 3054 / 386 */
         {&hf_pie_ixia_gtp_mobile_device_manufacturer,
          {"GTP Mobile Device Manufacturer", "cflow.pie.ixia.gtp-mobile-device-manufacturer",
+          FT_STRING, BASE_NONE, NULL, 0x0,
+          NULL, HFILL}
+        },
+
+        /* ixia, 3054 / 387 */
+        {&hf_pie_ixia_gtp_tunnel_interface_name,
+         {"GTP Tunnel Interface Name", "cflow.pie.ixia.gtp-tunnel-interface-name",
+          FT_STRING, BASE_NONE, NULL, 0x0,
+          NULL, HFILL}
+        },
+
+        /* ixia, 3054 / 510 */
+        {&hf_pie_ixia_http_body,
+         {"HTTP Body", "cflow.pie.ixia.http-body",
           FT_STRING, BASE_NONE, NULL, 0x0,
           NULL, HFILL}
         },

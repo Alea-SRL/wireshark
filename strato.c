@@ -49,7 +49,6 @@
 #include <wsutil/wslog.h>
 #include <wsutil/ws_assert.h>
 #include <wsutil/strtoi.h>
-#include <cli_main.h>
 #include <wsutil/version_info.h>
 #include <wiretap/wtap_opttypes.h>
 
@@ -2269,6 +2268,13 @@ strato_epan_new(capture_file *cf)
         NULL,
         NULL,
         NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
     };
 
     return epan_new(&cf->provider, &funcs);
@@ -2504,7 +2510,6 @@ process_cap_file_first_pass(capture_file *cf, int max_packet_count,
                 break;
             }
         }
-        wtap_rec_reset(&rec);
     }
     if (*err != 0)
         status = PASS_READ_ERROR;
@@ -2766,7 +2771,6 @@ process_cap_file_second_pass(capture_file *cf, wtap_dumper *pdh,
                 }
             }
         }
-        wtap_rec_reset(&rec);
     }
 
     if (edt)
@@ -2902,7 +2906,6 @@ process_cap_file_single_pass(capture_file *cf, wtap_dumper *pdh,
             *err = 0; /* This is not an error */
             break;
         }
-        wtap_rec_reset(&rec);
     }
     if (status == PASS_SUCCEEDED) {
         if (*err != 0) {
@@ -3357,7 +3360,7 @@ write_preamble(capture_file *cf)
 
         case WRITE_JSON:
         case WRITE_JSON_RAW:
-            jdumper = write_json_preamble(stdout);
+            jdumper = write_json_preamble(stdout, false);
             return !ferror(stdout);
 
         case WRITE_EK:
@@ -3676,7 +3679,7 @@ print_packet(capture_file *cf, epan_dissect_t *edt)
             if (print_summary && !print_columns(cf, edt))
                 return false;
             if (print_details) {
-                if (!proto_tree_print(print_details ? print_dissections_expanded : print_dissections_none,
+                if (!proto_tree_print(print_dissections_expanded,
                             print_hex, edt, output_only_tables, print_stream))
                     return false;
                 if (!print_hex) {

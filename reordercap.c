@@ -27,7 +27,6 @@
 #include <wsutil/file_util.h>
 #include <wsutil/privileges.h>
 #include <wsutil/report_message.h>
-#include <cli_main.h>
 #include <wsutil/version_info.h>
 #include <wiretap/wtap_opttypes.h>
 
@@ -113,8 +112,6 @@ frame_write(FrameRecord_t *frame, wtap *wth, wtap_dumper *pdh,
                                    wtap_file_type_subtype(wth));
         return false;
     }
-    wtap_rec_reset(rec);
-
     return true;
 }
 
@@ -281,7 +278,6 @@ main(int argc, char *argv[])
 
         g_ptr_array_add(frames, newFrameRecord);
         prevFrame = newFrameRecord;
-        wtap_rec_reset(&rec);
     }
     wtap_rec_cleanup(&rec);
     if (err != 0) {

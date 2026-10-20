@@ -33,8 +33,10 @@
 #include <QTemporaryFile>
 
 #include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/plot_theme.h>
 #include <ui/qt/utils/qt_ui_utils.h>
 #include <ui/qt/utils/stock_icon.h>
+#include <ui/qt/utils/theme_manager.h>
 #include "main_application.h"
 #include "ui/qt/widgets/wireshark_file_dialog.h"
 
@@ -86,7 +88,7 @@ public:
 
         if (statinfo->flags & STAT_FLAG_WRONG_SEQ) {
             status = QObject::tr("Wrong sequence number");
-            bg_color = ColorUtils::expert_color_error;
+            bg_color = ThemeManager::instance()->color(ThemeManager::ExpertError);
         } else if (statinfo->flags & STAT_FLAG_REG_PT_CHANGE) {
             status = QObject::tr("Payload changed to PT=%1").arg(statinfo->pt);
             bg_color = color_rtp_warn_;
@@ -128,7 +130,7 @@ public:
         if (bg_color.isValid()) {
             for (int col = 0; col < columnCount(); col++) {
                 setBackground(col, bg_color);
-                setForeground(col, ColorUtils::expert_color_foreground);
+                setForeground(col, ThemeManager::instance()->color(ThemeManager::ExpertForeground));
             }
         }
     }
@@ -144,7 +146,7 @@ public:
                 << status_str << pkt_len_;
     }
 
-    bool operator< (const QTreeWidgetItem &other) const
+    bool operator< (const QTreeWidgetItem &other) const override
     {
         if (other.type() != iax2_analysis_type_) return QTreeWidgetItem::operator< (other);
         const Iax2AnalysisTreeWidgetItem *other_row = static_cast<const Iax2AnalysisTreeWidgetItem *>(&other);
@@ -224,6 +226,7 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
     ui->streamGraph->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(ui->streamGraph, &QCustomPlot::customContextMenuRequested, this,
                 &Iax2AnalysisDialog::showGraphMenu);
+    PlotTheme::track(ui->streamGraph);
 
     QStringList header_labels;
     for (int i = 0; i < ui->forwardTreeWidget->columnCount(); i++) {
@@ -240,20 +243,21 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
 
     for (int i = 0; i < num_graphs_; i++) {
         QCPGraph *graph = ui->streamGraph->addGraph();
-        graph->setPen(QPen(ColorUtils::graphColor(i)));
+        QColor graphColor = ThemeManager::instance()->graphColor(i);
+        graph->setPen(QPen(graphColor));
         graph->setName(graph_cbs[i]->text());
         graphs_ << graph;
         graph_cbs[i]->setChecked(true);
-        graph_cbs[i]->setIcon(StockIcon::colorIcon(ColorUtils::graphColor(i), QPalette::Text));
+        graph_cbs[i]->setIcon(StockIcon::colorIcon(ThemeManager::instance()->graphColor(i), QPalette::Text));
     }
     ui->streamGraph->xAxis->setLabel("Arrival Time");
     ui->streamGraph->yAxis->setLabel("Value (ms)");
 
     // We keep our temp files open for the lifetime of the dialog. The GTK+
     // UI opens and closes at various points.
-    QString tempname = QStringLiteral("%1/wireshark_iax2_f").arg(QDir::tempPath());
+    QString tempname = QStringLiteral("%1/wireshark_iax2_f").arg(tempPath());
     fwd_tempfile_ = new QTemporaryFile(tempname, this);
-    tempname = QStringLiteral("%1/wireshark_iax2_r").arg(QDir::tempPath());
+    tempname = QStringLiteral("%1/wireshark_iax2_r").arg(tempPath());
     rev_tempfile_ = new QTemporaryFile(tempname, this);
 
     if (!fwd_tempfile_->open() || fwd_tempfile_->error() != QFile::NoError || !rev_tempfile_->open() || rev_tempfile_->error() != QFile::NoError) {

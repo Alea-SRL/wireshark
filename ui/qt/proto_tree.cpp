@@ -19,9 +19,14 @@
 #include <epan/epan_dissect.h>
 #include <epan/color_filters.h>
 #include <epan/dissectors/packet-frame.h>
+#include <epan/tag_rules.h>
+#include <epan/field_urls.h>
+#include <epan/dfilter/dfilter.h>
 #include <epan/cfile.h>
 
 #include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/font_manager.h>
+#include <ui/qt/utils/theme_manager.h>
 #include <ui/qt/utils/variant_pointer.h>
 #include <ui/qt/utils/wireshark_mime_data.h>
 #include <ui/qt/widgets/drag_label.h>
@@ -68,15 +73,13 @@ ProtoTree::ProtoTree(QWidget *parent, epan_dissect_t *edt_fixed) :
     setHeaderHidden(true);
     setFocusPolicy(Qt::StrongFocus);
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     setAttribute(Qt::WA_MacShowFocusRect, true);
 #endif
 
-    setStyleSheet(QStringLiteral(
-        "QTreeView:item:hover {"
-        "  background-color: %1;"
-        "  color: palette(text);"
-        "}").arg(ColorUtils::hoverBackground().name(QColor::HexArgb)));
+    updateStyleSheet();
+    connect(ThemeManager::instance(), &ThemeManager::themeChanged,
+            this, &ProtoTree::updateStyleSheet);
 
     // Shrink down to a small but nonzero size in the main splitter.
     int one_em = fontMetrics().height();
@@ -92,13 +95,27 @@ ProtoTree::ProtoTree(QWidget *parent, epan_dissect_t *edt_fixed) :
     connect(this, &ProtoTree::clicked, this, &ProtoTree::itemClicked);
     connect(this, &ProtoTree::doubleClicked, this, &ProtoTree::itemDoubleClicked);
 
+    // Own the font: seed it now and follow the FontManager for later changes.
+    connect(FontManager::instance(), &FontManager::monospaceFontChanged, this, &ProtoTree::setMonospaceFont);
+    setMonospaceFont(FontManager::zoomedMonospaceFont());
+
     // resizeColumnToContents checks 1000 items by default. The user might
     // have scrolled to an area with a different width at this point.
     connect(verticalScrollBar(), &QScrollBar::sliderReleased, this, &ProtoTree::updateContentWidth);
 
-    connect(mainApp, &MainApplication::appInitialized, this, &ProtoTree::connectToMainWindow);
+    // Only the main-window tree follows the main window's field/frame
+    // selection. A fixed-edt tree (the packet dialog) shows one frozen packet
+    // and wires its own selection signals, so it must not connect here.
+    if (!edt_) {
+        mainApp->whenInitialized(this, [this]() { connectToMainWindow(); });
+    }
 
     viewport()->installEventFilter(this);
+}
+
+void ProtoTree::updateStyleSheet()
+{
+    setStyleSheet(ColorUtils::itemHoverStyleSheet(QStringLiteral("QTreeView")));
 }
 
 void ProtoTree::clear() {
@@ -108,13 +125,13 @@ void ProtoTree::clear() {
 
 void ProtoTree::connectToMainWindow()
 {
-    if (mainApp->mainWindow())
-    {
-        connect(mainApp->mainWindow(), &MainWindow::fieldSelected,
-                this, &ProtoTree::selectedFieldChanged);
-        connect(mainApp->mainWindow(), &MainWindow::framesSelected,
-                this, &ProtoTree::selectedFrameChanged);
-    }
+    // Reached only for the main-window tree, and only once the app is
+    // initialized (the window is shown by then), so mainWindow() is non-null.
+    MainWindow *main_window = mainApp->mainWindow();
+    connect(main_window, &MainWindow::fieldSelected,
+            this, &ProtoTree::selectedFieldChanged);
+    connect(main_window, &MainWindow::framesSelected,
+            this, &ProtoTree::selectedFrameChanged);
 }
 
 void ProtoTree::ctxCopyVisibleItems()
@@ -224,6 +241,23 @@ void ProtoTree::ctxOpenUrlWiki()
     else
     {
         if (field_id != hf_text_only) {
+            // A user-defined URL (fieldurls file) for the field, or failing that
+            // its protocol, takes precedence over the online field reference.
+            const char *field_abbrev = proto_registrar_get_abbrev(finfo.headerInfo().id);
+            const QByteArray proto_abbrev_utf8 = proto_abbrev.toUtf8();
+            epan_dissect_t *edt = cap_file_ ? cap_file_->edt : edt_;
+            char *field_value = NULL;
+            if (edt && finfo.fieldInfo() && field_url_needs_value(field_abbrev, proto_abbrev_utf8.constData())) {
+                field_value = get_node_field_value(finfo.fieldInfo(), edt);
+            }
+            char *custom_url = field_url_for(field_abbrev, proto_abbrev_utf8.constData(), field_value);
+            g_free(field_value);
+            if (custom_url) {
+                QDesktopServices::openUrl(QUrl(QString::fromUtf8(custom_url)));
+                g_free(custom_url);
+                return;
+            }
+
             url = QString(WS_DOCS_URL "dfref/%1/%2.html")
                 .arg(proto_abbrev[0])
                 .arg(proto_abbrev);
@@ -341,6 +375,29 @@ void ProtoTree::contextMenuEvent(QContextMenuEvent *event)
 
     ctx_menu->addMenu(PlotAction::createMenu(finfo->headerInfo(), ctx_menu));
 
+    // Checks for the Distribution menu (enabled according to the AGG_FT value)
+    /* XXX - ensure we are consistent with the Distribution Dialog. Move to a function ? */
+    bool isDistributable = false;
+    switch(finfo->headerInfo().type) {
+        case FT_IPv4:
+        case FT_IPv6:
+            isDistributable = true;
+            break;
+
+        default:
+            if (FT_IS_STRING(finfo->headerInfo().type) ||
+                FT_IS_INTEGER(finfo->headerInfo().type)) {
+                isDistributable = true;
+            }
+            break;
+    }
+
+    /* add Distribution menu */
+    action = ctx_menu->addAction(tr("Distribution…"), [this, finfo]() {
+        emit showDistributionDialog(finfo->headerInfo().abbreviation);
+    });
+    action->setEnabled(isDistributable);
+
     submenu = ctx_menu->addMenu(tr("Copy"));
     submenu->setToolTipsVisible(true);
     submenu->addAction(tr("All Visible Items"), this, &ProtoTree::ctxCopyVisibleItems);
@@ -394,6 +451,19 @@ void ProtoTree::contextMenuEvent(QContextMenuEvent *event)
             const QString proto_field_abbrev = proto_registrar_get_abbrev(finfo->headerInfo().id);
             url.append(QStringLiteral("#%1").arg(proto_field_abbrev));
         }
+        const char *field_abbrev = proto_registrar_get_abbrev(finfo->headerInfo().id);
+        const QByteArray proto_abbrev_utf8 = proto_abbrev.toUtf8();
+        epan_dissect_t *edt = cap_file_ ? cap_file_->edt : edt_;
+        char *field_value = NULL;
+        if (edt && finfo->fieldInfo() && field_url_needs_value(field_abbrev, proto_abbrev_utf8.constData())) {
+            field_value = get_node_field_value(finfo->fieldInfo(), edt);
+        }
+        char *custom_url = field_url_for(field_abbrev, proto_abbrev_utf8.constData(), field_value);
+        g_free(field_value);
+        if (custom_url) {
+            url = QString::fromUtf8(custom_url);
+            g_free(custom_url);
+        }
         action->setProperty("toolTip", url);
     }
     else {
@@ -419,6 +489,59 @@ void ProtoTree::contextMenuEvent(QContextMenuEvent *event)
             this, SIGNAL(editProtocolPreference(pref_t*,module_t*)));
 
     ctx_menu->addMenu(proto_prefs_menu);
+
+    main_menu_item = window()->findChild<QMenu *>("menuTcpStreamGraphs");
+    if (main_menu_item) {
+        QList<QAction *> enabled_actions;
+        foreach (QAction *a, main_menu_item->actions()) {
+            if (!a->isSeparator() && a->isEnabled())
+                enabled_actions << a;
+        }
+        if (!enabled_actions.isEmpty()) {
+            submenu = new QMenu(main_menu_item->title(), ctx_menu);
+            foreach (QAction *a, enabled_actions)
+                submenu->addAction(a);
+            ctx_menu->addMenu(submenu);
+        }
+    }
+
+    // Add "Tagging Rules..." and "Tag Links" submenu when right-clicking a frame.tag field
+    bool is_tag_field = fi && fi->hfinfo &&
+        strcmp(fi->hfinfo->abbrev, "frame.tag") == 0;
+    if (is_tag_field && !buildForDialog) {
+        ctx_menu->addAction(tr("Tagging Rules..."), [this]() {
+            QAction *tagging_rules_action = window()->findChild<QAction *>("actionViewTaggingRules");
+            if (tagging_rules_action)
+                tagging_rules_action->trigger();
+        });
+
+        // Build "Tag Links" submenu from all matching rules that have a URL
+        if (edt) {
+            QMenu *linkSubmenu = nullptr;
+            const GSList *rule_list = tag_rules_get_list();
+            for (const GSList *r = rule_list; r; r = g_slist_next(r)) {
+                const tag_rule_t *rule = (const tag_rule_t *)r->data;
+                if (rule->disabled || !rule->c_tagfilter || !rule->tag_url || !rule->tag_url[0])
+                    continue;
+                if (!dfilter_apply_edt(rule->c_tagfilter, edt))
+                    continue;
+                if (!linkSubmenu)
+                    linkSubmenu = new QMenu(tr("Tag Links"), ctx_menu);
+                QString name = QString::fromUtf8(rule->rule_name);
+                QString url  = QString::fromUtf8(rule->tag_url);
+                QString displayUrl = url.length() > 50 ? url.left(50) + "..." : url;
+                QString label = name + ": " + displayUrl;
+                QAction *linkAction = linkSubmenu->addAction(label);
+                connect(linkAction, &QAction::triggered, this, [url]() {
+                    QDesktopServices::openUrl(QUrl(url));
+                });
+            }
+            if (linkSubmenu)
+                ctx_menu->addMenu(linkSubmenu);
+        }
+
+        ctx_menu->addSeparator();
+    }
 
     // Add actions for coloring rule fields
     bool is_color_rule_name = fi && fi->hfinfo &&
@@ -802,6 +925,26 @@ void ProtoTree::itemDoubleClicked(const QModelIndex &index)
             mainApp->gotoFrame(fvalue_get_uinteger(finfo.fieldInfo()->value));
         }
     } else {
+        // For frame.tag fields, look up the URL from the matching tag rule.
+        const header_field_info *hfi = finfo.fieldInfo() ? finfo.fieldInfo()->hfinfo : nullptr;
+        if (hfi && strcmp(hfi->abbrev, "frame.tag") == 0) {
+            if (tag_rules_get_prefs().link_click == TAG_LINK_CLICK_NONE)
+                return;
+            QString tag_name = finfo.toString();
+            const GSList *rule_list = tag_rules_get_list();
+            for (const GSList *r = rule_list; r; r = g_slist_next(r)) {
+                const tag_rule_t *rule = (const tag_rule_t *)r->data;
+                if (tag_name == QString::fromUtf8(rule->rule_name)) {
+                    if (rule->tag_url && rule->tag_url[0]) {
+                        QDesktopServices::openUrl(QUrl(QString::fromUtf8(rule->tag_url)));
+                        return;
+                    }
+                    break;
+                }
+            }
+            return; // no URL configured for this rule
+        }
+
         QString url = finfo.url();
         if (!url.isEmpty()) {
             QApplication::clipboard()->setText(url);

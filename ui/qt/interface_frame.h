@@ -30,6 +30,8 @@ namespace Ui {
 class InterfaceFrame;
 }
 
+class QResizeEvent;
+
 /**
  * @brief A frame containing the list of interfaces available for capture, along with status and controls.
  */
@@ -96,14 +98,6 @@ Q_SIGNALS:
     void typeSelectionChanged();
 
 public slots:
-#ifdef HAVE_LIBPCAP
-    /**
-     * @brief Scans for and populates the list of local capture interfaces.
-     * @param filter_list An optional list of filters to apply during the scan.
-     */
-    void scanLocalInterfaces(GList *filter_list = nullptr);
-#endif
-
     /**
      * @brief Updates the UI state based on currently selected interfaces.
      */
@@ -139,23 +133,40 @@ public slots:
 
 protected:
     /**
-     * @brief Handles hide events for the frame, stopping updates if necessary.
-     * @param evt The hide event.
+     * @brief Handles change events; re-fits the interface tree columns when
+     *        the widget is re-polished (works around QTBUG-122109).
+     * @param evt The change event.
      */
-    void hideEvent(QHideEvent *evt);
+    void changeEvent(QEvent *evt) override;
 
     /**
-     * @brief Handles show events for the frame, resuming updates if necessary.
-     * @param evt The show event.
+     * @brief Handles resize events; re-fits the interface tree columns so the
+     *        name column cap (and the room left for the sparkline) tracks the
+     *        available width.
+     * @param evt The resize event.
      */
-    void showEvent(QShowEvent *evt);
+    void resizeEvent(QResizeEvent *evt) override;
 
 private:
+
+    /**
+     * @brief Persists the current per-interface hidden state to the profile prefs.
+     *
+     * The welcome context-menu "Hide Interface" only flips the runtime
+     * device->hidden; this writes prefs.capture_devices_hide (and the prefs file)
+     * so the choice survives profile switches and restarts.
+     */
+    void saveHiddenInterfaces();
 
     /**
      * @brief Resets the display parameters of the interface tree.
      */
     void resetInterfaceTreeDisplay();
+
+    /**
+     * @brief Re-fits the interface tree columns to their contents.
+     */
+    void resizeInterfaceColumns();
 
     /**
      * @brief Checks if the application currently has permissions to capture on local interfaces.
@@ -177,11 +188,6 @@ private:
 
     /** Maps interface type IDs to their descriptive string representations. */
     QMap<int, QString> ifTypeDescription;
-
-#ifdef HAVE_LIBPCAP
-    /** Timer used to periodically trigger statistics updates. */
-    QTimer *stat_timer_;
-#endif // HAVE_LIBPCAP
 
 private slots:
     /**
@@ -206,11 +212,6 @@ private slots:
 #endif
 
     /**
-     * @brief Slot triggered periodically to update interface statistics (like sparklines).
-     */
-    void updateStatistics(void);
-
-    /**
      * @brief Slot triggered when a generic action button is toggled.
      * @param checked The new checked state.
      */
@@ -220,6 +221,11 @@ private slots:
      * @brief Slot triggered when an interface type filtering button is activated.
      */
     void triggeredIfTypeButton();
+
+    /**
+     * @brief Slot triggered to hide all interfaces of the same type as the selected interface.
+     */
+    void hideInterfacesOfType();
 
     /**
      * @brief Slot triggered when a hyperlink within the warning label is activated.

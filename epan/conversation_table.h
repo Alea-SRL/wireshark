@@ -41,26 +41,32 @@ typedef uint32_t conv_id_t;
  *  Conversation definitions.
  */
 
+/**
+ * @brief Field type selector for building a conversation display filter.
+ */
 typedef enum {
-    CONV_FT_SRC_ADDRESS,
-    CONV_FT_DST_ADDRESS,
-    CONV_FT_ANY_ADDRESS,
-    CONV_FT_SRC_PORT,
-    CONV_FT_DST_PORT,
-    CONV_FT_ANY_PORT
+    CONV_FT_SRC_ADDRESS, /**< Match on source address */
+    CONV_FT_DST_ADDRESS, /**< Match on destination address */
+    CONV_FT_ANY_ADDRESS, /**< Match on either source or destination address */
+    CONV_FT_SRC_PORT,    /**< Match on source port */
+    CONV_FT_DST_PORT,    /**< Match on destination port */
+    CONV_FT_ANY_PORT     /**< Match on either source or destination port */
 } conv_filter_type_e;
 
-/* Filter direction */
+
+/**
+ * @brief Directional filter scope for a conversation, relative to endpoints A and B.
+ */
 typedef enum {
-    CONV_DIR_A_TO_FROM_B,
-    CONV_DIR_A_TO_B,
-    CONV_DIR_A_FROM_B,
-    CONV_DIR_A_TO_FROM_ANY,
-    CONV_DIR_A_TO_ANY,
-    CONV_DIR_A_FROM_ANY,
-    CONV_DIR_ANY_TO_FROM_B,
-    CONV_DIR_ANY_TO_B,
-    CONV_DIR_ANY_FROM_B
+    CONV_DIR_A_TO_FROM_B,   /**< Traffic in both directions between A and B */
+    CONV_DIR_A_TO_B,        /**< Traffic from A to B only */
+    CONV_DIR_A_FROM_B,      /**< Traffic from B to A only */
+    CONV_DIR_A_TO_FROM_ANY, /**< All traffic to or from A (any remote endpoint) */
+    CONV_DIR_A_TO_ANY,      /**< Traffic sent from A to any endpoint */
+    CONV_DIR_A_FROM_ANY,    /**< Traffic received by A from any endpoint */
+    CONV_DIR_ANY_TO_FROM_B, /**< All traffic to or from B (any remote endpoint) */
+    CONV_DIR_ANY_TO_B,      /**< Traffic sent to B from any endpoint */
+    CONV_DIR_ANY_FROM_B     /**< Traffic sent from B to any endpoint */
 } conv_direction_e;
 
 /** Conversation hash + value storage
@@ -73,45 +79,51 @@ typedef struct _conversation_hash_t {
     unsigned    flags;            /**< flags given to the tap packet */
 } conv_hash_t;
 
-/** Key for hash lookups */
+/**
+ * @brief Composite hash table key identifying a conversation by its two endpoints and optional ID.
+ */
 typedef struct _conversation_key_t {
-    address     addr1;
-    address     addr2;
-    uint32_t    port1;
-    uint32_t    port2;
-    conv_id_t   conv_id;
+    address   addr1;    /**< Address of the first endpoint of the conversation */
+    address   addr2;    /**< Address of the second endpoint of the conversation */
+    uint32_t  port1;    /**< Transport port of the first endpoint */
+    uint32_t  port2;    /**< Transport port of the second endpoint */
+    conv_id_t conv_id;  /**< Optional conversation ID used to disambiguate conversations sharing the same address/port 4-tuple */
 } conv_key_t;
 
-typedef struct {
-    address  myaddress;
-    uint32_t port;
-} endpoint_key_t;
-
-/*
- * For backwards source compatibility.
- * Yes, G_DEPRECATED_FOR() has to be at the beginning, so that this
- * works with MSVC.
+/**
+ * @brief Composite hash table key identifying a single network endpoint by address and port.
  */
-G_DEPRECATED_FOR(endpoint_key_t)
-typedef endpoint_key_t host_key_t;
+typedef struct {
+    address  myaddress; /**< Network address of the endpoint */
+    uint32_t port;      /**< Transport port of the endpoint */
+} endpoint_key_t;
 
 struct _conversation_item_t;
 typedef const char* (*conv_get_filter_type)(struct _conversation_item_t* item, conv_filter_type_e filter);
 
+/**
+ * @brief Dissector info block for a conversation table, providing filter-type resolution.
+ */
 typedef struct _ct_dissector_info {
-    conv_get_filter_type get_filter_type;
+    conv_get_filter_type get_filter_type; /**< Callback that returns the display filter field name for a given conversation filter type */
 } ct_dissector_info_t;
 
 struct _endpoint_item_t;
+
+/**
+ * @brief Callback that resolves a display filter field name for a given endpoint item and filter type.
+ * @param item        Pointer to the endpoint item being queried.
+ * @param filter_type The conversation filter type to resolve.
+ * @return The display filter field name string corresponding to @p filter_type, or NULL if unsupported.
+ */
 typedef const char* (*endpoint_get_filter_type)(struct _endpoint_item_t* item, conv_filter_type_e filter_type);
 
+/**
+ * @brief Dissector info block for an endpoint table, providing filter-type resolution.
+ */
 typedef struct _et_dissector_info {
-    endpoint_get_filter_type get_filter_type;
+    endpoint_get_filter_type get_filter_type; /**< Callback that returns the display filter field name for a given endpoint filter type */
 } et_dissector_info_t;
-
-/* For backwards source compatibility */
-G_DEPRECATED_FOR(et_dissector_info_t)
-typedef et_dissector_info_t hostlist_dissector_info_t;
 
 #define CONV_FILTER_INVALID "INVALID"
 
@@ -184,10 +196,6 @@ typedef struct _endpoint_item_t {
 
 } endpoint_item_t;
 
-/* For backwards source compatibility */
-G_DEPRECATED_FOR(endpoint_item_t)
-typedef endpoint_item_t hostlist_talker_t;
-
 #define ENDPOINT_TAP_PREFIX     "endpoints"
 
 /**
@@ -236,18 +244,6 @@ WS_DLL_PUBLIC tap_packet_cb get_conversation_packet_func(register_ct_t* ct);
  */
 WS_DLL_PUBLIC tap_packet_cb get_endpoint_packet_func(register_ct_t* ct);
 
-/* For backwards source and binary compatibility */
-G_DEPRECATED_FOR(get_endpoint_packet_func)
-
-/**
- * @brief Get the packet callback function for hostlist conversations.
- *
- * @param ct Pointer to the conversation table.
- * @return The packet callback function for hostlist conversations.
- */
-WS_DLL_PUBLIC tap_packet_cb get_hostlist_packet_func(register_ct_t* ct);
-
-
 /**
  * @brief get conversation table from protocol ID
  *
@@ -273,15 +269,6 @@ WS_DLL_PUBLIC void conversation_table_set_gui_info(conv_gui_init_cb init_cb);
  * is instantiated in GUI
  */
 WS_DLL_PUBLIC void endpoint_table_set_gui_info(endpoint_gui_init_cb init_cb);
-
-/* For backwards source and binary compatibility */
-/**
- * @brief Set GUI initialization callback for hostlist table.
- *
- * @param init_cb Callback function to initialize GUI information.
- */
-G_DEPRECATED_FOR(endpoint_table_set_gui_info)
-WS_DLL_PUBLIC void hostlist_table_set_gui_info(endpoint_gui_init_cb init_cb);
 
 /**
  * @brief Iterator to walk conversation tables and execute func
@@ -311,16 +298,6 @@ WS_DLL_PUBLIC void reset_conversation_table_data(conv_hash_t *ch);
  */
 WS_DLL_PUBLIC void reset_endpoint_table_data(conv_hash_t *ch);
 
-/* For backwards source and binary compatibility */
-G_DEPRECATED_FOR(reset_endpoint_table_data)
-
-/**
- * @brief Reset data in hostlist table.
- *
- * @param ch Pointer to conversation hash table.
- */
-WS_DLL_PUBLIC void reset_hostlist_table_data(conv_hash_t *ch);
-
 /**
  * @brief Initialize dissector conversation for stats and (possibly) GUI.
  *
@@ -336,16 +313,6 @@ WS_DLL_PUBLIC void dissector_conversation_init(const char *opt_arg, void* userda
  * @param userdata register_ct_t* for dissector conversation table
  */
 WS_DLL_PUBLIC void dissector_endpoint_init(const char *opt_arg, void* userdata);
-
-/* For backwards source and binary compatibility */
-/**
- * @brief Initialize the dissector host list with the given options and user data.
- *
- * @param opt_arg Options argument for initialization.
- * @param userdata User data to be passed during initialization.
- */
-G_DEPRECATED_FOR(dissector_endpoint_init)
-WS_DLL_PUBLIC void dissector_hostlist_init(const char *opt_arg, void* userdata);
 
 /**
  * @brief Get the string representation of an address.
@@ -400,17 +367,6 @@ WS_DLL_PUBLIC char *get_conversation_filter(conv_item_t *conv_item, conv_directi
  * representing the conversation.
  */
 WS_DLL_PUBLIC char *get_endpoint_filter(endpoint_item_t *endpoint_item);
-
-/* For backwards source and binary compatibility */
-G_DEPRECATED_FOR(get_endpoint_filter)
-
-/**
- * @brief Retrieves a hostlist filter for an endpoint item.
- *
- * @param endpoint_item The endpoint item to retrieve the filter for.
- * @return A string representing the hostlist filter, or NULL if not available.
- */
-WS_DLL_PUBLIC char *get_hostlist_filter(endpoint_item_t *endpoint_item);
 
 /**
  * @brief Add some data to the conversation table.
@@ -532,23 +488,6 @@ WS_DLL_PUBLIC void add_endpoint_table_data(conv_hash_t *ch, const address *addr,
  * @param etype the endpoint type (e.g. ENDPOINT_TCP)
  */
 WS_DLL_PUBLIC void add_endpoint_table_data_ipv4_subnet(conv_hash_t *ch, const address *addr,
-    uint32_t port, bool sender, int num_frames, int num_bytes, et_dissector_info_t *et_info, endpoint_type etype);
-
-/* For backwards source and binary compatibility */
-/**
- * @brief Adds data to the hostlist table for a conversation.
- *
- * @param ch Pointer to the conversation hash table.
- * @param addr Address of the endpoint.
- * @param port Port number of the endpoint.
- * @param sender Boolean indicating if this is the sender's data.
- * @param num_frames Number of frames associated with the endpoint.
- * @param num_bytes Total bytes associated with the endpoint.
- * @param et_info Pointer to the dissector information.
- * @param etype Type of the endpoint.
- */
-G_DEPRECATED_FOR(add_endpoint_table_data)
-WS_DLL_PUBLIC void add_hostlist_table_data(conv_hash_t *ch, const address *addr,
     uint32_t port, bool sender, int num_frames, int num_bytes, et_dissector_info_t *et_info, endpoint_type etype);
 
 #ifdef __cplusplus

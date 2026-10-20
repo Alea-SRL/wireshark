@@ -778,6 +778,196 @@ blf_logcontainers_search(const void *a, const void *b) {
     }
 }
 
+#ifdef USE_ZLIB_OR_ZLIBNG
+
+static uint8_t*
+blf_decompress_zlib(uint8_t *compressed_data, unsigned compressed_len, uint64_t decompressed_len, int *err, char **err_info)
+{
+    /* decompressed_len is just read from packet data, and could be bogus.
+     * It's stored in real_length as a 64-bit integer, but appears to
+     * be read from packet data as a 32-bit quantity only. In any case,
+     * we only allocate a 32-bit chunk at a time, and zlib/zlib-ng only
+     * allow avail_out to be a 32-bit unsigned integer. */
+    uint32_t bufsize;
+
+    /* z_stream->total_out is an unsigned long in Zlib, which is always
+     * 32-bits on Windows (LLP). In Zlib-ng it's a size_t, which is 32-bits
+     * on 32-bit platforms. */
+    uint64_t total_out = 0;
+
+    if (decompressed_len == 0 || compressed_len == 0) {
+        *err = WTAP_ERR_BAD_FILE;
+        *err_info = ws_strdup("blf: compressed or decompressed container has 0 length");
+        return NULL;
+    }
+
+    /* Typical compression ratios are between 2:1-5:1; the theoretical max
+     * is somewhat above 1030:1; depending on what's being compressed, that
+     * could actually be legitimate (sometimes there are long runs of zeros),
+     * but we might want to just refuse past a certain point. Since the
+     * decompressed_len in reality seems to be 32-bit, that imposes a limit. */
+    uint64_t ratio = decompressed_len / compressed_len;
+    if (ratio > 1032) {
+        /* This is just impossible, so go ahead and stop now. */
+        *err = WTAP_ERR_BAD_FILE;
+        *err_info = ws_strdup_printf("blf: uncompressed data has wrong length (%" PRIu64 " with a compressed size of %u is a compression ratio of %" PRIu64 ", greater than the theoretical max of 1032)", decompressed_len, compressed_len, ratio);
+        return NULL;
+    } else if (ratio > 5) {
+        if (ckd_mul(&bufsize, compressed_len, 5)) {
+            bufsize = INT32_MAX;
+        }
+    } else {
+        bufsize = (unsigned)MIN(decompressed_len, INT32_MAX);
+    }
+
+    unsigned char *buf = g_try_malloc(bufsize);
+    if (buf == NULL) {
+        *err = WTAP_ERR_INTERNAL;
+        *err_info = ws_strdup("blf: cannot allocate memory");
+        return NULL;
+    }
+    zlib_stream infstream = {0};
+
+    infstream.avail_in  = compressed_len;
+    infstream.next_in   = compressed_data;
+    infstream.avail_out = bufsize;
+
+    /* the actual DE-compression work. */
+    if (Z_OK != ZLIB_PREFIX(inflateInit)(&infstream)) {
+        /*
+         * XXX - check the error code and handle this appropriately.
+         */
+        g_free(buf);
+        *err = WTAP_ERR_INTERNAL;
+        if (infstream.msg != NULL) {
+            *err_info = ws_strdup_printf("blf: inflateInit failed for LogContainer, message\"%s\"",
+                                          infstream.msg);
+        } else {
+            *err_info = ws_strdup("blf: inflateInit failed for LogContainer");
+        }
+        ws_debug("inflateInit failed for LogContainer");
+        if (infstream.msg != NULL) {
+            ws_debug("inflateInit returned: \"%s\"", infstream.msg);
+        }
+        return NULL;
+    }
+
+    int ret;
+
+
+    do {
+        infstream.next_out  = &buf[total_out];
+        ret = ZLIB_PREFIX(inflate)(&infstream, Z_NO_FLUSH);
+
+        switch (ret) {
+        case Z_OK:
+        case Z_STREAM_END:
+            total_out += (bufsize - infstream.avail_out);
+
+            /* Presumably need more space. */
+            if (total_out > decompressed_len) {
+                *err = WTAP_ERR_BAD_FILE;
+                *err_info = ws_strdup_printf("blf: uncompressed data has wrong length (%" PRIu64 " > %" PRIu64")", total_out, decompressed_len);
+                break;
+            }
+            if (infstream.avail_out == 0) {
+                /* Increase the total buffer */
+                bufsize = (uint32_t)MIN(total_out, INT32_MAX);
+                bufsize = (uint32_t)MIN(decompressed_len - total_out, bufsize);
+
+                buf = (uint8_t*)g_realloc(buf, total_out + bufsize);
+                infstream.avail_out = bufsize;
+            }
+            continue;
+
+        case Z_NEED_DICT:
+            *err = WTAP_ERR_DECOMPRESS;
+            *err_info = ws_strdup("blf: preset dictionary needed to decompress");
+            break;
+
+        case Z_STREAM_ERROR:
+            *err = WTAP_ERR_INTERNAL;
+            *err_info = ws_strdup_printf("blf: Z_STREAM_ERROR from inflate(), message \"%s\"",
+                                         (infstream.msg != NULL) ? infstream.msg : "(none)");
+            break;
+
+        case Z_MEM_ERROR:
+            /* This means "not enough memory". */
+            *err = ENOMEM;
+            *err_info = NULL;
+            break;
+
+        case Z_DATA_ERROR:
+            /* This means "deflate stream invalid" */
+            *err = WTAP_ERR_DECOMPRESS;
+            *err_info = (infstream.msg != NULL) ? ws_strdup(infstream.msg) : NULL;
+            break;
+
+        case Z_BUF_ERROR:
+            /* XXX - this is recoverable; what should we do here? */
+            *err = WTAP_ERR_INTERNAL;
+            *err_info = ws_strdup_printf("blf: Z_BUF_ERROR from inflate(), message \"%s\"",
+                                         (infstream.msg != NULL) ? infstream.msg : "(none)");
+            break;
+
+        case Z_VERSION_ERROR:
+            *err = WTAP_ERR_INTERNAL;
+            *err_info = ws_strdup_printf("blf: Z_VERSION_ERROR from inflate(), message \"%s\"",
+                                         (infstream.msg != NULL) ? infstream.msg : "(none)");
+            break;
+
+        default:
+            *err = WTAP_ERR_INTERNAL;
+            *err_info = ws_strdup_printf("blf: unexpected error %d from inflate(), message \"%s\"",
+                                         ret,
+                                         (infstream.msg != NULL) ? infstream.msg : "(none)");
+            break;
+        }
+        g_free(buf);
+        ws_debug("inflate failed (return code %d) for LogContainer", ret);
+        if (infstream.msg != NULL) {
+            ws_debug("inflate returned: \"%s\"", infstream.msg);
+        }
+        /* Free up any dynamically-allocated memory in infstream */
+        ZLIB_PREFIX(inflateEnd)(&infstream);
+        return NULL;
+    } while (ret != Z_STREAM_END);
+
+    if (Z_OK != ZLIB_PREFIX(inflateEnd)(&infstream)) {
+        /*
+         * The zlib manual says this only returns Z_OK on success
+         * and Z_STREAM_ERROR if the stream state was inconsistent.
+         *
+         * It's not clear what useful information can be reported
+         * for Z_STREAM_ERROR; a look at the 1.2.11 source indicates
+         * that no string is returned to indicate what the problem
+         * was.
+         *
+         * It's also not clear what to do about infstream if this
+         * fails.
+         */
+        *err = WTAP_ERR_INTERNAL;
+        *err_info = ws_strdup("blf: inflateEnd failed for LogContainer");
+        g_free(buf);
+        ws_debug("inflateEnd failed for LogContainer");
+        if (infstream.msg != NULL) {
+            ws_debug("inflateEnd returned: \"%s\"", infstream.msg);
+        }
+        return NULL;
+    }
+
+    if (total_out < decompressed_len) {
+        /* Decompressed fewer bytes than claimed. */
+        g_free(buf);
+        *err = WTAP_ERR_BAD_FILE;
+        *err_info = ws_strdup_printf("blf: uncompressed data has wrong length (%" PRIu64 " < %" PRIu64")", total_out, decompressed_len);
+        return NULL;
+    }
+
+    return buf;
+}
+#endif /* USE_ZLIB_OR_ZLIBNG */
+
 /** Ensures the given log container is in memory
  *
  * If the log container already is not already in memory,
@@ -821,11 +1011,9 @@ blf_pull_logcontainer_into_memory(blf_params_t *params, blf_log_container_t *con
         return false;
     }
     if (container->infile_length < container->infile_data_start - (uint64_t)container->infile_start_pos) {
-        /*
-         * XXX - does this represent a bug (WTAP_ERR_INTERNAL) or a
-         * malformed file (WTAP_ERR_BAD_FILE)?
-         */
-        *err = WTAP_ERR_INTERNAL;
+        /* The object length comes from the file, and is only checked
+         * against the block header length, not the container header. */
+        *err = WTAP_ERR_BAD_FILE;
         *err_info = ws_strdup_printf("blf_pull_logcontainer_into_memory: container.infile_length (%" PRIu64 ") < (container.infile_data_start (%" PRIu64 ") - container.infile_start_pos (%" PRId64 ")) = %" PRIu64,
             container->infile_length,
             container->infile_data_start, container->infile_start_pos,
@@ -884,6 +1072,11 @@ blf_pull_logcontainer_into_memory(blf_params_t *params, blf_log_container_t *con
 
     } else if (container->compression_method == BLF_COMPRESSION_ZLIB) {
 #ifdef USE_ZLIB_OR_ZLIBNG
+        if (data_length == 0) {
+            *err = WTAP_ERR_BAD_FILE;
+            *err_info = ws_strdup("blf_pull_logcontainer_into_memory: compressed container has 0 length");
+            return false;
+        }
         unsigned char *compressed_data = g_try_malloc((size_t)data_length);
         if (compressed_data == NULL) {
             *err = WTAP_ERR_INTERNAL;
@@ -903,126 +1096,11 @@ blf_pull_logcontainer_into_memory(blf_params_t *params, blf_log_container_t *con
             return false;
         }
 
-        unsigned char *buf = g_try_malloc((size_t)container->real_length);
-        if (buf == NULL) {
-            g_free(compressed_data);
-            *err = WTAP_ERR_INTERNAL;
-            *err_info = ws_strdup("blf_pull_logcontainer_into_memory: cannot allocate memory");
-            return false;
-        }
-        zlib_stream infstream = {0};
-
-        infstream.avail_in  = (unsigned int)data_length;
-        infstream.next_in   = compressed_data;
-        infstream.avail_out = (unsigned int)container->real_length;
-        infstream.next_out  = buf;
-
-        /* the actual DE-compression work. */
-        if (Z_OK != ZLIB_PREFIX(inflateInit)(&infstream)) {
-            /*
-             * XXX - check the error code and handle this appropriately.
-             */
-            g_free(buf);
-            g_free(compressed_data);
-            *err = WTAP_ERR_INTERNAL;
-            if (infstream.msg != NULL) {
-                *err_info = ws_strdup_printf("blf_pull_logcontainer_into_memory: inflateInit failed for LogContainer, message\"%s\"",
-                                              infstream.msg);
-            } else {
-                *err_info = ws_strdup("blf_pull_logcontainer_into_memory: inflateInit failed for LogContainer");
-            }
-            ws_debug("inflateInit failed for LogContainer");
-            if (infstream.msg != NULL) {
-                ws_debug("inflateInit returned: \"%s\"", infstream.msg);
-            }
-            return false;
-        }
-
-        int ret = ZLIB_PREFIX(inflate)(&infstream, Z_NO_FLUSH);
-        /* Z_OK should not happen here since we know how big the buffer should be */
-        if (Z_STREAM_END != ret) {
-            switch (ret) {
-
-            case Z_NEED_DICT:
-                *err = WTAP_ERR_DECOMPRESS;
-                *err_info = ws_strdup("preset dictionary needed");
-                break;
-
-            case Z_STREAM_ERROR:
-                *err = WTAP_ERR_INTERNAL;
-                *err_info = ws_strdup_printf("blf_pull_logcontainer_into_memory: Z_STREAM_ERROR from inflate(), message \"%s\"",
-                                             (infstream.msg != NULL) ? infstream.msg : "(none)");
-                break;
-
-            case Z_MEM_ERROR:
-                /* This means "not enough memory". */
-                *err = ENOMEM;
-                *err_info = NULL;
-                break;
-
-            case Z_DATA_ERROR:
-                /* This means "deflate stream invalid" */
-                *err = WTAP_ERR_DECOMPRESS;
-                *err_info = (infstream.msg != NULL) ? ws_strdup(infstream.msg) : NULL;
-                break;
-
-            case Z_BUF_ERROR:
-                /* XXX - this is recoverable; what should we do here? */
-                *err = WTAP_ERR_INTERNAL;
-                *err_info = ws_strdup_printf("blf_pull_logcontainer_into_memory: Z_BUF_ERROR from inflate(), message \"%s\"",
-                                             (infstream.msg != NULL) ? infstream.msg : "(none)");
-                break;
-
-            case Z_VERSION_ERROR:
-                *err = WTAP_ERR_INTERNAL;
-                *err_info = ws_strdup_printf("blf_pull_logcontainer_into_memory: Z_VERSION_ERROR from inflate(), message \"%s\"",
-                                             (infstream.msg != NULL) ? infstream.msg : "(none)");
-                break;
-
-            default:
-                *err = WTAP_ERR_INTERNAL;
-                *err_info = ws_strdup_printf("blf_pull_logcontainer_into_memory: unexpected error %d from inflate(), message \"%s\"",
-                                             ret,
-                                             (infstream.msg != NULL) ? infstream.msg : "(none)");
-                break;
-            }
-            g_free(buf);
-            g_free(compressed_data);
-            ws_debug("inflate failed (return code %d) for LogContainer", ret);
-            if (infstream.msg != NULL) {
-                ws_debug("inflate returned: \"%s\"", infstream.msg);
-            }
-            /* Free up any dynamically-allocated memory in infstream */
-            ZLIB_PREFIX(inflateEnd)(&infstream);
-            return false;
-        }
-
-        if (Z_OK != ZLIB_PREFIX(inflateEnd)(&infstream)) {
-            /*
-             * The zlib manual says this only returns Z_OK on success
-             * and Z_STREAM_ERROR if the stream state was inconsistent.
-             *
-             * It's not clear what useful information can be reported
-             * for Z_STREAM_ERROR; a look at the 1.2.11 source indicates
-             * that no string is returned to indicate what the problem
-             * was.
-             *
-             * It's also not clear what to do about infstream if this
-             * fails.
-             */
-            *err = WTAP_ERR_INTERNAL;
-            *err_info = ws_strdup("blf_pull_logcontainer_into_memory: inflateEnd failed for LogContainer");
-            g_free(buf);
-            g_free(compressed_data);
-            ws_debug("inflateEnd failed for LogContainer");
-            if (infstream.msg != NULL) {
-                ws_debug("inflateEnd returned: \"%s\"", infstream.msg);
-            }
-            return false;
-        }
-
+        container->real_data = blf_decompress_zlib(compressed_data, (unsigned)data_length, container->real_length, err, err_info);
         g_free(compressed_data);
-        container->real_data = buf;
+        if (container->real_data == NULL) {
+            return false;
+        }
         return true;
 #else /* USE_ZLIB_OR_ZLIBNG */
         (void) params;
@@ -1557,7 +1635,7 @@ blf_read_ethernetframe(blf_params_t *params, int *err, char **err_info, int64_t 
 
 static bool
 blf_read_ethernetframe_ext(blf_params_t *params, int *err, char **err_info, int64_t block_start,int64_t data_start,
-                            int64_t object_length, uint32_t flags, uint64_t object_timestamp, gboolean error) {
+                            int64_t object_length, uint32_t flags, uint64_t object_timestamp, bool error) {
     blf_ethernetframeheader_ex_t ethheader;
 
     if (object_length < (data_start - block_start) + (int) sizeof(blf_ethernetframeheader_ex_t)) {
@@ -1741,7 +1819,7 @@ blf_read_canmessage(blf_params_t *params, int *err, char **err_info, int64_t blo
 
     payload_length = canheader.dlc;
     if (payload_length > 8) {
-        ws_debug("regular CAN tries more than 8 bytes? Cutting to 8!");
+        ws_debug("regular CAN tries more than 8 bytes? Cutting to 8.");
         payload_length = 8;
     }
 
@@ -1814,7 +1892,7 @@ blf_read_canfdmessage(blf_params_t *params, int *err, char **err_info, int64_t b
     }
 
     if (payload_length > canheader.validDataBytes) {
-        ws_debug("shortening canfd payload because valid data bytes shorter!");
+        ws_debug("shortening canfd payload because valid data bytes shorter.");
         payload_length = canheader.validDataBytes;
     }
 
@@ -1828,7 +1906,7 @@ blf_read_canfdmessage(blf_params_t *params, int *err, char **err_info, int64_t b
     payload_length_valid = payload_length;
 
     if (payload_length_valid > object_length - (data_start - block_start) + sizeof(canheader)) {
-        ws_debug("shortening can payload because buffer is too short!");
+        ws_debug("shortening can payload because buffer is too short.");
         payload_length_valid = (uint8_t)(object_length - (data_start - block_start));
     }
 
@@ -1879,7 +1957,7 @@ blf_read_canfdmessage64(blf_params_t *params, int *err, char **err_info, int64_t
     }
 
     if (payload_length > canheader.validDataBytes) {
-        ws_debug("shortening canfd payload because valid data bytes shorter!");
+        ws_debug("shortening canfd payload because valid data bytes shorter.");
         payload_length = canheader.validDataBytes;
     }
 
@@ -1893,7 +1971,7 @@ blf_read_canfdmessage64(blf_params_t *params, int *err, char **err_info, int64_t
     payload_length_valid = payload_length;
 
     if (payload_length_valid > object_length - (data_start - block_start)) {
-        ws_debug("shortening can payload because buffer is too short!");
+        ws_debug("shortening can payload because buffer is too short.");
         payload_length_valid = (uint8_t)(object_length - (data_start - block_start));
     }
 
@@ -2161,11 +2239,18 @@ blf_read_canxlchannelframe(blf_params_t *params, int *err, char **err_info, int6
         phtoleu16(tmpbuf + 6, payload_length);
         phtoleu32(tmpbuf + 8, canxlheader.acceptanceField);
 
+        if (object_length < (data_start - block_start) + (int)sizeof(canxlheader) + payload_length) {
+            *err = WTAP_ERR_BAD_FILE;
+            *err_info = ws_strdup("blf: CAN_XL_CHANNEL_HEADER: not enough bytes for canxl payload in object");
+            ws_debug("not enough bytes for canxl payload in object");
+            return false;
+        }
+
         ws_buffer_assure_space(&params->rec->data, sizeof(tmpbuf) + payload_length);
         ws_buffer_append(&params->rec->data, tmpbuf, sizeof(tmpbuf));
 
         if (payload_length > 0 && !blf_read_bytes(params, data_start + sizeof(blf_canxlchannelframe_t), ws_buffer_end_ptr(&params->rec->data), payload_length, err, err_info)) {
-            ws_error("copying canxl payload failed");
+            ws_debug("copying canxl payload failed");
             return false;
         }
         ws_buffer_increase_length(&params->rec->data, payload_length);
@@ -2190,7 +2275,7 @@ blf_read_canxlchannelframe(blf_params_t *params, int *err, char **err_info, int6
             }
         } else {
             if (canxlheader.dlc > 8) {
-                ws_debug("Regular CAN should not have DLC > 8!");
+                ws_debug("Regular CAN should not have DLC > 8.");
             }
 
             canfd_flags = 0;
@@ -2248,7 +2333,7 @@ blf_read_flexraydata(blf_params_t *params, int *err, char **err_info, int64_t bl
     }
 
     if (payload_length_valid > object_length - (data_start - block_start) - sizeof(frheader)) {
-        ws_debug("shortening FlexRay payload because buffer is too short!");
+        ws_debug("shortening FlexRay payload because buffer is too short.");
         payload_length_valid = (uint8_t)(object_length - (data_start - block_start) - sizeof(frheader));
     }
 
@@ -2320,7 +2405,7 @@ blf_read_flexraymessage(blf_params_t *params, int *err, char **err_info, int64_t
     }
 
     if (payload_length_valid > object_length - (data_start - block_start) - sizeof(frheader)) {
-        ws_debug("shortening FlexRay payload because buffer is too short!");
+        ws_debug("shortening FlexRay payload because buffer is too short.");
         payload_length_valid = (uint8_t)(object_length - (data_start - block_start) - sizeof(frheader));
     }
 
@@ -2420,7 +2505,7 @@ blf_read_flexrayrcvmessageex(blf_params_t *params, int *err, char **err_info, in
     }
 
     if (payload_length_valid > object_length - (data_start - block_start) - frheadersize) {
-        ws_debug("shortening FlexRay payload because buffer is too short!");
+        ws_debug("shortening FlexRay payload because buffer is too short.");
         payload_length_valid = (uint8_t)(object_length - (data_start - block_start) - frheadersize);
     }
 
@@ -3908,7 +3993,7 @@ blf_open(wtap *wth, int *err, char **err_info) {
 
     /* Prepare our private context. */
     blf = g_new(blf_t, 1);
-    blf->log_containers = g_array_new(false, false, sizeof(blf_log_container_t));
+    blf->log_containers = g_array_new(FALSE, FALSE, sizeof(blf_log_container_t));
     blf->current_real_seek_pos = 0;
     blf->start_offset_ns = blf_data_to_ns(&header.start_date);
     blf->end_offset_ns = blf_data_to_ns(&header.end_date);
@@ -4020,7 +4105,7 @@ blf_dump_expand_interface_mapping(wtap_dumper *wdh, unsigned new_size) {
 static bool
 blf_dump_set_interface_mapping(wtap_dumper *wdh, uint32_t interface_id, int pkt_encap, uint16_t channel, uint16_t hw_channel) {
     if (channel == 0) {
-        ws_warning("Trying to set channel to 0! That will probably lead to an unreadable file! Replacing by 1 to limit problem!");
+        ws_warning("Trying to set channel to 0. That will probably lead to an unreadable file. Replacing by 1 to limit problem.");
         channel = 1;
     }
 
@@ -4057,7 +4142,7 @@ blf_dump_get_interface_mapping(wtap_dumper *wdh, const wtap_rec *rec, int *err, 
 
     *err = WTAP_ERR_INTERNAL;
     *err_info = ws_strdup_printf("blf: cannot find interface mapping for %u", interface_id);
-    ws_critical("BLF Interface Mapping cannot be found!");
+    ws_critical("BLF Interface Mapping cannot be found.");
 
     return NULL;
 }
@@ -4066,7 +4151,7 @@ static bool
 blf_init_file_header(wtap_dumper *wdh, int *err) {
     if (wdh == NULL || wdh->priv == NULL) {
         *err = WTAP_ERR_INTERNAL;
-        ws_debug("internal error: blf private data not found!");
+        ws_debug("internal error: blf private data not found.");
         return false;
     }
 
@@ -4175,20 +4260,16 @@ blf_finalize_file_header(wtap_dumper *wdh, int *err) {
     return true;
 }
 
-static bool blf_dump_write_logcontainer(wtap_dumper *wdh, int *err, char **err_info) {
+static bool blf_dump_write_logcontainer(wtap_dumper *wdh, int *err, char **err_info _U_) {
     blf_writer_data_t *writer_data = (blf_writer_data_t *)wdh->priv;
 
     if (!wtap_dump_file_write(wdh, &(writer_data->logcontainer_block_header), sizeof(blf_blockheader_t), err)) {
-        *err = WTAP_ERR_INTERNAL;
-        *err_info = ws_strdup_printf("blf: cannot write Log Container Block Header");
-        ws_warning("Cannot write Log Container Block Header");
+        ws_debug("Cannot write Log Container Block Header");
         return false;
     }
 
     if (!wtap_dump_file_write(wdh, &(writer_data->logcontainer_header), sizeof(blf_logcontainerheader_t), err)) {
-        *err = WTAP_ERR_INTERNAL;
-        *err_info = ws_strdup_printf("blf: cannot write Log Container");
-        ws_warning("Cannot write Log Container");
+        ws_debug("Cannot write Log Container");
         return false;
     }
 
@@ -4391,9 +4472,8 @@ static bool blf_dump_ethernet(wtap_dumper *wdh, const wtap_rec *rec, int *err, c
 
     /* 14 bytes is the full Ethernet Header up to EtherType */
     if (length < 14) {
-        *err = WTAP_ERR_INTERNAL;
-        *err_info = ws_strdup_printf("blf: record length %u for Ethernet message is lower than minimum of 14", (uint32_t)length);
-        ws_warning("LINKTYPE_ETHERNET Data is too short!");
+        *err = WTAP_ERR_UNWRITABLE_REC_DATA;
+        *err_info = ws_strdup_printf("blf: record length %zu for Ethernet message is less than minimum of 14", length);
         return false;
     }
 
@@ -4422,6 +4502,11 @@ static bool blf_dump_ethernet(wtap_dumper *wdh, const wtap_rec *rec, int *err, c
     offset += 2;
 
     if (eth_type == 0x8100 || eth_type == 0x9100 || eth_type == 0x88a8) {
+        if (length < 18) {
+            *err = WTAP_ERR_UNWRITABLE_REC_DATA;
+            *err_info = ws_strdup_printf("blf: record length %zu for VLAN-tagged Ethernet frame is less than minimum of 18", length);
+            return false;
+        }
         ethheader.tpid = eth_type;
         ethheader.tci = pntohu16(pd + offset);
         offset += 2;
@@ -4434,7 +4519,13 @@ static bool blf_dump_ethernet(wtap_dumper *wdh, const wtap_rec *rec, int *err, c
     }
 
     ethheader.ethtype = eth_type;
-    ethheader.payloadlength = rec->rec_header.packet_header.caplen - offset;
+    if (ckd_sub(&ethheader.payloadlength, length, offset)) {
+        /* Congratulations! You may have spotted a IPv6 Jumbogram (RFC 2675)!
+         * You're another lucky winner of a Wiretap No-Prize! */
+        *err = WTAP_ERR_UNWRITABLE_REC_DATA;
+        *err_info = ws_strdup_printf("blf: Ethernet payload length %zu is too big", length - offset);
+        return false;
+    }
     ethheader.res = 0;
     fix_endianness_blf_ethernetframeheader(&ethheader);
 
@@ -4455,7 +4546,7 @@ static bool blf_dump_ethernet(wtap_dumper *wdh, const wtap_rec *rec, int *err, c
     return blf_write_add_padding(wdh, err, padding_needed);
 }
 
-static bool blf_dump_socketcanxl(wtap_dumper *wdh, const wtap_rec *rec, int *err _U_, char **err_info _U_, uint64_t obj_timestamp,
+static bool blf_dump_socketcanxl(wtap_dumper *wdh, const wtap_rec *rec, int *err, char **err_info, uint64_t obj_timestamp,
                                  const uint8_t *pd, size_t length, bool is_rx, bool is_tx) {
     /* LINKTYPE_CAN_SOCKETCAN */
     /* https://www.tcpdump.org/linktypes/LINKTYPE_CAN_SOCKETCAN.html */
@@ -4466,6 +4557,13 @@ static bool blf_dump_socketcanxl(wtap_dumper *wdh, const wtap_rec *rec, int *err
         return false;
     }
 
+    if (length < 12) {
+        *err = WTAP_ERR_UNWRITABLE_REC_DATA;
+        *err_info = ws_strdup_printf("blf: record length %u for Socket CAN XL message header is lower than minimum of 12", (uint32_t)length);
+        ws_debug("LINKTYPE_CAN_SOCKETCAN header is too short (CAN XL).");
+        return false;
+    }
+
     uint8_t  socketcan_vcid = pd[1];
     uint16_t socketcan_id = pntohu16(pd + 2) & CAN_SFF_MASK;
     uint8_t  socketcan_flags = pd[4];
@@ -4473,16 +4571,16 @@ static bool blf_dump_socketcanxl(wtap_dumper *wdh, const wtap_rec *rec, int *err
     uint16_t socketcan_payload_length = pletohu16(pd + 6);
 
     if ((socketcan_flags & CANXL_XLF) != CANXL_XLF) {
-        *err = WTAP_ERR_INTERNAL;
-        *err_info = ws_strdup_printf("blf: Socket CAN XL message does not have XL Flag set!");
-        ws_error("LINKTYPE_CAN_SOCKETCAN CAN XL flag not set for CAN XL?");
+        *err = WTAP_ERR_UNWRITABLE_REC_DATA;
+        *err_info = ws_strdup_printf("blf: Socket CAN XL message does not have XL Flag set.");
+        ws_debug("LINKTYPE_CAN_SOCKETCAN CAN XL flag not set for CAN XL?");
         return false;
     }
 
     if (length < (size_t)socketcan_payload_length + 12) {
-        *err = WTAP_ERR_INTERNAL;
+        *err = WTAP_ERR_UNWRITABLE_REC_DATA;
         *err_info = ws_strdup_printf("blf: Socket CAN message (length %u) does not contain full payload (%u) (CAN XL)", (uint32_t)length, socketcan_payload_length);
-        ws_error("LINKTYPE_CAN_SOCKETCAN header is too short (CAN XL)!");
+        ws_debug("LINKTYPE_CAN_SOCKETCAN header is too short (CAN XL).");
         return false;
     }
     uint32_t socketcan_acceptance_field = pletohu32(pd + 8);
@@ -4543,9 +4641,9 @@ static bool blf_dump_socketcan(wtap_dumper *wdh, const wtap_rec *rec, int *err, 
     /* https://www.tcpdump.org/linktypes/LINKTYPE_CAN_SOCKETCAN.html */
 
     if (length < 8) {
-        *err = WTAP_ERR_INTERNAL;
+        *err = WTAP_ERR_UNWRITABLE_REC_DATA;
         *err_info = ws_strdup_printf("blf: record length %u for Socket CAN message header is lower than minimum of 8", (uint32_t)length);
-        ws_warning("LINKTYPE_CAN_SOCKETCAN header is too short!");
+        ws_debug("LINKTYPE_CAN_SOCKETCAN header is too short.");
         return false;
     }
 
@@ -4563,9 +4661,9 @@ static bool blf_dump_socketcan(wtap_dumper *wdh, const wtap_rec *rec, int *err, 
     uint8_t payload_length = pd[4];
 
     if (length < (size_t)payload_length + 8) {
-        *err = WTAP_ERR_INTERNAL;
+        *err = WTAP_ERR_UNWRITABLE_REC_DATA;
         *err_info = ws_strdup_printf("blf: Socket CAN message (length %u) does not contain full payload (%u)", (uint32_t)length, payload_length);
-        ws_warning("LINKTYPE_CAN_SOCKETCAN header is too short!");
+        ws_debug("LINKTYPE_CAN_SOCKETCAN header is too short.");
         return false;
     }
 
@@ -4716,9 +4814,9 @@ static bool blf_dump_sll(wtap_dumper *wdh, const wtap_rec *rec, int *err, char *
     size_t length = ws_buffer_length(&rec->data);
 
     if (length < 16) {
-        *err = WTAP_ERR_INTERNAL;
+        *err = WTAP_ERR_UNWRITABLE_REC_DATA;
         *err_info = ws_strdup_printf("blf: record length %u for CAN message header (LINKTYPE_LINUX_SLL) is lower than minimum of 16", (uint32_t)length);
-        ws_warning("LINKTYPE_LINUX_SLL header is too short!");
+        ws_debug("LINKTYPE_LINUX_SLL header is too short.");
         return false;
     }
 
@@ -4761,9 +4859,9 @@ static bool blf_dump_flexray(wtap_dumper *wdh, const wtap_rec *rec, int *err, ch
     size_t length = ws_buffer_length(&rec->data);
 
     if (length < 1) {
-        *err = WTAP_ERR_INTERNAL;
+        *err = WTAP_ERR_UNWRITABLE_REC_DATA;
         *err_info = ws_strdup_printf("blf: record length %u for FlexRay header (LINKTYPE_FLEXRAY) is lower than minimum of 1", (uint32_t)length);
-        ws_warning("LINKTYPE_FLEXRAY header is too short (< 1 Byte)!");
+        ws_debug("LINKTYPE_FLEXRAY header is too short (< 1 Byte).");
         return false;
     }
 
@@ -4772,9 +4870,9 @@ static bool blf_dump_flexray(wtap_dumper *wdh, const wtap_rec *rec, int *err, ch
         /* Symbol */
 
         if (length < 2) {
-            *err = WTAP_ERR_INTERNAL;
+            *err = WTAP_ERR_UNWRITABLE_REC_DATA;
             *err_info = ws_strdup_printf("blf: record length %u for FlexRay Symbol (LINKTYPE_FLEXRAY) is lower than minimum of 2", (uint32_t)length);
-            ws_warning("LINKTYPE_FLEXRAY Symbol is too short (< 2 Byte)!");
+            ws_debug("LINKTYPE_FLEXRAY Symbol is too short (< 2 Byte).");
             return false;
         }
 
@@ -4787,9 +4885,9 @@ static bool blf_dump_flexray(wtap_dumper *wdh, const wtap_rec *rec, int *err, ch
         /* Frame */
 
         if (length < 2 + FLEXRAY_HEADER_LENGTH) {
-            *err = WTAP_ERR_INTERNAL;
+            *err = WTAP_ERR_UNWRITABLE_REC_DATA;
             *err_info = ws_strdup_printf("blf: record length %u for FlexRay Frame header (LINKTYPE_FLEXRAY) is lower than minimum of 7", (uint32_t)length);
-            ws_warning("LINKTYPE_FLEXRAY Frame Header is too short (< 7 Byte)!");
+            ws_debug("LINKTYPE_FLEXRAY Frame Header is too short (< 7 Byte).");
             return false;
         }
 
@@ -4828,7 +4926,7 @@ static bool blf_dump_flexray(wtap_dumper *wdh, const wtap_rec *rec, int *err, ch
         bool null_frame = (pd[2] & FLEXRAY_NFI_MASK) != FLEXRAY_NFI_MASK;
 
         if (null_frame) {
-            frmsg.frameFlags &= BLF_FLEXRAYRCVMSG_FRAME_FLAG_NULL_FRAME;
+            frmsg.frameFlags |= BLF_FLEXRAYRCVMSG_FRAME_FLAG_NULL_FRAME;
             /* LINKTYPE_FLEXRAY has no payload for Null Frames present */
             payload_length = 0;
         }
@@ -4836,52 +4934,52 @@ static bool blf_dump_flexray(wtap_dumper *wdh, const wtap_rec *rec, int *err, ch
         /* TODO: check truncated data */
         if (payload_length > 0) {
             /* Data Valid*/
-            frmsg.frameFlags &= BLF_FLEXRAYRCVMSG_FRAME_FLAG_VALID_DATA;
+            frmsg.frameFlags |= BLF_FLEXRAYRCVMSG_FRAME_FLAG_VALID_DATA;
         }
 
         if ((pd[2] & FLEXRAY_SFI_MASK) == FLEXRAY_SFI_MASK) {
-            frmsg.frameFlags &= BLF_FLEXRAYRCVMSG_FRAME_FLAG_SYNC;
+            frmsg.frameFlags |= BLF_FLEXRAYRCVMSG_FRAME_FLAG_SYNC;
         }
 
         if ((pd[2] & FLEXRAY_STFI_MASK) == FLEXRAY_STFI_MASK) {
-            frmsg.frameFlags &= BLF_FLEXRAYRCVMSG_FRAME_FLAG_STARTUP;
+            frmsg.frameFlags |= BLF_FLEXRAYRCVMSG_FRAME_FLAG_STARTUP;
         }
 
         if ((pd[2] & FLEXRAY_PPI_MASK) == FLEXRAY_PPI_MASK) {
-            frmsg.frameFlags &= BLF_FLEXRAYRCVMSG_FRAME_FLAG_PAYLOAD_PREAM;
+            frmsg.frameFlags |= BLF_FLEXRAYRCVMSG_FRAME_FLAG_PAYLOAD_PREAM;
         }
 
         if ((pd[2] & FLEXRAY_RES_MASK) == FLEXRAY_RES_MASK) {
-            frmsg.frameFlags &= BLF_FLEXRAYRCVMSG_FRAME_FLAG_RES_20;
+            frmsg.frameFlags |= BLF_FLEXRAYRCVMSG_FRAME_FLAG_RES_20;
         }
 
         /* if any error flag is set */
         if ((pd[1] & FLEXRAY_ERRORS_DEFINED) != 0x00) {
-            frmsg.frameFlags &= BLF_FLEXRAYRCVMSG_FRAME_FLAG_ERROR;
+            frmsg.frameFlags |= BLF_FLEXRAYRCVMSG_FRAME_FLAG_ERROR;
         }
 
         /* Not sure how to determine this as we do not know the low level parameters */
         //if ( ) {
         //    /* DYNAMIC SEG =1 (Bit 20)*/
-        //    frmsg.frameFlags &= 0x100000;
+        //    frmsg.frameFlags |= 0x100000;
         //}
 
         frmsg.appParameter = 0;
 
         fix_endianness_blf_flexrayrcvmessage(&frmsg);
 
+        if (length < (size_t)payload_length + 2 + FLEXRAY_HEADER_LENGTH) {
+            *err = WTAP_ERR_UNWRITABLE_REC_DATA;
+            *err_info = ws_strdup_printf("blf: record length %u for FlexRay Frame (LINKTYPE_FLEXRAY) is truncated", (uint32_t)length);
+            ws_debug("LINKTYPE_FLEXRAY Frame truncated.");
+            return false;
+        }
+
         if (!blf_dump_objheader(wdh, err, obj_timestamp, BLF_OBJTYPE_FLEXRAY_RCVMESSAGE, sizeof(blf_flexrayrcvmessage_t) + 254)) {
             return false;
         }
 
         if (!wtap_dump_file_write(wdh, &(frmsg), sizeof(blf_flexrayrcvmessage_t), err)) {
-            return false;
-        }
-
-        if (length < (size_t)payload_length + 2 + FLEXRAY_HEADER_LENGTH) {
-            *err = WTAP_ERR_INTERNAL;
-            *err_info = ws_strdup_printf("blf: record length %u for FlexRay Frame (LINKTYPE_FLEXRAY) is truncated", (uint32_t)length);
-            ws_warning("LINKTYPE_FLEXRAY Frame truncated!");
             return false;
         }
 
@@ -4921,9 +5019,9 @@ static bool blf_dump_lin(wtap_dumper *wdh, const wtap_rec *rec, int *err, char *
     size_t length = ws_buffer_length(&rec->data);
 
     if (length < 8) {
-        *err = WTAP_ERR_INTERNAL;
+        *err = WTAP_ERR_UNWRITABLE_REC_DATA;
         *err_info = ws_strdup_printf("blf: record length %u for LIN message/symbol/error is lower than minimum of 8", (uint32_t)length);
-        ws_warning("LIN Data is too short (less than 8 bytes)!");
+        ws_debug("LIN Data is too short (less than 8 bytes).");
         return false;
     }
 
@@ -4944,9 +5042,9 @@ static bool blf_dump_lin(wtap_dumper *wdh, const wtap_rec *rec, int *err, char *
 
     /* we need to have at least the data */
     if (length < (size_t)dlc + 8) {
-        *err = WTAP_ERR_INTERNAL;
+        *err = WTAP_ERR_UNWRITABLE_REC_DATA;
         *err_info = ws_strdup_printf("blf: record length %u for LIN message is too low for data. DLC: %u.", (uint32_t)length, dlc);
-        ws_error("LIN Data is too short (less than needed)!");
+        ws_debug("LIN Data is too short (less than needed).");
         return false;
     }
 
@@ -5010,9 +5108,9 @@ static bool blf_dump_upper_pdu(wtap_dumper *wdh, const wtap_rec *rec, int *err, 
     bool done = false;
     while (!done) {
         if (length - pos < 4) {
-            *err = WTAP_ERR_INTERNAL;
+            *err = WTAP_ERR_UNWRITABLE_REC_DATA;
             *err_info = ws_strdup_printf("blf: Upper PDU has no or truncated tags (pos: %u, length: %u)", (uint32_t)pos, (uint32_t)length);
-            ws_warning("Upper PDU has truncated tags!");
+            ws_debug("Upper PDU has truncated tags.");
             return false;
         }
 
@@ -5020,9 +5118,9 @@ static bool blf_dump_upper_pdu(wtap_dumper *wdh, const wtap_rec *rec, int *err, 
         uint16_t tag_len = pntohu16(pd + pos + 2);
 
         if ((length - pos) < (size_t)tag_len + 4) {
-            *err = WTAP_ERR_INTERNAL;
+            *err = WTAP_ERR_UNWRITABLE_REC_DATA;
             *err_info = ws_strdup_printf("blf: Upper PDU has truncated tags (pos: %u, tag_type: %u, tag_len: %u)", (uint32_t)pos, tag_type, tag_len);
-            ws_warning("Upper PDU has truncated tags!");
+            ws_debug("Upper PDU has truncated tags.");
             return false;
         }
 
@@ -5051,16 +5149,16 @@ static bool blf_dump_upper_pdu(wtap_dumper *wdh, const wtap_rec *rec, int *err, 
         pos += tag_len;
     }
 
-    /* strip zero termination, if existing */
-    while (pd[tag_diss_pos + tag_diss_len - 1] == 0) {
+    /* strip zero termination, if existing (a missing tag has length 0) */
+    while (tag_diss_len > 0 && pd[tag_diss_pos + tag_diss_len - 1] == 0) {
         tag_diss_len -= 1;
     }
 
-    while (pd[col_proto_pos + col_proto_len - 1] == 0) {
+    while (col_proto_len > 0 && pd[col_proto_pos + col_proto_len - 1] == 0) {
         col_proto_len -= 1;
     }
 
-    while (pd[col_info_pos + col_info_len - 1] == 0) {
+    while (col_info_len > 0 && pd[col_info_pos + col_info_len - 1] == 0) {
         col_info_len -= 1;
     }
 
@@ -5104,7 +5202,7 @@ static bool blf_dump_upper_pdu(wtap_dumper *wdh, const wtap_rec *rec, int *err, 
             }
 
             if (payload_len > 2048 && (apptext_header.source != BLF_APPTEXT_METADATA)) {
-                ws_warning("Only Meta Data can be broken into smaller chunks!");
+                ws_warning("Only Meta Data can be broken into smaller chunks.");
             }
 
             uint32_t chunk_size;
@@ -5435,7 +5533,7 @@ blf_dump_open(wtap_dumper *wdh, int *err, char **err_info) {
 
     if (wdh == NULL || wdh->priv != NULL) {
         *err = WTAP_ERR_INTERNAL;
-        ws_debug("internal error: blf wdh is NULL or private data already set!");
+        ws_debug("internal error: blf wdh is NULL or private data already set.");
         return false;
     }
 
@@ -5448,7 +5546,7 @@ blf_dump_open(wtap_dumper *wdh, int *err, char **err_info) {
     wdh->priv = writer_data;
 
     /* set up and init interface mappings */
-    writer_data->iface_to_channel_array = g_array_new(true, true, sizeof(blf_channel_to_iface_entry_t));
+    writer_data->iface_to_channel_array = g_array_new(TRUE, TRUE, sizeof(blf_channel_to_iface_entry_t));
     blf_dump_expand_interface_mapping(wdh, wdh->interface_data->len);
     writer_data->iface_to_channel_names_recovered = false;
 

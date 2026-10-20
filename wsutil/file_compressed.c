@@ -13,8 +13,6 @@
 
 #include <config.h>
 
-#include <wireshark.h>
-
 #include <errno.h>
 
 #include <wsutil/file_util.h>
@@ -25,6 +23,10 @@
 #endif /* HAVE_LZ4FRAME_H */
 
 #include "file_compressed.h"
+
+#ifdef HAVE_ZSTD
+#include <zstd.h>
+#endif
 
 /*
  * List of compression types supported.
@@ -41,7 +43,7 @@ static const struct compression_type {
     { WS_FILE_GZIP_COMPRESSED, "gz", "gzip compressed", "gzip", true },
 #endif /* USE_ZLIB_OR_ZLIBNG */
 #ifdef HAVE_ZSTD
-    { WS_FILE_ZSTD_COMPRESSED, "zst", "zstd compressed", "zstd", false },
+    { WS_FILE_ZSTD_COMPRESSED, "zst", "zstd compressed", "zstd", true },
 #endif /* HAVE_ZSTD */
 #ifdef HAVE_LZ4FRAME_H
     { WS_FILE_LZ4_COMPRESSED, "lz4", "lz4 compressed", "lz4", true },
@@ -54,7 +56,7 @@ ws_compression_type
 ws_name_to_compression_type(const char *name)
 {
     for (const struct compression_type *p = compression_types;
-	 p->type != WS_FILE_UNKNOWN_COMPRESSION; p++) {
+         p->type != WS_FILE_UNKNOWN_COMPRESSION; p++) {
         if (!g_strcmp0(name, p->name))
             return p->type;
     }
@@ -122,7 +124,7 @@ ws_get_all_compression_type_extensions_list(void)
 {
     GSList *extensions;
 
-    extensions = NULL;	/* empty list, to start with */
+    extensions = NULL; /* empty list, to start with */
 
     for (const struct compression_type *p = compression_types;
          p->type != WS_FILE_UNCOMPRESSED; p++)
@@ -136,7 +138,7 @@ ws_get_all_output_compression_type_names_list(void)
 {
     GSList *names;
 
-    names = NULL;	/* empty list, to start with */
+    names = NULL; /* empty list, to start with */
 
     for (const struct compression_type *p = compression_types;
          p->type != WS_FILE_UNCOMPRESSED; p++) {
@@ -168,6 +170,10 @@ writecap_file_open(ws_cwstream* pfile, const char *filename)
         case WS_FILE_LZ4_COMPRESSED:
             return lz4wfile_open(filename);
 #endif /* HAVE_LZ4FRAME_H */
+#ifdef HAVE_ZSTD
+        case WS_FILE_ZSTD_COMPRESSED:
+            return zstdwfile_open(filename, 0);
+#endif /* HAVE_ZSTD */
         default:
             fh = ws_fopen(filename, "wb");
             /* Increase the size of the IO buffer if uncompressed.
@@ -205,6 +211,10 @@ writecap_file_fdopen(ws_cwstream* pfile, int fd)
         case WS_FILE_LZ4_COMPRESSED:
             return lz4wfile_fdopen(fd);
 #endif /* HAVE_LZ4FRAME_H */
+#ifdef HAVE_ZSTD
+        case WS_FILE_ZSTD_COMPRESSED:
+            return zstdwfile_fdopen(fd, 0);
+#endif /* HAVE_ZSTD */
         default:
             fh = ws_fdopen(fd, "wb");
             /* Increase the size of the IO buffer if uncompressed.
@@ -246,8 +256,8 @@ ws_cwstream_open(const char *filename, ws_compression_type ctype, int *err)
     void* fh = writecap_file_open(pfile, filename);
     if (fh == NULL) {
         *err = errno;
-	g_free(pfile);
-	return NULL;
+        g_free(pfile);
+        return NULL;
     }
 
     pfile->fh = fh;
@@ -346,6 +356,18 @@ ws_cwstream_write(ws_cwstream* pfile, const uint8_t* data, size_t data_length,
             }
             break;
 #endif /* HAVE_LZ4FRAME_H */
+#ifdef HAVE_ZSTD
+        case WS_FILE_ZSTD_COMPRESSED:
+            nwritten = zstdwfile_write(pfile->fh, data, data_length);
+            /*
+             * zstdwfile_write() returns 0 on error.
+             */
+            if (nwritten == 0) {
+                *err = zstdwfile_geterr(pfile->fh);
+                return false;
+            }
+            break;
+#endif /* HAVE_ZSTD */
         default:
             nwritten = fwrite(data, data_length, 1, pfile->fh);
             if (nwritten != 1) {
@@ -387,6 +409,16 @@ ws_cwstream_flush(ws_cwstream* pfile, int *err)
             }
             break;
 #endif /* HAVE_LZ4FRAME_H */
+#ifdef HAVE_ZSTD
+        case WS_FILE_ZSTD_COMPRESSED:
+            if (zstdwfile_flush((ZSTDWFILE_T)pfile->fh) == -1) {
+                if (err) {
+                    *err = zstdwfile_geterr((ZSTDWFILE_T)pfile->fh);
+                }
+                return false;
+            }
+            break;
+#endif /* HAVE_ZSTD */
         default:
             if (fflush((FILE*)pfile->fh) == EOF) {
                 if (err) {
@@ -415,10 +447,16 @@ ws_cwstream_close(ws_cwstream* pfile, int *errp)
             err = lz4wfile_close(pfile->fh);
             break;
 #endif /* HAVE_LZ4FRAME_H */
+#ifdef HAVE_ZSTD
+        case WS_FILE_ZSTD_COMPRESSED:
+            err = zstdwfile_close(pfile->fh);
+            break;
+#endif /* HAVE_ZSTD */
         default:
             if (fclose(pfile->fh) == EOF) {
                 err = errno;
             }
+            break;
     }
 
     g_free(pfile->io_buffer);
@@ -427,6 +465,34 @@ ws_cwstream_close(ws_cwstream* pfile, int *errp)
         *errp = err;
     }
     return err == 0;
+}
+
+void
+ws_cwstream_close_after_error(ws_cwstream* pfile)
+{
+    switch (pfile->ctype) {
+#if defined (HAVE_ZLIB) || defined (HAVE_ZLIBNG)
+        case WS_FILE_GZIP_COMPRESSED:
+            gzwfile_close_after_error(pfile->fh);
+            break;
+#endif
+#ifdef HAVE_LZ4FRAME_H
+        case WS_FILE_LZ4_COMPRESSED:
+            lz4wfile_close_after_error(pfile->fh);
+            break;
+#endif /* HAVE_LZ4FRAME_H */
+#ifdef HAVE_ZSTD
+        case WS_FILE_ZSTD_COMPRESSED:
+            zstdwfile_close_after_error(pfile->fh);
+            break;
+#endif /* HAVE_ZSTD */
+        default:
+            (void)fclose(pfile->fh);
+            break;
+    }
+
+    g_free(pfile->io_buffer);
+    g_free(pfile);
 }
 
 #ifdef USE_ZLIB_OR_ZLIBNG
@@ -591,7 +657,7 @@ gz_comp(GZWFILE_T state, int flush)
         ret = ZLIB_PREFIX(deflate)(strm, flush);
         if (ret == Z_STREAM_ERROR) {
             /* This "shouldn't happen". */
-            state->err = FILE_ERR_INTERNAL;
+            state->err = FILE_ERR_CANT_COMPRESS;
             state->err_info = "Z_STREAM_ERROR from deflate()";
             return -1;
         }
@@ -713,6 +779,18 @@ gzwfile_close(GZWFILE_T state)
     return ret;
 }
 
+/* Immediately close the file after an error has occurred writing or
+   flushing; do nothing other than freeing memory and closing file
+   descriptors. Returns no error. */
+void
+gzwfile_close_after_error(GZWFILE_T state)
+{
+    g_free(state->out);
+    g_free(state->in);
+    (void)ws_close(state->fd);
+    g_free(state);
+}
+
 int
 gzwfile_geterr(GZWFILE_T state)
 {
@@ -773,12 +851,12 @@ lz4wfile_fdopen(int fd)
 
     memset(&state->lz4_prefs, 0, sizeof(LZ4F_preferences_t));
     /* Use the same prefs as the lz4 command line utility defaults. */
-    state->lz4_prefs.frameInfo.blockMode = LZ4F_blockIndependent; /* Allows fast seek */
-    /* We could use LZ4F_blockLinked but start a new frame every so often
-     * in order to allow fast seek. (Or implement fast seek for linked
-     * blocks via dictionary loading.) Linked blocks have better compression
+    state->lz4_prefs.frameInfo.blockMode = LZ4F_blockIndependent;
+    /* We could use LZ4F_blockLinked. Linked blocks have better compression
      * when blocks are small, as happens when flushing during live capture.
-     */
+     * It's not as widely supported, though; libwiretap supports reading
+     * linked blocks but not with fast seek until 4.6.0, and then only if
+     * the version of LZ4 is 1.10.0 or later. */
     state->lz4_prefs.frameInfo.contentChecksumFlag = 1;
     state->lz4_prefs.frameInfo.blockSizeID = LZ4F_max4MB;
     /* XXX - What should we set state->lz4_prefs.compressionLevel to?
@@ -799,7 +877,7 @@ lz4wfile_fdopen(int fd)
      */
 
     /* initialize stream */
-    state->err = 0;              /* clear error */
+    state->err = 0;                 /* clear error */
     state->err_info = NULL;         /* clear additional error information */
     state->pos = 0;                 /* no uncompressed data yet */
     state->pos_out = 0;
@@ -840,7 +918,7 @@ lz4_init(LZ4WFILE_T state)
     /* create Compression context */
     ret = LZ4F_createCompressionContext(&state->lz4_cctx, LZ4F_VERSION);
     if (LZ4F_isError(ret)) {
-        state->err = FILE_ERR_CANT_WRITE; // XXX - FILE_ERR_COMPRESS?
+        state->err = FILE_ERR_CANT_COMPRESS;
         state->err_info = LZ4F_getErrorName(ret);
         return -1;
     }
@@ -851,12 +929,25 @@ lz4_init(LZ4WFILE_T state)
         g_free(state->out);
         LZ4F_freeCompressionContext(state->lz4_cctx);
         state->err = ENOMEM;
+        state->err_info = NULL;
         return -1;
     }
 
     ret = LZ4F_compressBegin(state->lz4_cctx, state->out, state->want_out, &state->lz4_prefs);
     if (LZ4F_isError(ret)) {
-        state->err = FILE_ERR_CANT_WRITE; // XXX - FILE_ERR_COMPRESS?
+        /*
+         * Most of these errors appear to be an error by the caller or the
+         * library itself. When writing, it's not as if the file is bad,
+         * so presumably the error is either "ran out of memory", a bug
+         * in our code, or a bug in the library.
+         *
+         * Unfortunately, the codes are opaque outside the library - they
+         * don't, for example, define LZ4F_ERROR_allocation_failed -
+         * so if we were to try to determine what the underlying problem
+         * is, in order to report them differently, we'd have to do a
+         * string comparison on the results of LZ4F_getErrorName()..
+         */
+        state->err = FILE_ERR_CANT_COMPRESS;
         state->err_info = LZ4F_getErrorName(ret);
         return -1;
     }
@@ -896,7 +987,19 @@ lz4wfile_write(LZ4WFILE_T state, const void *buf, size_t len)
         size_t bytesWritten = LZ4F_compressUpdate(state->lz4_cctx, state->out, state->size_out,
             buf, to_write, NULL);
         if (LZ4F_isError(bytesWritten)) {
-            state->err = FILE_ERR_CANT_WRITE; // XXX - FILE_ERR_COMPRESS?
+            /*
+             * Most of these errors appear to be an error by the caller or the
+             * library itself. When writing, it's not as if the file is bad,
+             * so presumably the error is either "ran out of memory", a bug
+             * in our code, or a bug in the library.
+             *
+             * Unfortunately, the codes are opaque outside the library - they
+             * don't, for example, define LZ4F_ERROR_allocation_failed -
+             * so if we were to try to determine what the underlying problem
+             * is, in order to report them differently, we'd have to do a
+             * string comparison on the results of LZ4F_getErrorName()..
+             */
+            state->err = FILE_ERR_CANT_COMPRESS;
             state->err_info = LZ4F_getErrorName(bytesWritten);
             return 0;
         }
@@ -921,10 +1024,15 @@ lz4wfile_flush(LZ4WFILE_T state)
     if (state->err != 0)
         return -1;
 
+    /* If not initialized yet, nothing to flush. */
+    if (state->size_out == 0)
+        return 0;
+
     bytesWritten = LZ4F_flush(state->lz4_cctx, state->out, state->size_out, NULL);
     if (LZ4F_isError(bytesWritten)) {
         // Should never happen if size_out >= LZ4F_compressBound(0, prefsPtr)
-        state->err = FILE_ERR_INTERNAL;
+        state->err = FILE_ERR_CANT_COMPRESS;
+        state->err_info = LZ4F_getErrorName(bytesWritten);
         return -1;
     }
     if (!lz4_write_out(state, bytesWritten)) {
@@ -940,21 +1048,43 @@ lz4wfile_close(LZ4WFILE_T state)
 {
     int ret = 0;
 
-    /* flush, free memory, and close file */
-    size_t bytesWritten = LZ4F_compressEnd(state->lz4_cctx, state->out, state->size_out, NULL);
-    if (LZ4F_isError(bytesWritten)) {
-        // Should never happen if size_out >= LZ4F_compressBound(0, prefsPtr)
-        ret = FILE_ERR_INTERNAL;
+    /* If not initialized yet, nothing to flush. */
+    if (state->size_out != 0) {
+        /* flush and free memory */
+        size_t bytesWritten = LZ4F_compressEnd(state->lz4_cctx, state->out, state->size_out, NULL);
+        if (LZ4F_isError(bytesWritten)) {
+            // Should never happen if size_out >= LZ4F_compressBound(0, prefsPtr)
+            ret = FILE_ERR_CANT_COMPRESS;
+        }
+        if (!lz4_write_out(state, bytesWritten) && ret == 0) {
+            ret = state->err;
+        }
+        g_free(state->out);
+        LZ4F_freeCompressionContext(state->lz4_cctx);
     }
-    if (!lz4_write_out(state, bytesWritten)) {
-        ret = state->err;
-    }
-    g_free(state->out);
-    LZ4F_freeCompressionContext(state->lz4_cctx);
+
+    /* Close file */
     if (ws_close(state->fd) == -1 && ret == 0)
         ret = errno;
     g_free(state);
     return ret;
+}
+
+/* Immediately close the file after an error has occurred writing or
+   flushing; do nothing other than freeing memory and closing file
+   descriptors. Returns no error. */
+void
+lz4wfile_close_after_error(LZ4WFILE_T state)
+{
+    /* If not initialized yet, nothing to flush. */
+    if (state->size_out != 0) {
+        g_free(state->out);
+        LZ4F_freeCompressionContext(state->lz4_cctx);
+    }
+
+    /* Close file */
+    (void)ws_close(state->fd);
+    g_free(state);
 }
 
 int
@@ -963,3 +1093,206 @@ lz4wfile_geterr(LZ4WFILE_T state)
     return state->err;
 }
 #endif /* HAVE_LZ4FRAME_H */
+
+#ifdef HAVE_ZSTD
+
+/* Independent frames let readers seek without decompressing the whole file. */
+#define ZSTD_FRAME_SIZE (4U * 1024U * 1024U)
+
+struct zstd_writer {
+    int fd;
+    int err;
+    int compression_level;
+    size_t frame_bytes;
+    bool frame_ended;
+    ZSTD_CStream *stream;
+    unsigned char *out;
+    size_t out_size;
+};
+
+static bool
+zstd_level_valid(int compression_level)
+{
+    /* ZSTD_minCLevel() is available starting with libzstd 1.4.0. Keep
+     * supporting nonnegative levels when built with older libraries. */
+#if ZSTD_VERSION_NUMBER >= 10400
+    int min_level = ZSTD_minCLevel();
+#else
+    int min_level = 0;
+#endif
+    return compression_level >= min_level && compression_level <= ZSTD_maxCLevel();
+}
+
+ZSTDWFILE_T
+zstdwfile_fdopen(int fd, int compression_level)
+{
+    if (!zstd_level_valid(compression_level)) {
+        errno = EINVAL;
+        return NULL;
+    }
+    ZSTDWFILE_T state = g_try_new0(struct zstd_writer, 1);
+    if (state == NULL) {
+        errno = ENOMEM;
+        return NULL;
+    }
+    state->fd = fd;
+    state->compression_level = compression_level;
+    state->out_size = ZSTD_CStreamOutSize();
+    state->out = g_try_malloc(state->out_size);
+    state->stream = ZSTD_createCStream();
+    if (state->out == NULL || state->stream == NULL) {
+        errno = ENOMEM;
+        goto fail;
+    }
+    /* Level 0 selects the library default (3). Use the streaming API
+     * available in all supported versions of libzstd. */
+    if (ZSTD_isError(ZSTD_initCStream(state->stream, compression_level))) {
+        errno = FILE_ERR_CANT_COMPRESS;
+        goto fail;
+    }
+    return state;
+
+fail:
+    ZSTD_freeCStream(state->stream);
+    g_free(state->out);
+    g_free(state);
+    /* The caller retains ownership of fd on failure. */
+    return NULL;
+}
+
+ZSTDWFILE_T
+zstdwfile_open(const char *path, int compression_level)
+{
+    /* Reject invalid levels before opening (and truncating) the output. */
+    if (!zstd_level_valid(compression_level)) {
+        errno = EINVAL;
+        return NULL;
+    }
+    int fd = ws_open(path, O_BINARY|O_WRONLY|O_CREAT|O_TRUNC, 0666);
+    if (fd == -1)
+        return NULL;
+    ZSTDWFILE_T state = zstdwfile_fdopen(fd, compression_level);
+    if (state == NULL) {
+        int save_errno = errno;
+        ws_close(fd);
+        errno = save_errno;
+    }
+    return state;
+}
+
+static bool
+zstd_write_out(ZSTDWFILE_T state, size_t len)
+{
+    size_t pos = 0;
+    while (pos < len) {
+        ssize_t written = ws_write(state->fd, state->out + pos, (unsigned)(len - pos));
+        if (written < 0) {
+            if (errno == EINTR)
+                continue;
+            state->err = errno;
+            return false;
+        }
+        if (written == 0) {
+            state->err = FILE_ERR_SHORT_WRITE;
+            return false;
+        }
+        pos += (size_t)written;
+    }
+    return true;
+}
+
+/* Flush buffered input, or finish the current frame.
+ * Repeat until libzstd has emitted all pending output. */
+static int
+zstd_finish(ZSTDWFILE_T state, bool end_frame)
+{
+    size_t remaining;
+    if (state->err != 0)
+        return -1;
+    if (state->frame_ended)
+        return 0;
+    do {
+        ZSTD_outBuffer output = { state->out, state->out_size, 0 };
+        remaining = end_frame ? ZSTD_endStream(state->stream, &output)
+                              : ZSTD_flushStream(state->stream, &output);
+        if (ZSTD_isError(remaining)) {
+            state->err = FILE_ERR_CANT_COMPRESS;
+            return -1;
+        }
+        if (!zstd_write_out(state, output.pos))
+            return -1;
+    } while (remaining != 0);
+    if (end_frame)
+        state->frame_ended = true;
+    return 0;
+}
+
+size_t
+zstdwfile_write(ZSTDWFILE_T state, const void *buf, size_t len)
+{
+    ZSTD_inBuffer input = { buf, len, 0 };
+    if (state->err != 0)
+        return 0;
+    while (input.pos < len) {
+        /* Start the next frame only when more input arrives. Closing or
+         * flushing at a frame boundary must not append an empty frame. */
+        if (state->frame_ended) {
+            if (ZSTD_isError(ZSTD_initCStream(state->stream, state->compression_level))) {
+                state->err = FILE_ERR_CANT_COMPRESS;
+                return 0;
+            }
+            state->frame_bytes = 0;
+            state->frame_ended = false;
+        }
+
+        size_t before = input.pos;
+        input.size = before + MIN(len - before, ZSTD_FRAME_SIZE - state->frame_bytes);
+        ZSTD_outBuffer output = { state->out, state->out_size, 0 };
+        size_t ret = ZSTD_compressStream(state->stream, &output, &input);
+        if (ZSTD_isError(ret)) {
+            state->err = FILE_ERR_CANT_COMPRESS;
+            return 0;
+        }
+        state->frame_bytes += input.pos - before;
+        if (!zstd_write_out(state, output.pos))
+            return 0;
+        if (state->frame_bytes == ZSTD_FRAME_SIZE && zstd_finish(state, true) != 0)
+            return 0;
+    }
+    return len;
+}
+
+int
+zstdwfile_flush(ZSTDWFILE_T state)
+{
+    return zstd_finish(state, false);
+}
+
+int
+zstdwfile_close(ZSTDWFILE_T state)
+{
+    zstd_finish(state, true);
+    int err = state->err;
+    if (ws_close(state->fd) == -1 && err == 0)
+        err = errno;
+    ZSTD_freeCStream(state->stream);
+    g_free(state->out);
+    g_free(state);
+    return err;
+}
+
+void
+zstdwfile_close_after_error(ZSTDWFILE_T state)
+{
+    (void)ws_close(state->fd);
+    ZSTD_freeCStream(state->stream);
+    g_free(state->out);
+    g_free(state);
+}
+
+int
+zstdwfile_geterr(ZSTDWFILE_T state)
+{
+    return state->err;
+}
+#endif /* HAVE_ZSTD */

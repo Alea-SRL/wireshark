@@ -326,7 +326,7 @@ static void dissect_iuup_payload(tvbuff_t* tvb, packet_info* pinfo, proto_tree* 
     iuup_circuit_t *iuup_circuit;
     iuup_rfci_t *rfci;
     int last_offset = tvb_reported_length(tvb) - 1;
-    unsigned bit_offset = 0;
+    unsigned bit_offset;
     proto_item* pi;
 
     if (offset == (int)tvb_reported_length(tvb)) /* NO_DATA */
@@ -509,14 +509,11 @@ static void dissect_iuup_init(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tre
         }
     }
 
-    if (tree) {
-        pi = proto_tree_add_item(tree,hf_iuup_mode_versions,tvb,offset,2,ENC_BIG_ENDIAN);
-        support_tree = proto_item_add_subtree(pi,ett_support);
+    pi = proto_tree_add_item(tree,hf_iuup_mode_versions,tvb,offset,2,ENC_BIG_ENDIAN);
+    support_tree = proto_item_add_subtree(pi,ett_support);
 
-        for (i = 0; i < 16; i++) {
-            proto_tree_add_item(support_tree,hf_iuup_mode_versions_a[i],tvb,offset,2,ENC_BIG_ENDIAN);
-        }
-
+    for (i = 0; i < 16; i++) {
+        proto_tree_add_item(support_tree,hf_iuup_mode_versions_a[i],tvb,offset,2,ENC_BIG_ENDIAN);
     }
 
     offset += 2;
@@ -783,7 +780,7 @@ static bool dissect_iuup_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 
     uint8_t first_octet =  tvb_get_uint8(tvb,0);
     uint8_t second_octet =  tvb_get_uint8(tvb,1);
-    uint8_t octet_array[] = {first_octet, second_octet};
+    const uint8_t octet_array[] = {first_octet, second_octet};
     uint16_t hdrcrc6 = tvb_get_uint8(tvb, 2) >> 2;
 
     if (crc6_0X6F(hdrcrc6, octet_array, second_octet)) return false;
@@ -813,7 +810,7 @@ static bool dissect_iuup_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 
 static int find_iuup(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
     int len = tvb_captured_length(tvb);
-    int offset = 0;
+    unsigned offset = 0;
 
     while (len > 3) {
         if ( dissect_iuup_heur(tvb_new_subset_remaining(tvb,offset), pinfo, tree, data) )

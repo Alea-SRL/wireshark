@@ -14,17 +14,31 @@
  * https://ultraethernet.org/wp-content/uploads/sites/20/2025/10/UE-Specification-1.0.1.pdf
  */
 
+#include "config.h"
+#define WS_LOG_DOMAIN "packet-uet"
+#include <wsutil/wslog.h>
+
 #include <epan/packet.h>
+#include <epan/epan_dissect.h>
 #include <epan/expert.h>
+#include <epan/prefs.h>
+#include <epan/proto_data.h>
 #include <epan/tfs.h>
+#include <epan/crc32-tvb.h>
+#include <wsutil/crc32.h>
+
+#include "packet-ip.h"
+#include "packet-ipv6.h"
 
 static int proto_uet;
+
+//Cached protocol handles
+static int proto_ip;
+static int proto_ipv6;
 
 //UET TSS
 static int hf_uet_tss_prlg;
 static int hf_uet_tss_type;
-static int hf_uet_tss_nh;
-static int hf_uet_tss_ver;
 static int hf_uet_tss_sp;
 static int hf_uet_tss_reserved;
 static int hf_uet_tss_an;
@@ -53,9 +67,11 @@ static int hf_uet_pds_flags_rsvd_ctl;
 static int hf_uet_pds_flags_rsvd_ack;
 static int hf_uet_pds_flags_rsvd_rudi;
 static int hf_uet_pds_flags_rsvd_nack;
+static int hf_uet_pds_clear_psn_offset;
 static int hf_uet_pds_clear_psn;
 static int hf_uet_pds_psn;
 static int hf_uet_pds_cack_psn;
+static int hf_uet_pds_ack_psn_offset;
 static int hf_uet_pds_ack_psn;
 static int hf_uet_pds_spdcid;
 static int hf_uet_pds_dpdcid;
@@ -75,7 +91,8 @@ static int hf_uet_pds_ctl_payload;
 static int hf_uet_pds_ack_prlg;
 static int hf_uet_pds_ack_cc_type;
 static int hf_uet_pds_ack_mpr;
-static int hf_uet_pds_ack_sack_offset;
+static int hf_uet_pds_ack_sack_psn_offset;
+static int hf_uet_pds_ack_sack_psn;
 static int hf_uet_pds_ack_cc_state;
 static int hf_uet_pds_ack_cc_state_service_time;
 static int hf_uet_pds_ack_cc_state_rc;
@@ -124,9 +141,8 @@ static int hf_uet_ses_atomic_op_ext_hdr_sem_ctl;
 static int hf_uet_ses_atomic_op_ext_hdr_rsvd;
 static int hf_uet_ses_rendv_ext_hdr;
 static int hf_uet_ses_rendv_ext_hdr_eager_length;
-static int hf_uet_ses_rendv_ext_hdr_reserved;
+static int hf_uet_ses_rendv_ext_hdr_read_ri_generation;
 static int hf_uet_ses_rendv_ext_hdr_read_pid_on_fep;
-static int hf_uet_ses_rendv_ext_hdr_reserved2;
 static int hf_uet_ses_rendv_ext_hdr_read_resource_index;
 static int hf_uet_ses_rendv_ext_hdr_read_offset;
 static int hf_uet_ses_rendv_ext_hdr_read_match_bits;
@@ -150,7 +166,7 @@ static int hf_uet_ses_rsp_read_req_message_id;
 static int hf_uet_ses_rsp_reserved2;
 static int hf_uet_ses_rsp_payload_length;
 static int hf_uet_ses_rsp_message_offset;
-static int hf_uet_ses_rsp_reserved3;
+static int hf_uet_ses_rsp_original_req_psn;
 static int hf_uet_ses_small_req_rsv;
 static int hf_uet_ses_small_req_flags;
 static int hf_uet_ses_small_req_flags_ver;
@@ -191,6 +207,10 @@ static int hf_uet_ses_med_req_header_data;
 static int hf_uet_ses_med_req_initiator;
 static int hf_uet_ses_med_req_mem_key_match_bits;
 
+// CRC
+static int hf_uet_crc;
+static int hf_uet_crc_status;
+
 static int ett_all_layers;
 static int ett_uet_tss_auth_proto;
 static int ett_uet_pds_proto;
@@ -212,11 +232,24 @@ static expert_field ei_uet_pds_ack_ext_hdr_len_invalid;
 static expert_field ei_uet_ses_rsp_opcode_invalid;
 static expert_field ei_uet_ses_hdr_len_invalid;
 static expert_field ei_uet_tss_hdr_len_invalid;
+static expert_field ei_uet_crc_bad;
 
 static dissector_handle_t uet_handle;
 static dissector_handle_t uet_entropy_handle;
 
+// prefs
+static bool uet_has_crc = true;
+static bool uet_validate_crc = false;
+
 #define UDP_PORT_UET                4793
+
+#define UET_CRC_LEN		4
+#define IPV4_ADDR_OFFSET	12	// offsetof(struct iphdr, saddr)
+#define IPV6_ADDR_OFFSET	8	// offsetof(struct ipv6hdr, saddr)
+
+// p_{get,add}_proto_data keys
+#define UET_PROTO_DATA_CRC	1
+
 
 //UET Types
 #define UET_PDS_TYPE_RESERVED   0
@@ -691,7 +724,7 @@ static const true_false_string uet_ses_std_rel_str = {
 #define UET_SES_MEDIUM_REQ_MIN_HDR_LEN  32
 #define UET_SES_RESP_HDR_LEN            12
 #define UET_SES_STD_MIN_HDR_LEN         44
-#define UET_TSS_HDR_LEN                 20
+#define UET_TSS_MIN_HDR_LEN             12
 
 static int
 dissect_ses_comp_swap_atomic_ext_hdr(proto_tree* tree, tvbuff_t* tvb, packet_info* pinfo, int offset)
@@ -804,12 +837,10 @@ dissect_ses_rendv_ext_hdr(proto_tree* tree, tvbuff_t* tvb, packet_info* pinfo, i
 
     proto_tree_add_item(ext_tree, hf_uet_ses_rendv_ext_hdr_eager_length, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
-    proto_tree_add_item(ext_tree, hf_uet_ses_rendv_ext_hdr_reserved, tvb, offset, 2, ENC_BIG_ENDIAN);
-    proto_tree_add_item(ext_tree, hf_uet_ses_rendv_ext_hdr_read_pid_on_fep, tvb, offset, 2, ENC_BIG_ENDIAN);
-    offset += 2;
-    proto_tree_add_item(ext_tree, hf_uet_ses_rendv_ext_hdr_reserved2, tvb, offset, 2, ENC_BIG_ENDIAN);
-    proto_tree_add_item(ext_tree, hf_uet_ses_rendv_ext_hdr_read_resource_index, tvb, offset, 2, ENC_BIG_ENDIAN);
-    offset += 2;
+    proto_tree_add_item(ext_tree, hf_uet_ses_rendv_ext_hdr_read_ri_generation, tvb, offset, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item(ext_tree, hf_uet_ses_rendv_ext_hdr_read_pid_on_fep, tvb, offset, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item(ext_tree, hf_uet_ses_rendv_ext_hdr_read_resource_index, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
     proto_tree_add_item(ext_tree, hf_uet_ses_rendv_ext_hdr_read_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
     proto_tree_add_item(ext_tree, hf_uet_ses_rendv_ext_hdr_read_match_bits, tvb, offset, 8, ENC_BIG_ENDIAN);
@@ -897,12 +928,11 @@ dissect_ses_std_req(proto_tree* ses_tree, proto_item* ses_item, tvbuff_t* tvb, p
     proto_tree_add_item(ses_tree, hf_uet_ses_std_request_length, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    //TODO: decode crc header
-
     //decode ext header
     switch (opcode) {
     case UET_SES_OPCODE_ATOMIC:
     case UET_SES_OPCODE_FETCHING_ATOMIC:
+    case UET_SES_OPCODE_TSEND_ATOMIC:
     case UET_SES_OPCODE_TSEND_FETCH_ATOMIC:
         offset += dissect_ses_atomic_hdr(ses_tree, tvb, pinfo, offset);
         break;
@@ -972,12 +1002,11 @@ dissect_ses_small_req(proto_tree* ses_tree, proto_item* ses_item, tvbuff_t* tvb,
     proto_tree_add_item(ses_tree, hf_uet_ses_small_req_buffer_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
-    //+++TODO: crc header
-
     //decode ext header
     switch (opcode) {
     case UET_SES_OPCODE_ATOMIC:
     case UET_SES_OPCODE_FETCHING_ATOMIC:
+    case UET_SES_OPCODE_TSEND_ATOMIC:
     case UET_SES_OPCODE_TSEND_FETCH_ATOMIC:
         offset += dissect_ses_atomic_hdr(ses_tree, tvb, pinfo, offset);
         break;
@@ -1027,7 +1056,7 @@ dissect_ses_medium_req(proto_tree* ses_tree, proto_item* ses_item, tvbuff_t* tvb
 
     proto_tree_add_item(ses_tree, hf_uet_ses_med_req_flags_rsv2, tvb, offset, 2, ENC_BIG_ENDIAN);
     proto_tree_add_item(ses_tree, hf_uet_ses_med_req_req_length, tvb, offset, 2, ENC_BIG_ENDIAN);
-    offset += 3;
+    offset += 2;
 
     proto_tree_add_item(ses_tree, hf_uet_ses_med_req_resource_index_generation, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
@@ -1051,12 +1080,11 @@ dissect_ses_medium_req(proto_tree* ses_tree, proto_item* ses_item, tvbuff_t* tvb
     proto_tree_add_item(ses_tree, hf_uet_ses_med_req_mem_key_match_bits, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
-    //TODO: decode crc header
-
     //decode ext header
     switch (opcode) {
     case UET_SES_OPCODE_ATOMIC:
     case UET_SES_OPCODE_FETCHING_ATOMIC:
+    case UET_SES_OPCODE_TSEND_ATOMIC:
     case UET_SES_OPCODE_TSEND_FETCH_ATOMIC:
         offset += dissect_ses_atomic_hdr(ses_tree, tvb, pinfo, offset);
         break;
@@ -1170,9 +1198,15 @@ dissect_ses_resp_data_small(proto_tree* ses_tree, proto_item* ses_item, tvbuff_t
     proto_tree_add_item(ses_tree, hf_uet_ses_rsp_ver, tvb, offset, 1, ENC_BIG_ENDIAN);
     proto_tree_add_item(ses_tree, hf_uet_ses_rsp_return_code, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
-    proto_tree_add_item(ses_tree, hf_uet_ses_rsp_reserved3, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(ses_tree, hf_uet_ses_rsp_reserved2, tvb, offset, 2, ENC_BIG_ENDIAN);
     proto_tree_add_item(ses_tree, hf_uet_ses_rsp_payload_length, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
+    proto_tree_add_item(ses_tree, hf_uet_ses_rsp_reserved, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+    proto_tree_add_item(ses_tree, hf_uet_ses_rsp_job_id, tvb, offset, 3, ENC_BIG_ENDIAN);
+    offset += 3;
+    proto_tree_add_item(ses_tree, hf_uet_ses_rsp_original_req_psn, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
 
     return (offset - orig_offset);
 }
@@ -1250,9 +1284,10 @@ dissect_pds_rud_rod_req(tvbuff_t* tvb, packet_info* pinfo, proto_tree* pds_tree,
     proto_item* mode_item = NULL;
     int         orig_offset = offset;
     int         len = tvb_reported_length_remaining(tvb, offset) + 2; // including prologue
-    int32_t     clear_psn_offset;
+    int16_t     clear_psn_offset;
     uint32_t    clear_psn;
     uint32_t    psn;
+    proto_item* item;
 
     if (len < UET_PDS_RUD_ROD_MIN_HDR_LEN) {
         expert_add_info_format(pinfo, pds_item, &ei_uet_pds_rud_rod_hdr_len_invalid, "PDS RUD/ROD header must be at least %d bytes",
@@ -1261,8 +1296,10 @@ dissect_pds_rud_rod_req(tvbuff_t* tvb, packet_info* pinfo, proto_tree* pds_tree,
 
     clear_psn_offset = tvb_get_ntohis(tvb, offset);
     psn = tvb_get_ntohl(tvb, offset + 2);
+    proto_tree_add_int_format_value(pds_tree, hf_uet_pds_clear_psn_offset, tvb, offset, 2, clear_psn_offset, "%+d", clear_psn_offset);
     clear_psn = psn + clear_psn_offset;
-    proto_tree_add_uint_format_value(pds_tree, hf_uet_pds_clear_psn, tvb, offset, 2, clear_psn, "%u (%+d)", clear_psn, clear_psn_offset);
+    item = proto_tree_add_uint(pds_tree, hf_uet_pds_clear_psn, tvb, offset, 2, clear_psn);
+    proto_item_set_generated(item);
     offset += 2;
     proto_tree_add_item(pds_tree, hf_uet_pds_psn, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
@@ -1272,7 +1309,6 @@ dissect_pds_rud_rod_req(tvbuff_t* tvb, packet_info* pinfo, proto_tree* pds_tree,
     if (flags & UET_PDS_RUD_ROD_FLAGS_SYN) {
         uint32_t psn_offset;
         uint32_t start_psn;
-        proto_item *item;
 
         mode_item = proto_tree_add_item(pds_tree, hf_uet_pds_pdc_mode, tvb, offset, 1, ENC_NA);
         proto_item_set_text(mode_item, "%s", "PDC Mode");
@@ -1342,7 +1378,7 @@ dissect_pds_ctl(tvbuff_t* tvb, packet_info *pinfo, proto_tree* pds_tree, int off
 }
 
 static int
-dissect_pds_ack_ext_hdr(tvbuff_t* tvb, packet_info* pinfo, proto_tree* pds_tree, int offset, uint8_t type)
+dissect_pds_ack_ext_hdr(tvbuff_t* tvb, packet_info* pinfo, proto_tree* pds_tree, int offset, uint8_t type, uint32_t cack_psn)
 {
     proto_tree* ext_tree = NULL;
     proto_item* ext_item = NULL;
@@ -1350,6 +1386,9 @@ dissect_pds_ack_ext_hdr(tvbuff_t* tvb, packet_info* pinfo, proto_tree* pds_tree,
     proto_item* cc_state_item = NULL;
     int         orig_offset = offset;
     uint8_t     cc_type = 0;
+    int16_t     sack_psn_offset;
+    uint32_t    sack_psn;
+    proto_item* item;
 
     if (tvb_reported_length_remaining(tvb, offset) < UET_PDS_ACK_EXT_HDR_SIZE) {
         proto_tree_add_expert_format(pds_tree, pinfo, &ei_uet_pds_ack_ext_hdr_len_invalid, tvb, offset, 1,
@@ -1366,7 +1405,11 @@ dissect_pds_ack_ext_hdr(tvbuff_t* tvb, packet_info* pinfo, proto_tree* pds_tree,
     offset += 1;
     proto_tree_add_item(ext_tree, hf_uet_pds_ack_mpr, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
-    proto_tree_add_item(ext_tree, hf_uet_pds_ack_sack_offset, tvb, offset, 2, ENC_BIG_ENDIAN);
+    sack_psn_offset = tvb_get_ntohis(tvb, offset);
+    sack_psn = cack_psn + sack_psn_offset;
+    proto_tree_add_int_format_value(ext_tree, hf_uet_pds_ack_sack_psn_offset, tvb, offset, 2, sack_psn_offset, "%+d", sack_psn_offset);
+    item = proto_tree_add_uint(ext_tree, hf_uet_pds_ack_sack_psn, tvb, offset, 2, sack_psn);
+    proto_item_set_generated(item);
     offset += 2;
     proto_tree_add_item(ext_tree, hf_uet_pds_ack_sack_bitmap, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
@@ -1402,14 +1445,17 @@ static int
 dissect_pds_ack(tvbuff_t* tvb, packet_info* pinfo, proto_tree* pds_tree, int offset, uint8_t type)
 {
     int         orig_offset = offset;
-    int32_t     ack_psn_offset;
+    int16_t     ack_psn_offset;
     uint32_t    ack_psn;
     uint32_t    cack_psn;
+    proto_item* item;
 
     ack_psn_offset = tvb_get_ntohis(tvb, offset);
     cack_psn = tvb_get_ntohl(tvb, offset + 2);
     ack_psn = cack_psn + ack_psn_offset;
-    proto_tree_add_uint_format_value(pds_tree, hf_uet_pds_ack_psn, tvb, offset, 2, ack_psn, "%u (%+d)", ack_psn, ack_psn_offset);
+    proto_tree_add_int_format_value(pds_tree, hf_uet_pds_ack_psn_offset, tvb, offset, 2, ack_psn_offset, "%+d", ack_psn_offset);
+    item = proto_tree_add_uint(pds_tree, hf_uet_pds_ack_psn, tvb, offset, 2, ack_psn);
+    proto_item_set_generated(item);
     offset += 2;
     proto_tree_add_item(pds_tree, hf_uet_pds_cack_psn, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
@@ -1420,7 +1466,7 @@ dissect_pds_ack(tvbuff_t* tvb, packet_info* pinfo, proto_tree* pds_tree, int off
 
     if ((type == UET_PDS_TYPE_ACK_CC) || (type == UET_PDS_TYPE_ACK_CCX)) {
         //ext hdr
-        offset += dissect_pds_ack_ext_hdr(tvb, pinfo, pds_tree, offset, type);
+        offset += dissect_pds_ack_ext_hdr(tvb, pinfo, pds_tree, offset, type, cack_psn);
     }
 
     return (offset - orig_offset);
@@ -1624,12 +1670,12 @@ dissect_pds(tvbuff_t* tvb, packet_info* pinfo, proto_tree* uet_tree, proto_item*
 }
 
 static int
-dissect_tss(tvbuff_t* tvb, packet_info* pinfo, proto_tree* uet_tree, proto_item* uet_item)
+dissect_tss(tvbuff_t* tvb, packet_info* pinfo, proto_tree* uet_tree, proto_item* uet_item, int offset)
 {
     proto_tree* tss_tree;
     proto_item* tss_item;
-    int         offset = 0;
     uint8_t     type = 0;
+    uint8_t     sp = 0;
 
     col_append_sep_str(pinfo->cinfo, COL_INFO, "", "TSS");
 
@@ -1637,29 +1683,30 @@ dissect_tss(tvbuff_t* tvb, packet_info* pinfo, proto_tree* uet_tree, proto_item*
     proto_item_set_text(tss_item, "%s", "TSS");
     tss_tree = proto_item_add_subtree(tss_item, ett_uet_tss_auth_proto);
 
-    if (tvb_reported_length_remaining(tvb, offset) < UET_TSS_HDR_LEN) {
-        expert_add_info_format(pinfo, tss_item, &ei_uet_tss_hdr_len_invalid, "TSS header must be %d bytes",
-            UET_TSS_HDR_LEN);
+    if (tvb_reported_length_remaining(tvb, offset) < UET_TSS_MIN_HDR_LEN) {
+        expert_add_info_format(pinfo, tss_item, &ei_uet_tss_hdr_len_invalid, "TSS header must be at least %d bytes",
+            UET_TSS_MIN_HDR_LEN);
     }
 
-    type = tvb_get_bits8(tvb, offset * 8, 4);
+    type = tvb_get_bits8(tvb, offset * 8, 5);
+    sp   = tvb_get_bits8(tvb, offset * 8 + 5, 1);
 
-    proto_tree_add_item(tss_tree, hf_uet_tss_type, tvb, offset, 2, ENC_BIG_ENDIAN);
-    proto_tree_add_item(tss_tree, hf_uet_tss_nh, tvb, offset, 2, ENC_BIG_ENDIAN);
-    proto_tree_add_item(tss_tree, hf_uet_tss_ver, tvb, offset, 2, ENC_BIG_ENDIAN);
-    proto_tree_add_item(tss_tree, hf_uet_tss_sp, tvb, offset, 2, ENC_BIG_ENDIAN);
-    proto_tree_add_item(tss_tree, hf_uet_tss_reserved, tvb, offset, 2, ENC_BIG_ENDIAN);
-    offset += 2;
+    proto_tree_add_item(tss_tree, hf_uet_tss_type, tvb, offset, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tss_tree, hf_uet_tss_sp, tvb, offset, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tss_tree, hf_uet_tss_reserved, tvb, offset, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tss_tree, hf_uet_tss_an, tvb, offset, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tss_tree, hf_uet_tss_sdi, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
 
     proto_item_append_text(uet_item, ", TSS Type: %s", val_to_str(pinfo->pool, type, uet_tss_type_vals, "Unknown (%u)"));
     proto_item_append_text(tss_item, ", Type: %s", val_to_str(pinfo->pool, type, uet_tss_type_vals, "Unknown (%u)"));
     col_append_fstr(pinfo->cinfo, COL_INFO, " (%s)", val_to_str(pinfo->pool, type, uet_tss_type_vals, "Unknown (%u)"));
 
-    proto_tree_add_item(tss_tree, hf_uet_tss_an, tvb, offset, 4, ENC_BIG_ENDIAN);
-    proto_tree_add_item(tss_tree, hf_uet_tss_sdi, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
-    proto_tree_add_item(tss_tree, hf_uet_tss_ssi, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
+    if (sp) {
+        proto_tree_add_item(tss_tree, hf_uet_tss_ssi, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+
     proto_tree_add_item(tss_tree, hf_uet_tss_tsc, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
@@ -1671,6 +1718,70 @@ dissect_tss(tvbuff_t* tvb, packet_info* pinfo, proto_tree* uet_tree, proto_item*
 
     return tvb_captured_length(tvb);
 }
+
+struct ip_hdr_info {
+    int len;
+    int addr_offset;
+    bool has_udp;
+};
+
+/*
+ * Compute UET CRC over the packet
+ *
+ * spec says:
+ * 1. The CRC is calculated over the packet starting at the first byte of the source IP address for both
+ *    IPv4 and IPv6 packets, [...]
+ * 2. For UDP packets, the checksum is set to zero for calculation and verification.
+ * (i.e. it would include any IP options, if present)
+ *
+ * We need to find the offset of (source address into) the innermost IP header.
+ * We get the (innermost) total IP packet length from ip/ipv6 proto_data. We
+ * subtract the size of the UET layer and obtain the size of the preceding
+ * IP (and UDP) headers.  Starting at our UET header, we walk back that many
+ * bytes into the tvbuff datasource, and reach the start of our IP header.
+ * Then we jump forward to where source IP address is and begin computing
+ * the CRC.
+ *
+ * (this might be simplified if e.g. pinfo->layers could give us their TVBs)
+ *
+ * @param tvb UET layer, up to and including the trailing CRC
+ * @param crc_p computed CRC output
+ * @returns true if we computed a CRC, false if we couldn't
+ */
+static bool
+uet_compute_crc(packet_info *pinfo, tvbuff_t *tvb, uint32_t *crc_p, struct ip_hdr_info* ip_info)
+{
+    static const uint16_t zero_csum = 0;
+    tvbuff_t* parent_tvb = tvb_get_ds_tvb(tvb);
+    int uet_len = tvb_reported_length(tvb);
+    int uet_offset = tvb_raw_offset(tvb);
+
+    int ip_hdrlen = ip_info->len - uet_len;
+    int ip_offset = uet_offset - ip_hdrlen;
+    ws_noisy("IP has_udp=%d totlen=%d hdrlen=%d uet_offset=%d ip_offset=%d",
+        ip_info->has_udp, ip_info->len, ip_hdrlen, uet_offset, ip_offset);
+
+    ip_offset += ip_info->addr_offset;
+    ip_hdrlen -= ip_info->addr_offset;
+    if (ip_info->has_udp)
+        ip_hdrlen -= sizeof(zero_csum);
+    if (ip_offset < 0 || ip_hdrlen < 0) {
+        ws_noisy("CRC frame %u: computed IP offset @%d+%d out of range",
+            pinfo->num, ip_offset, ip_hdrlen);
+        return false;
+    }
+
+    const uint8_t *ip_addrs_ptr = tvb_get_ptr(parent_tvb, ip_offset, ip_hdrlen);
+    uint32_t crc = crc32c_calculate_no_swap(ip_addrs_ptr, ip_hdrlen, CRC32C_PRELOAD);
+    if (ip_info->has_udp)
+        crc = crc32c_calculate_no_swap(&zero_csum, sizeof(zero_csum), crc);
+    crc = ~crc32c_calculate_no_swap(
+        tvb_get_ptr(tvb, 0, tvb_reported_length(tvb) - UET_CRC_LEN),
+        tvb_reported_length(tvb) - UET_CRC_LEN, crc);
+
+    *crc_p = crc;
+    return true;
+ }
 
 static int
 dissect_uet_common(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, bool has_entropy)
@@ -1697,13 +1808,84 @@ dissect_uet_common(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, bool has
     type = tvb_get_bits8(tvb, (offset * 8), 5);
 
     if (type == UET_TYPE_ENC) {
-        offset += dissect_tss(tvb, pinfo, uet_tree, uet_item);
+        offset += dissect_tss(tvb, pinfo, uet_tree, uet_item, offset);
     } else {
         //PDS
         offset += dissect_pds(tvb, pinfo, uet_tree, uet_item, offset);
     }
 
-    if (tvb_reported_length_remaining(tvb, offset) > 0) {
+    if (uet_has_crc) {
+        unsigned crc_flags = PROTO_CHECKSUM_NO_FLAGS;
+        uint32_t crc = 0;
+
+        if (uet_validate_crc && tvb_captured_length_remaining(tvb, offset) >= UET_CRC_LEN) {
+            // grab previously-computed CRC, if any.  if it was zero value, we'll be recalculating it.  that's Fine.
+            crc = GPOINTER_TO_UINT(p_get_proto_data(wmem_file_scope(), pinfo, proto_uet, UET_PROTO_DATA_CRC));
+            ws_noisy("fetch CRC: 0x%08x", crc);
+            if (crc) {
+                crc_flags = PROTO_CHECKSUM_VERIFY;
+            } else {
+                struct ip_hdr_info ip_info = { 0 };
+                wmem_list_frame_t* cur;
+                int layer_proto;
+                int layer_num = pinfo->curr_layer_num;
+
+                /* CRC depends on previous IPv4/IPv6 layers, so figure out where the last IP packet
+                   was, taking into account tunnels.
+                */
+                cur = wmem_list_tail(pinfo->layers);
+                while (cur != NULL) {
+                    layer_proto = (int)GPOINTER_TO_UINT(wmem_list_frame_data(cur));
+                    if (layer_proto == proto_ip) {
+                        const ws_ip4* iph = (const ws_ip4*)p_get_proto_data(pinfo->pool, pinfo, proto_ip, layer_num);
+                        if (iph) {
+                            ip_info.len = iph->ip_len;
+                            ip_info.addr_offset = IPV4_ADDR_OFFSET;
+                        } else {
+                            ws_noisy("CRC frame %u: could not find IP #%d header data", pinfo->num, layer_num);
+                        }
+                        break;
+                    } else if (layer_proto == proto_ipv6) {
+                        int ipv6_layer_count = 0;
+                        while (cur) {
+                            if ((int)GPOINTER_TO_UINT(wmem_list_frame_data(cur)) == proto_ipv6)
+                                ipv6_layer_count++;
+                            cur = wmem_list_frame_prev(cur);
+                        }
+                        ipv6_pinfo_t* ipv6_pinfo = (ipv6_pinfo_t*)p_get_proto_data(pinfo->pool, pinfo, proto_ipv6,
+                            (ipv6_layer_count << 8) | 2 /*IPV6_PROTO_PINFO*/);
+                        if (ipv6_pinfo) {
+                            ip_info.len = ipv6_pinfo->ip6_plen + IPv6_HDR_SIZE;
+                            ip_info.addr_offset = IPV6_ADDR_OFFSET;
+                        } else {
+                            ws_noisy("CRC frame %u: could not find IPv6 #%d header data", pinfo->num, ipv6_layer_count);
+                        }
+                        break;
+                    }
+
+                    layer_num--;
+                    cur = wmem_list_frame_prev(cur);
+                }
+
+                ip_info.has_udp = !has_entropy;
+                if ((ip_info.len > 0) && (uet_compute_crc(pinfo, tvb, &crc, &ip_info))) {
+                    ws_noisy("store CRC: 0x%08x", crc);
+                    crc_flags = PROTO_CHECKSUM_VERIFY;
+                    p_add_proto_data(wmem_file_scope(), pinfo, proto_uet, UET_PROTO_DATA_CRC, GUINT_TO_POINTER(crc));
+                }
+            }
+        }
+
+        proto_tree_add_checksum(uet_tree, tvb, tvb_reported_length(tvb) - UET_CRC_LEN,
+            hf_uet_crc, hf_uet_crc_status, &ei_uet_crc_bad,
+            pinfo, crc, ENC_BIG_ENDIAN, crc_flags);
+        tvb = tvb_new_subset_length_caplen(tvb, 0,
+          tvb_captured_length(tvb) - UET_CRC_LEN,
+          tvb_reported_length(tvb) - UET_CRC_LEN);
+
+    }
+
+    if (tvb_captured_length_remaining(tvb, offset) > 0) {
         //dump data
         call_data_dissector(tvb_new_subset_remaining(tvb, offset), pinfo, uet_tree);
     }
@@ -1723,6 +1905,7 @@ dissect_uet_entropy(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void* d
     return dissect_uet_common(tvb, pinfo, tree, true);
 }
 
+
 void
 proto_register_uet(void)
 {
@@ -1734,38 +1917,27 @@ proto_register_uet(void)
         },
         { &hf_uet_tss_type,
             { "Type", "uet.tss.type",
-                FT_UINT16, BASE_DEC | BASE_EXT_STRING, &uet_tss_type_vals_ext, 0xf000,
-                NULL, HFILL }
-        },
-        { &hf_uet_tss_nh,
-            { "Next Hdr", "uet.tss.nh",
-                FT_UINT16, BASE_DEC, NULL, 0x0f80,
-                NULL, HFILL }
-        },
-        { &hf_uet_tss_ver,
-            { "Ver", "uet.tss.ver",
-                FT_UINT16, BASE_DEC, NULL, 0x0060,
+                FT_UINT32, BASE_DEC | BASE_EXT_STRING, &uet_tss_type_vals_ext, 0xF8000000,
                 NULL, HFILL }
         },
         { &hf_uet_tss_sp,
             { "SP", "uet.tss.sp",
-                FT_UINT16, BASE_DEC, NULL, 0x0010,
+                FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x04000000,
                 NULL, HFILL }
         },
         { &hf_uet_tss_reserved,
             { "Reserved", "uet.tss.reserved",
-                FT_UINT16, BASE_HEX, NULL, 0x000f,
+                FT_UINT32, BASE_HEX, NULL, 0x02000000,
                 NULL, HFILL }
         },
-
         { &hf_uet_tss_an,
             { "AN", "uet.tss.an",
-                FT_UINT32, BASE_DEC, NULL, 0x80000000,
+                FT_UINT32, BASE_DEC, NULL, 0x01000000,
                 NULL, HFILL }
         },
         { &hf_uet_tss_sdi,
             { "SDI", "uet.tss.sdi",
-                FT_UINT32, BASE_DEC, NULL, 0x7FFFFFFF,
+                FT_UINT32, BASE_DEC, NULL, 0x00FFFFFF,
                 NULL, HFILL }
         },
         { &hf_uet_tss_ssi,
@@ -1879,6 +2051,11 @@ proto_register_uet(void)
                 FT_UINT8, BASE_HEX, NULL, 0x47,
                 NULL, HFILL }
         },
+        { &hf_uet_pds_clear_psn_offset,
+            { "Clear PSN Offset", "uet.pds.clear_psn_offset",
+                FT_INT16, BASE_DEC, NULL, 0x0,
+                NULL, HFILL }
+        },
         { &hf_uet_pds_clear_psn,
             { "Clear PSN", "uet.pds.clear_psn",
                 FT_UINT32, BASE_DEC, NULL, 0x0,
@@ -1887,6 +2064,11 @@ proto_register_uet(void)
         { &hf_uet_pds_psn,
             { "PSN", "uet.pds.psn",
                 FT_UINT32, BASE_DEC, NULL, 0x0,
+                NULL, HFILL }
+        },
+        { &hf_uet_pds_ack_psn_offset,
+            { "ACK PSN Offset", "uet.pds.ack_psn_offset",
+                FT_INT16, BASE_DEC, NULL, 0x0,
                 NULL, HFILL }
         },
         { &hf_uet_pds_ack_psn,
@@ -1989,9 +2171,14 @@ proto_register_uet(void)
                 FT_UINT8, BASE_DEC, NULL, 0x0,
                 NULL, HFILL }
         },
-        { &hf_uet_pds_ack_sack_offset,
-            { "SACK Offset", "uet.pds.ack.sack_offset",
-                FT_UINT16, BASE_DEC, NULL, 0x0,
+        { &hf_uet_pds_ack_sack_psn_offset,
+            { "SACK PSN Offset", "uet.pds.ack.sack_psn_offset",
+                FT_INT16, BASE_DEC, NULL, 0x0,
+                NULL, HFILL }
+        },
+        { &hf_uet_pds_ack_sack_psn,
+            { "SACK PSN", "uet.pds.ack.sack_psn",
+                FT_UINT32, BASE_DEC, NULL, 0x0,
                 NULL, HFILL }
         },
         { &hf_uet_pds_ack_cc_state,
@@ -2054,6 +2241,15 @@ proto_register_uet(void)
                 FT_UINT32, BASE_DEC, NULL, 0x0,
                 NULL, HFILL }
         },
+
+        // UET CRC
+        { &hf_uet_crc,
+          { "CRC", "uet.crc", FT_UINT32, BASE_HEX, NULL, 0x0,
+           NULL, HFILL }},
+        { &hf_uet_crc_status,
+         { "CRC Status", "uet.crc.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
+          NULL, HFILL }},
+
 
         //UET SES
         { &hf_uet_ses_prlg,
@@ -2231,24 +2427,19 @@ proto_register_uet(void)
                 FT_UINT32, BASE_DEC, NULL, 0x0,
                 NULL, HFILL }
         },
-        { &hf_uet_ses_rendv_ext_hdr_reserved,
-            { "Reserved", "uet.ses.rendv_ext_hdr.reserved",
-                FT_UINT16, BASE_HEX, NULL, 0xc000,
+        { &hf_uet_ses_rendv_ext_hdr_read_ri_generation,
+            { "Read RI Generation", "uet.ses.rendv_ext_hdr.read_ri_generation",
+                FT_UINT32, BASE_DEC, NULL, 0xff000000,
                 NULL, HFILL }
         },
         { &hf_uet_ses_rendv_ext_hdr_read_pid_on_fep,
             { "Read PIDonFEP", "uet.ses.rendv_ext_hdr.read_pid_on_fep",
-                FT_UINT16, BASE_DEC, NULL, 0x3fff,
-                NULL, HFILL }
-        },
-        { &hf_uet_ses_rendv_ext_hdr_reserved2,
-            { "Reserved", "uet.ses.rendv_ext_hdr.reserved2",
-                FT_UINT16, BASE_HEX, NULL, 0xf000,
+                FT_UINT32, BASE_DEC, NULL, 0x00fff000,
                 NULL, HFILL }
         },
         { &hf_uet_ses_rendv_ext_hdr_read_resource_index,
             { "Read Resource Index", "uet.ses.rendv_ext_hdr.read_resource_index",
-                FT_UINT16, BASE_DEC, NULL, 0x0fff,
+                FT_UINT32, BASE_DEC, NULL, 0x00000fff,
                 NULL, HFILL }
         },
         { &hf_uet_ses_rendv_ext_hdr_read_offset,
@@ -2363,9 +2554,9 @@ proto_register_uet(void)
                 FT_UINT32, BASE_DEC, NULL, 0x0,
                 NULL, HFILL }
         },
-        { &hf_uet_ses_rsp_reserved3,
-            { "Rsv", "uet.ses.rsp.reserved3",
-                FT_UINT16, BASE_HEX, NULL, 0xc000,
+        { &hf_uet_ses_rsp_original_req_psn,
+            { "Original Request PSN", "uet.ses.rsp.original_request_psn",
+                FT_UINT32, BASE_DEC, NULL, 0x0,
                 NULL, HFILL }
         },
         { &hf_uet_ses_small_req_rsv,
@@ -2609,7 +2800,10 @@ proto_register_uet(void)
             { "uet.tss.invalid_header", PI_MALFORMED, PI_ERROR,
                 "Invalid TSS header length", EXPFILL }
         },
-
+        { &ei_uet_crc_bad,
+            { "uet.crc_bad", PI_CHECKSUM, PI_ERROR,
+                "Bad CRC", EXPFILL }
+        },
     };
 
     expert_module_t* expert_uet;
@@ -2623,6 +2817,16 @@ proto_register_uet(void)
 
     expert_uet = expert_register_protocol(proto_uet);
     expert_register_field_array(expert_uet, ei_uet, array_length(ei_uet));
+
+    module_t *uet_module = prefs_register_protocol(proto_uet, NULL);
+    prefs_register_bool_preference(uet_module, "has_crc",
+        "Packets have UET CRC",
+        "Whether UET packets include a trailing CRC",
+        &uet_has_crc);
+    prefs_register_bool_preference(uet_module, "validate_crc",
+        "Validate UET CRC if possible",
+        "If checked and the packet has enough information, compute the expected CRC and compare against the one in the packet",
+        &uet_validate_crc);
 }
 
 void
@@ -2631,6 +2835,9 @@ proto_reg_handoff_uet(void)
     dissector_add_for_decode_as_with_preference("ip.proto", uet_entropy_handle);
     dissector_add_for_decode_as_with_preference("udp.port", uet_handle);
     dissector_add_uint_with_preference("udp.port", UDP_PORT_UET, uet_handle);
+
+    proto_ip = proto_get_id_by_filter_name("ip");
+    proto_ipv6 = proto_get_id_by_filter_name("ipv6");
 }
 
 /*

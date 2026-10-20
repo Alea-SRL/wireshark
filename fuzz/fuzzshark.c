@@ -91,6 +91,13 @@ fuzzshark_epan_new(void)
 		NULL,
 		NULL,
 		NULL,
+		NULL,
+		NULL,
+		NULL,
+		NULL,
+		NULL,
+		NULL,
+		NULL,
 	};
 
 	return epan_new(NULL, &funcs);
@@ -340,7 +347,7 @@ fuzz_init(int argc, char **argv)
 #endif
 
 #ifdef FUZZ_EPAN
-	g_assert(fuzz_handle != NULL && "Requested dissector is not found!");
+	g_assert(fuzz_handle != NULL && "Requested dissector is not found.");
 	register_postdissector(fuzz_handle);
 #endif
 

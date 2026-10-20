@@ -113,7 +113,7 @@ dissect_nxp_802154_sniffer(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
     offset += NXP_802154_SNIFFER_TIMESTAMP_LENGTH;
 
     /* ID */
-    proto_tree_add_item_ret_length(nxp_802154_sniffer_tree, hf_nxp_802154_sniffer_id, tvb, offset, -1, ENC_ASCII|ENC_NA, (int*)&snifferidlen);
+    proto_tree_add_item_ret_length(nxp_802154_sniffer_tree, hf_nxp_802154_sniffer_id, tvb, offset, -1, ENC_ASCII|ENC_NA, &snifferidlen);
     offset += snifferidlen;
 
     /* Channel */
@@ -167,6 +167,7 @@ proto_register_nxp_802154_sniffer(void)
 void
 proto_reg_handoff_nxp_802154_sniffer(void)
 {
+    /* FCS type is user-specified */
     ieee802154_handle = find_dissector_add_dependency("wpan", proto_nxp_802154_sniffer);
 
     dissector_add_uint_with_preference("udp.port", NXP_802154_SNIFFER_UDP_PORT, nxp_802154_sniffer_handle);

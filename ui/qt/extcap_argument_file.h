@@ -18,7 +18,7 @@
 #include <extcap_argument.h>
 
 /**
- * @brief Represents an extcap argument that provides a file selection UI.
+ * @brief Represents an extcap argument that provides a file or folder selection UI.
  */
 class ExtcapArgumentFileSelection : public ExtcapArgument
 {
@@ -42,24 +42,24 @@ public:
      * @param parent The parent widget for the editor.
      * @return A pointer to the created file selection widget.
      */
-    virtual QWidget * createEditor(QWidget * parent);
+    virtual QWidget * createEditor(QWidget * parent) override;
 
     /**
      * @brief Retrieves the selected file path.
      * @return The selected file path string.
      */
-    virtual QString value();
+    virtual QString value() override;
 
     /**
      * @brief Checks if the current file selection is valid.
      * @return True if valid, false otherwise.
      */
-    virtual bool isValid();
+    virtual bool isValid() override;
 
     /**
      * @brief Sets the file selection to its default value.
      */
-    virtual void setDefaultValue();
+    virtual void setDefaultValue() override;
 
 protected:
     /** The line edit widget displaying the selected file path. */
@@ -70,6 +70,11 @@ private slots:
      * @brief Opens the file dialog.
      */
     void openFileDialog();
+
+    /**
+     * @brief Opens the folder dialog.
+     */
+    void openFolderDialog();
 
     /**
      * @brief Clears the previously entered filename.

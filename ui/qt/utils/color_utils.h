@@ -17,6 +17,12 @@
 #include <QBrush>
 #include <QColor>
 #include <QObject>
+#include <QRect>
+#include <QStyleOptionViewItem>
+
+class QPainter;
+class QPalette;
+class QAbstractItemView;
 
 /**
  * @brief Utility class providing color conversion, blending, and theme-aware UI color definitions.
@@ -69,63 +75,6 @@ public:
      */
     static QRgb alphaBlend(const QBrush &brush1, const QBrush &brush2, qreal alpha);
 
-    // ...because they don't really fit anywhere else?
-    /** Expert color for comments (green). */
-    static const QColor expert_color_comment;
-
-    /** Expert color for chat (light blue). */
-    static const QColor expert_color_chat;
-
-    /** Expert color for notes (bright turquoise). */
-    static const QColor expert_color_note;
-
-    /** Expert color for warnings (yellow). */
-    static const QColor expert_color_warn;
-
-    /** Expert color for errors (pale red). */
-    static const QColor expert_color_error;
-
-    /** Expert foreground color (black). */
-    static const QColor expert_color_foreground;
-
-    /** Color for hidden protocol items (gray). */
-    static const QColor hidden_proto_item;
-
-    /**
-     * @brief Retrieves the standard list of graph colors.
-     * @return A list of QRgb color values for graphing.
-     */
-    static const QList<QRgb> graphColors();
-
-    /**
-     * @brief Retrieves a specific graph color by item index.
-     * @param item The index of the item.
-     * @return The QRgb color assigned to the index.
-     */
-    static QRgb graphColor(int item);
-
-    /**
-     * @brief Retrieves a specific sequence color by item index.
-     * @param item The index of the item.
-     * @return The QRgb color assigned to the index.
-     */
-    static QRgb sequenceColor(int item);
-
-    /**
-     * @brief Checks if our application is in "dark mode".
-     *
-     * Dark mode is determined by comparing the application palette's window
-     * text color with the window color.
-     *
-     * @return true if we're running in dark mode, false otherwise.
-     */
-    static bool themeIsDark();
-
-    /**
-     * @brief Sets the overall color scheme for the application.
-     * @param scheme The identifier for the scheme to apply.
-     */
-    static void setScheme(int scheme);
 
     /**
      * @brief Returns an appropriate link color for the current mode.
@@ -140,25 +89,58 @@ public:
     static QString themeLinkStyle();
 
     /**
-     * @brief Returns either QPalette::Text or QPalette::Base as appropriate for the
-     * specified foreground color.
+     * @brief Stylesheet rule for the hover state of an item view's items.
      *
-     * @param color The background color.
-     * @return A contrasting foreground color for the current mode / theme.
+     * The fill is ColorMath::selectionHoverFill() of the application
+     * palette's Base and Highlight, the text ColorMath::readableText() of
+     * its Text on that fill, so hover is a tint of the view's own
+     * selection color.
+     * @param selector Type selector of the view, e.g. "QTreeView".
+     * @return "<selector>:item:hover { background-color: ...; color: ...; }"
      */
-    static const QColor contrastingTextColor(const QColor color);
+    static QString itemHoverStyleSheet(const QString &selector);
 
     /**
-     * @brief Returns an appropriate background color for hovered abstract items.
-     * @return The background color.
+     * @brief Paints a single cell with a flat background/text color,
+     * ignoring any Qt::BackgroundRole/Qt::ForegroundRole (coloring rule,
+     * marked, ignored) the model would otherwise contribute -- used for
+     * PacketList's and its pinned overlay panes' manually-driven hover
+     * highlight (see PacketList::drawRow()), where hovering needs to show
+     * the flat hover fill regardless of the row's own coloring.
+     *
+     * QStyledItemDelegate::paint() can't be reused for this directly: its
+     * own initStyleOption() re-fetches Qt::BackgroundRole from the model
+     * and would silently overwrite a caller-supplied override, so this
+     * fills the background and draws the item's content (text, icons)
+     * itself instead of delegating to it.
+     *
+     * @param painter The active painter (mid-paintEvent).
+     * @param view The view the cell belongs to (for style/font lookups).
+     * @param option The cell's style option; its rect is used as-is.
+     * @param index The cell's model index (for its display content).
+     * @param bg The flat background color to fill.
+     * @param fg The flat text color to draw with.
      */
-    static const QColor hoverBackground();
+    static void paintFlatCell(QPainter *painter, const QAbstractItemView *view,
+                               const QStyleOptionViewItem &option, const QModelIndex &index,
+                               const QColor &bg, const QColor &fg);
 
     /**
-     * @brief Returns an appropriate warning background color for the current mode.
+     * @brief Returns the warning background color for the current theme.
+     * Taken from the FilterDeprecated theme token, the same tint used for
+     * deprecated display filter text.
      * @return The background color.
      */
     static const QColor warningBackground();
+
+    /**
+     * @brief Color of the 1px separator line between packet list rows.
+     * Equal to Base when Base is light; on a dark Base it is a mid gray
+     * halfway to Text so the line stays visible over light coloring rules.
+     * @param palette The palette of the view that paints the rows.
+     * @return The separator color.
+     */
+    static QColor rowSeparatorColor(const QPalette &palette);
 
     /**
      * @brief Returns an appropriate foreground color for disabled text.

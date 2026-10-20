@@ -58,12 +58,12 @@
 /* general (not Qt specific) */
 #include "file.h"
 #include "epan/color_filters.h"
+#include "epan/tag_rules.h"
 
 #include "epan/rtd_table.h"
 #include "epan/srt_table.h"
 
 #include "ui/alert_box.h"
-#include "ui/iface_lists.h"
 #include "ui/language.h"
 #include "ui/persfilepath_opt.h"
 #include "ui/recent.h"
@@ -78,11 +78,13 @@
 #include "ui/plugins/include/uiqt_plugin.h"
 
 #include "ui/qt/conversation_dialog.h"
-#include "ui/qt/utils/color_utils.h"
+#include "ui/qt/utils/theme_manager.h"
 #include "ui/qt/coloring_rules_dialog.h"
 #include "ui/qt/endpoint_dialog.h"
 #include "ui/qt/glib_mainloop_on_qeventloop.h"
 #include "ui/stratoshark/stratoshark_main_window.h"
+#include <ui/qt/manager/interface_list_manager.h>
+#include <wsutil/ws_assert.h>
 #include "ui/qt/simple_dialog.h"
 #include "ui/qt/simple_statistics_dialog.h"
 #include <ui/qt/widgets/splash_overlay.h>
@@ -103,7 +105,7 @@
 #include "epan/crypt/dot11decrypt_ws.h"
 
 /* Handle the addition of View menu items without request */
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_MACOS)
 #include <ui/macosx/cocoa_bridge.h>
 #endif
 
@@ -121,6 +123,12 @@ void exit_application(int status) {
     if (ssApp) {
         ssApp->quit();
     }
+
+#ifdef __HAIKU__
+    /* deregister log writer on exit */
+    qInstallMessageHandler(0);
+#endif
+
     exit(status);
 }
 
@@ -238,7 +246,7 @@ gather_wireshark_runtime_info(feature_list l)
 
     if (mainApp) {
         // Display information
-        const char *display_mode = ColorUtils::themeIsDark() ? "dark" : "light";
+        const char *display_mode = ThemeManager::isDark() ? "dark" : "light";
         with_feature(l, "%s display mode", display_mode);
 
         int hidpi_count = 0;
@@ -343,19 +351,17 @@ win32_reset_library_path(void)
 static GList *
 capture_opts_get_interface_list(int *err _U_, char **err_str _U_)
 {
-    // Stratoshark only wants the IF_EXTCAP interfaces, so there's no point
-    // in spawning dumpcap to retrieve the other types of interfaces.
-#if 0
-    if (mainApp) {
-        GList *if_list = mainApp->getInterfaceList();
-        if (if_list == NULL) {
-            if_list = capture_interface_list(global_capture_opts.app_name, err, err_str, main_window_update);
-            mainApp->setInterfaceList(if_list);
-        }
-        return if_list;
-    }
-    return capture_interface_list(global_capture_opts.app_name, err, err_str, main_window_update);
-#endif
+    // Stratoshark only wants the IF_EXTCAP interfaces, so there's no point in
+    // spawning dumpcap to retrieve the other types of interfaces.
+    //
+    // NOTE: Unlike Wireshark, this deliberately does NOT route through
+    // InterfaceListManager::cachedInterfaceList() - that path spawns dumpcap to
+    // enumerate native interfaces, which Stratoshark must never do. The two apps
+    // therefore register different get_iface_list callbacks. This flavor split is
+    // a stopgap: InterfaceListManager should eventually be made aware that a
+    // flavor enumerates extcap-only, so both apps can share one entry point
+    // rather than maintaining parallel callbacks. (Revisit once the manager owns
+    // the full enumeration path.)
     return append_extcap_interface_list(NULL);
 }
 
@@ -414,34 +420,6 @@ int main(int argc, char *qt_argv[])
     /* Set the program name. */
     g_set_prgname("stratoshark");
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    /*
-     * See:
-     *
-     *    issue #16908;
-     *
-     *    https://doc.qt.io/qt-5/qvector.html#maximum-size-and-out-of-memory-conditions
-     *
-     *    https://forum.qt.io/topic/114950/qvector-realloc-throwing-sigsegv-when-very-large-surface3d-is-rendered
-     *
-     * for why we're doing this; the widget we use for the packet list
-     * uses QVector, so those limitations apply to it.
-     *
-     * Apparently, this will be fixed in Qt 6:
-     *
-     *    https://github.com/qt/qtbase/commit/215ca735341b9487826023a7983382851ce8bf26
-     *
-     *    https://github.com/qt/qtbase/commit/2a6cdec718934ca2cc7f6f9c616ebe62f6912123#diff-724f419b0bb0487c2629bb16cf534c4b268ddcee89b5177189b607f940cfd83dR192
-     *
-     * Hopefully QList won't cause any performance hits relative to
-     * QVector.
-     *
-     * We pick 53 million records as a value that should avoid the problem;
-     * see the Wireshark issue for why that value was chosen.
-     */
-    cf_set_max_records(53000000);
-#endif
-
     cmdarg_err_init(stratoshark_cmdarg_err, stratoshark_cmdarg_err_cont);
 
     /* Initialize log handler early so we can have proper logging during startup. */
@@ -459,7 +437,7 @@ int main(int argc, char *qt_argv[])
     ws_log_console_open = LOG_CONSOLE_OPEN_ALWAYS;
 #endif /* DEBUG_STARTUP_TIME */
 
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_MACOS)
     /* Disable automatic addition of tab menu entries in view menu */
     CocoaBridge::cleanOSGeneratedMenuItems();
 #endif
@@ -657,7 +635,7 @@ int main(int argc, char *qt_argv[])
 #ifdef HAVE_LIBPCAP
     /* Set the initial values in the capture options. This might be overwritten
        by preference settings and then again by the command line parameters. */
-    capture_opts_init(&global_capture_opts, application_flavor_name_lower(), capture_opts_get_interface_list);
+    capture_opts_init(&global_capture_opts, capture_opts_get_interface_list);
 #endif
 
     /*
@@ -745,7 +723,8 @@ int main(int argc, char *qt_argv[])
 
     /* Register the extcap preferences. We do this after seeing if the
      * capture_no_extcap preference is set in the configuration file
-     * or command line. This will re-read the extcap specific preferences.
+     * or command line. This will load the extcap interface list and read
+     * the extcap specific preferences if the preference is not set.
      */
 #ifdef DEBUG_STARTUP_TIME
     ws_log(LOG_DOMAIN_MAIN, LOG_LEVEL_INFO, "Calling extcap_register_preferences, elapsed time %" PRIu64 " us \n", g_get_monotonic_time() - start_time);
@@ -819,7 +798,7 @@ int main(int argc, char *qt_argv[])
             if_cap_queries = g_list_prepend(if_cap_queries, if_cap_query);
         }
         if_cap_queries = g_list_reverse(if_cap_queries);
-        capability_hash = capture_get_if_list_capabilities(global_capture_opts.app_name, if_cap_queries, &err_str, &err_str_secondary, NULL);
+        capability_hash = capture_get_if_list_capabilities(if_cap_queries, &err_str, &err_str_secondary, NULL);
         g_list_free_full(if_cap_queries, g_free);
         for (i = 0; i < global_capture_opts.ifaces->len; i++) {
             interface_options *interface_opts;
@@ -847,12 +826,18 @@ int main(int argc, char *qt_argv[])
     }
 
 #ifdef DEBUG_STARTUP_TIME
-    ws_log(LOG_DOMAIN_MAIN, LOG_LEVEL_INFO, "Calling fill_in_local_interfaces, elapsed time %" PRIu64 " us \n", g_get_monotonic_time() - start_time);
+    ws_log(LOG_DOMAIN_MAIN, LOG_LEVEL_INFO, "Preparing InterfaceListManager, elapsed time %" PRIu64 " us \n", g_get_monotonic_time() - start_time);
 #endif
     splash_update(RA_INTERFACES, NULL, NULL);
 
     if (cf_name.isEmpty() && !prefs.capture_no_interface_load) {
-        ssApp->scanLocalInterfaces(nullptr);
+        // If we're not loading a capture file, then schedule loading the
+        // interfaces unless the "don't load the interfaces at startup"
+        // preference is set.
+        // Enumerate synchronously before the event loop (see Wireshark main()).
+        InterfaceListManager *if_mgr = main_w->interfaceListManager();
+        ws_assert(if_mgr);
+        if_mgr->refreshNow(false);
     }
 
     capture_opts_trim_snaplen(&global_capture_opts, MIN_PACKET_SIZE);
@@ -866,24 +851,7 @@ int main(int argc, char *qt_argv[])
     ws_log(LOG_DOMAIN_MAIN, LOG_LEVEL_INFO, "Calling prefs_apply_all, elapsed time %" PRIu64 " us \n", g_get_monotonic_time() - start_time);
 #endif
     prefs_apply_all();
-    ssApp->emitAppSignal(StratosharkApplication::ColorsChanged);
     ssApp->emitAppSignal(StratosharkApplication::PreferencesChanged);
-
-#ifdef HAVE_LIBPCAP
-    if ((global_capture_opts.num_selected == 0) &&
-            (prefs.capture_device != NULL)) {
-        unsigned i;
-        interface_t *device;
-        for (i = 0; i < global_capture_opts.all_ifaces->len; i++) {
-            device = &g_array_index(global_capture_opts.all_ifaces, interface_t, i);
-            if (!device->hidden && strcmp(device->display_name, prefs.capture_device) == 0) {
-                device->selected = true;
-                global_capture_opts.num_selected++;
-                break;
-            }
-        }
-    }
-#endif
 
     /*
      * Enabled and disabled protocols and heuristic dissectors as per
@@ -905,6 +873,8 @@ int main(int argc, char *qt_argv[])
         simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err_msg);
         g_free(err_msg);
     }
+
+    tag_rules_init();
 
     ssApp->allSystemsGo();
     ws_log(LOG_DOMAIN_MAIN, LOG_LEVEL_INFO, "Stratoshark is up and ready to go, elapsed time %.3fs", (float) (g_get_monotonic_time() - start_time) / 1000000);

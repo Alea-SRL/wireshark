@@ -537,7 +537,7 @@ static void XML_translate_com_connection(TrdpDict* self, ComId* com, xmlNode* no
 
     if (!self || !com || !node || !par) return;
 
-           if (0==xmlStrcmp(node->name, (const xmlChar *)"source")) {
+    if        (0==xmlStrcmp(node->name, (const xmlChar *)"source")) {
         dst = false;
     } else if (0==xmlStrcmp(node->name, (const xmlChar *)"destination")) {
         dst = true;
@@ -1436,12 +1436,19 @@ static void ComId_connection_add(ComId* com, const char* name, uint32_t src, uin
             if (ComId_connection_equals(comcon, con, error)) {
                 if (con->name && con->name != SEMPTY) wmem_free(wmem_dic, con->name);
                 wmem_free(wmem_dic, con);
-                comcon = NULL;
-                break;
-            } else if (*error) return;
-            comcon = comcon->next;
+                return;
+            } else {
+                /* panic, if the comparison had issues */
+                if (*error) return;
+                /* if we are done, enqueue te newbie */
+                if (!comcon->next) {
+                    comcon->next = con;
+                    return;
+                } else {
+                    comcon = comcon->next;
+                }
+            }
         }
-        if (comcon) comcon->next = con;
     } else {
         com->con = con;
     }
@@ -1471,19 +1478,23 @@ static void ComId_connection_parse(ComId* com, const char* name, bool dst, XMLCo
         uint32_t uri = 0;
 
         errno = 0;
-        udv = par->udv ? g_ascii_strtoull(par->udv, &endptr, 0) : 0;
-        if (errno || udv > 0xffff || !udv) {
-            g_set_error(error, q_xml, XML_INVALID_CONTENT, // error code
-                        "udv=\"%s\" What is this? <sdt-parameter>'s attribute was unparsable. (%s)", par->udv, g_strerror(errno));
-            return;
+        if (par->udv) {
+            udv = g_ascii_strtoull(par->udv, &endptr, 0);
+            if (errno || udv > 0xffff) {
+                g_set_error(error, q_xml, XML_INVALID_CONTENT, // error code
+                            "udv=\"%s\" What is this? <sdt-parameter>'s attribute was unparsable. (%s)", par->udv, g_strerror(errno));
+                return;
+            }
+            udv = (udv <= 0xff && strnlen(par->udv, 4) <= 3) ? udv<<8 : udv;
         }
-        udv = (udv <= 0xff && strnlen(par->udv, 4) <= 3) ? udv<<8 : udv;
 
-        smi = par->smi ? g_ascii_strtoull(par->smi, &endptr, 10) : 0;
-        if (errno || (par->smi && par->smi[0] == '0') || smi > 0xffffffff) {
-            g_set_error(error, q_xml, XML_INVALID_CONTENT, // error code
-                        "smi1=\"%s\" What is this? <%s><sdt-parameter>'s attribute was unparsable. (%s)", par->smi, dst?"destination":"source", g_strerror(errno));
-            return;
+        if (par->smi) {
+            smi = g_ascii_strtoull(par->smi, &endptr, 10);
+            if (errno || smi > 0xffffffff) {
+                g_set_error(error, q_xml, XML_INVALID_CONTENT, // error code
+                            "smi1=\"%s\" What is this? <%s><sdt-parameter>'s attribute was unparsable. (%s)", par->smi, dst?"destination":"source", g_strerror(errno));
+                return;
+            }
         }
 
         if (par->hostIp) {
@@ -1512,11 +1523,14 @@ static void ComId_connection_parse(ComId* com, const char* name, bool dst, XMLCo
                 uint32_t uri2 = 0;
                 if (str_to_ip(par->uri2, &uri2)) {
 
-                    uint64_t smi2 = par->smi2 ? g_ascii_strtoull(par->smi2, &endptr, 10) : 0;
-                    if (errno || smi2 > 0xffffffff) {
-                        g_set_error(error, q_xml, XML_INVALID_CONTENT, // error code
-                                    "smi2=\"%s\" What is this? <%s><sdt-parameter>'s attribute was unparsable. (%s)", par->smi2, dst?"destination":"source", g_strerror(errno));
-                        return;
+                    uint64_t smi2 = 0;
+                    if (par->smi2) {
+                        smi2 = g_ascii_strtoull(par->smi2, &endptr, 10);
+                        if (errno || smi2 > 0xffffffff) {
+                            g_set_error(error, q_xml, XML_INVALID_CONTENT, // error code
+                                        "smi2=\"%s\" What is this? <%s><sdt-parameter>'s attribute was unparsable. (%s)", par->smi2, dst?"destination":"source", g_strerror(errno));
+                            return;
+                        }
                     }
 
                     if (smi && !smi2) {
@@ -2102,15 +2116,15 @@ static int dissect_trdp_dataset(tvbuff_t* tvb, packet_info *pinfo, proto_tree* t
                     if (vals != 0) {
                         if (array_index)
                             proto_tree_add_expert_format(userdata_element, pinfo, &ei_trdp_reserved_not_zero,
-                                                         tvb, offset, el->width, "Element [%d/%d] is not zero (%" G_GINT64_FORMAT ").", array_index, element_count, vals);
+                                                         tvb, offset, el->width, "Element [%d/%d] is not zero (%" PRId64 ").", array_index, element_count, vals);
                         else
                             proto_tree_add_expert_format(userdata_element, pinfo, &ei_trdp_reserved_not_zero,
-                                                         tvb, offset, el->width, "Element is not zero (%" G_GINT64_FORMAT ").", vals);
+                                                         tvb, offset, el->width, "Element is not zero (%" PRId64 ").", vals);
                     }
                 } else if (el->scale && g_scaled) {
                     double formated_value = vals * el->scale + el->offset;
                     proto_tree_add_double_format_value(userdata_element, el->hf_id, tvb, offset, el->width, formated_value,
-                                                       "%lg %s (raw=%" G_GINT64_FORMAT ")", formated_value, el->unit, vals);
+                                                       "%lg %s (raw=%" PRId64 ")", formated_value, el->unit, vals);
                 } else {
                     if (g_scaled) vals += el->offset;
                     proto_tree_add_int64(userdata_element, el->hf_id, tvb, offset, el->width, vals);
@@ -2155,16 +2169,16 @@ static int dissect_trdp_dataset(tvbuff_t* tvb, packet_info *pinfo, proto_tree* t
                     if (valu != 0) {
                         if (array_index)
                             proto_tree_add_expert_format(userdata_element, pinfo, &ei_trdp_reserved_not_zero,
-                                                         tvb, offset, el->width, "Element [%d/%d] is not zero (%" G_GUINT64_FORMAT ").", array_index, element_count, valu);
+                                                         tvb, offset, el->width, "Element [%d/%d] is not zero (%" PRIu64 ").", array_index, element_count, valu);
                         else
                             proto_tree_add_expert_format(userdata_element, pinfo, &ei_trdp_reserved_not_zero,
-                                                         tvb, offset, el->width, "Element is not zero (%" G_GUINT64_FORMAT ").", valu);
+                                                         tvb, offset, el->width, "Element is not zero (%" PRIu64 ").", valu);
                     }
                 } else if (el->isUnit.version) {
                     proto_tree_add_uint_format_value(userdata_element, el->hf_id, tvb, offset, el->width, valuOrig, "%02u.%02u", (valuOrig>>8)&0xff, (valuOrig>>0)&0xff);
                 } else if (el->scale && g_scaled) {
                     double formated_value = valu * el->scale + el->offset;
-                    proto_tree_add_double_format_value(userdata_element, el->hf_id, tvb, offset, el->width, formated_value, "%lg %s (raw=%" G_GUINT64_FORMAT ")", formated_value, el->unit, valu);
+                    proto_tree_add_double_format_value(userdata_element, el->hf_id, tvb, offset, el->width, formated_value, "%lg %s (raw=%" PRIu64 ")", formated_value, el->unit, valu);
                 } else {
                     if (g_scaled) valu += el->offset;
                     proto_tree_add_uint64(userdata_element, el->hf_id, tvb, offset, el->width, valu);
@@ -2196,15 +2210,15 @@ static int dissect_trdp_dataset(tvbuff_t* tvb, packet_info *pinfo, proto_tree* t
                     switch (el->type.id) {
                     case TRDP_TIMEDATE32:
                         proto_tree_add_time_format_value(userdata_element, el->hf_id, tvb, offset, el->width, &nstime,
-                                                         "%ji seconds", nstime.secs);
+                                                         "%ji seconds", (intmax_t)nstime.secs);
                     break;
                     case TRDP_TIMEDATE48:
                         proto_tree_add_time_format_value(userdata_element, el->hf_id, tvb, offset, el->width, &nstime,
-                                                         "%ji.%05ld seconds (=%" G_GUINT64_FORMAT " ticks)", nstime.secs, (nstime.nsecs + 5000L) / 10000L, valu);
+                                                         "%ji.%05d seconds (=%" PRIu64 " ticks)", (intmax_t)nstime.secs, (nstime.nsecs + 5000) / 10000, valu);
                     break;
                     case TRDP_TIMEDATE64:
                         proto_tree_add_time_format_value(userdata_element, el->hf_id, tvb, offset, el->width, &nstime,
-                                                         "%ji.%06ld seconds", nstime.secs, nstime.nsecs / 1000L);
+                                                         "%ji.%06d seconds", (intmax_t)nstime.secs, nstime.nsecs / 1000);
                     break;
 
                     }
@@ -2249,7 +2263,7 @@ static int dissect_trdp_dataset(tvbuff_t* tvb, packet_info *pinfo, proto_tree* t
                 potential_array_size = -1;
                 if (valu || vals) zero_here = FALSE;
             } else {
-                ws_debug("[%d / %d], (type=%d) val-u=%" G_GUINT64_FORMAT " val-s=%" G_GINT64_FORMAT ".", array_index, element_count, el->type.id, valu, vals);
+                ws_debug("[%d / %d], (type=%d) val-u=%" PRIu64 " val-s=%" PRId64 ".", array_index, element_count, el->type.id, valu, vals);
 
                 potential_array_size = (el->type.id < TRDP_INT8 || el->type.id > TRDP_UINT64) ? -1 : (el->type.id >= TRDP_UINT8 ? (int)valu : (int)vals);
             }
@@ -2268,8 +2282,9 @@ static int dissect_trdp_dataset(tvbuff_t* tvb, packet_info *pinfo, proto_tree* t
  * @param tvb               buffer
  * @param pinfo             info for tht packet
  * @param tree              to which the information are added
- * @param trdp_comid        the already extracted comId
- * @param offset            where the userdata starts in the TRDP package
+ * @param ti_type           unused
+ * @param com               the already extracted com object
+ * @param trdp_string       extracted packet type
  *
  * @return size of the user data
  */

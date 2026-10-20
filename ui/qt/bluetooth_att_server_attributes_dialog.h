@@ -23,10 +23,13 @@ class QAbstractButton;
 class QPushButton;
 class QTreeWidgetItem;
 
+/**
+ * @brief Bundles the callbacks and UI context required to drive a generic tap listener.
+ */
 typedef struct _tapinfo_t {
-    tap_reset_cb    tap_reset;
-    tap_packet_cb   tap_packet;
-    void           *ui;
+    tap_reset_cb  tap_reset;   /**< Callback invoked to reset accumulated tap data before a new pass. */
+    tap_packet_cb tap_packet;  /**< Callback invoked once per matching packet to accumulate tap data. */
+    void         *ui;          /**< Opaque pointer to the UI widget or context that consumes the tap data. */
 } tapinfo_t;
 
 namespace Ui {
@@ -80,12 +83,12 @@ protected:
      * @brief Handle key press events.
      * @param event The key event.
      */
-    void keyPressEvent(QKeyEvent *event);
+    void keyPressEvent(QKeyEvent *event) override;
 
     /**
      * @brief Called when the associated capture file is closed.
      */
-    void captureFileClosed();
+    void captureFileClosed() override;
 
 
 protected slots:
@@ -93,7 +96,7 @@ protected slots:
      * @brief Handle change events such as language or palette changes.
      * @param event The change event.
      */
-    void changeEvent(QEvent *event);
+    void changeEvent(QEvent *event) override;
 
 private:
     Ui::BluetoothAttServerAttributesDialog *ui;

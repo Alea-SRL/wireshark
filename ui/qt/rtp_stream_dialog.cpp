@@ -219,7 +219,7 @@ public:
         return ret;
     }
 
-    bool operator< (const QTreeWidgetItem &other) const
+    bool operator< (const QTreeWidgetItem &other) const override
     {
         rtpstream_info_calc_t calc1;
         rtpstream_info_calc_t calc2;
@@ -1012,6 +1012,7 @@ void RtpStreamDialog::rtpPlayerRemove()
     emit rtpPlayerDialogRemoveRtpStreams(getSelectedRtpIds());
 }
 
+#ifdef QT_MULTIMEDIA_LIB
 void RtpStreamDialog::rtpAnalysisReplace()
 {
     if (ui->streamTreeWidget->selectedItems().count() < 1) return;
@@ -1032,6 +1033,7 @@ void RtpStreamDialog::rtpAnalysisRemove()
 
     emit rtpAnalysisDialogRemoveRtpStreams(getSelectedRtpIds());
 }
+#endif // QT_MULTIMEDIA_LIB
 
 void RtpStreamDialog::invertSelection()
 {
@@ -1046,6 +1048,8 @@ void RtpStreamDialog::invertSelection()
 
 void RtpStreamDialog::on_actionAnalyze_triggered()
 {
+#ifdef QT_MULTIMEDIA_LIB
     RtpStreamDialog::rtpAnalysisAdd();
+#endif // QT_MULTIMEDIA_LIB
 }
 

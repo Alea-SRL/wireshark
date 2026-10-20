@@ -217,8 +217,7 @@ dissect_asciitpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     volatile unsigned offset = 0;
     int data_len;
     volatile int mgcp_packet_len = 0;
-    int mgcp_version = 0;
-    int mgcp_reserved = 0;
+    int mgcp_version, mgcp_reserved;
     tvbuff_t *volatile next_tvb;
     const char *saved_proto;
     uint8_t string[4];
@@ -544,7 +543,7 @@ dissect_tpkt_encap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
          */
         save_fragmented = pinfo->fragmented;
         length = length_remaining - 4;
-        if (length > data_len) {
+        if (length < data_len) {
             pinfo->fragmented = true;
         }
         next_tvb = tvb_new_subset_length(tvb, offset, data_len);

@@ -12,9 +12,12 @@
 
 #include "main_window.h"
 #include "main_application.h"
+#include <ui/qt/utils/font_manager.h>
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "ui/qt/widgets/wireshark_file_dialog.h"
 #include "ui/recent.h"
 
+#include <epan/charsets.h>
 #include "epan/strutil.h"
 
 #include "wsutil/utf8_entities.h"
@@ -27,8 +30,8 @@
 #include <QMenu>
 #include <QPrintDialog>
 #include <QPrinter>
-#include <QTextCodec>
 #include <QTextStream>
+#include <glib.h>
 
 // To do:
 // - Add show as custom protocol in a Packet Details view
@@ -89,8 +92,8 @@ ShowPacketBytesDialog::ShowPacketBytesDialog(QWidget &parent, CaptureFile &cf) :
     ui->cbShowAs->addItem(tr("JSON"), SHOW_JSON);
     ui->cbShowAs->addItem(tr("Raw"), SHOW_RAW);
     ui->cbShowAs->addItem(tr("Rust Array"), SHOW_RUSTARRAY);
-    // UTF-8 is guaranteed to exist as a QTextCodec
     ui->cbShowAs->addItem(tr("UTF-8"), SHOW_CODEC);
+    ui->cbShowAs->addItem(tr("UTF-8 Unescaped"), SHOW_UTF8_UNESCAPED);
     ui->cbShowAs->addItem(tr("YAML"), SHOW_YAML);
     ui->cbShowAs->setCurrentIndex(ui->cbShowAs->findData(recent.gui_show_bytes_show));
     ui->cbShowAs->blockSignals(false);
@@ -125,16 +128,16 @@ ShowPacketBytesDialog::~ShowPacketBytesDialog()
     delete ui;
 }
 
-void ShowPacketBytesDialog::addCodecs(const QMap<QString, QTextCodec *> &codecMap)
+void ShowPacketBytesDialog::addCodecs(const QMap<QString, const char *> &codecMap)
 {
     ui->cbShowAs->blockSignals(true);
     // Make the combobox respect max visible items?
     //ui->cbShowAs->setStyleSheet("QComboBox { combobox-popup: 0;}");
     ui->cbShowAs->insertSeparator(ui->cbShowAs->count());
-    for (const auto &codec : codecMap) {
-        // This is already placed in the menu and handled separately
-        if (codec->name() != "US-ASCII" && codec->name() != "UTF-8")
-            ui->cbShowAs->addItem(tr(codec->name()), SHOW_CODEC);
+    for (const auto &encoding : codecMap) {
+        QString name = QString::fromUtf8(encoding);
+        if (name != "US-ASCII" && name != "UTF-8")
+            ui->cbShowAs->addItem(name, SHOW_CODEC);
     }
     ui->cbShowAs->blockSignals(false);
 }
@@ -326,6 +329,7 @@ void ShowPacketBytesDialog::copyBytes()
     case SHOW_JSON:
     case SHOW_RAW:
     case SHOW_YAML:
+    case SHOW_UTF8_UNESCAPED:
         mainApp->clipboard()->setText(ui->tePacketBytes->toPlainText());
         break;
 
@@ -338,6 +342,8 @@ void ShowPacketBytesDialog::copyBytes()
         break;
 
     case SHOW_CODEC:
+        // XXX - Why toUtf8 here? Doesn't this cause an unnecessary round-trip
+        // conversion when it should already be Unicode?
         mainApp->clipboard()->setText(ui->tePacketBytes->toPlainText().toUtf8());
         break;
     }
@@ -363,6 +369,7 @@ void ShowPacketBytesDialog::saveAs()
     case SHOW_JSON:
     case SHOW_YAML:
     case SHOW_HTML:
+    case SHOW_UTF8_UNESCAPED:
         open_mode |= QFile::Text;
     default:
         break;
@@ -391,6 +398,7 @@ void ShowPacketBytesDialog::saveAs()
     case SHOW_HEXDUMP:
     case SHOW_JSON:
     case SHOW_YAML:
+    case SHOW_UTF8_UNESCAPED:
     {
         QTextStream out(&file);
         out << ui->tePacketBytes->toPlainText();
@@ -789,15 +797,32 @@ void ShowPacketBytesDialog::updatePacketBytes(void)
 
     case SHOW_CODEC:
     {
-        // The QTextCodecs docs say that there's a flag to cause invalid
-        // characters to be replaced with null. It's unclear what happens
-        // in the default case; it might depend on the codec though it
-        // seems that in practice replacement characters are used.
-        QTextCodec *codec = QTextCodec::codecForName(ui->cbShowAs->currentText().toUtf8());
+        // Invalid characters are replaced with the Unicode replacement
+        // character U+FFFD.
+        QByteArray encName = ui->cbShowAs->currentText().toUtf8();
         QByteArray ba(field_bytes_);
-        QString decoded = codec->toUnicode(ba);
-        ui->tePacketBytes->setLineWrapMode(QTextEdit::WidgetWidth);
-        ui->tePacketBytes->setPlainText(decoded);
+        wmem_strbuf_t *utf8 = get_strbuf_enc_iconv(NULL,
+            reinterpret_cast<const uint8_t*>(ba.constData()), ba.size(),
+            encName.constData());
+        if (utf8) {
+            ui->tePacketBytes->setLineWrapMode(QTextEdit::WidgetWidth);
+            ui->tePacketBytes->setPlainText(QString::fromUtf8(utf8->str, utf8->len));
+            wmem_strbuf_destroy(utf8);
+        }
+        break;
+    }
+
+    case SHOW_UTF8_UNESCAPED:
+    {
+        QByteArray ba(field_bytes_);
+        wmem_strbuf_t *utf8 = ws_unescape_string_len(NULL,
+            reinterpret_cast<const uint8_t*>(ba.constData()), ba.size(),
+            NULL);
+        if (utf8) {
+            ui->tePacketBytes->setLineWrapMode(QTextEdit::WidgetWidth);
+            ui->tePacketBytes->setPlainText(QString::fromUtf8(utf8->str, utf8->len));
+            wmem_strbuf_destroy(utf8);
+        }
         break;
     }
 
@@ -930,7 +955,7 @@ ShowPacketBytesTextEdit::ShowPacketBytesTextEdit(QWidget *parent) :
     menus_enabled_(true)
 {
     /* Should this pass true to use the current zoom level? */
-    setFont(mainApp->monospaceFont());
+    setFont(FontManager::monospaceFont());
 }
 
 void ShowPacketBytesTextEdit::contextMenuEvent(QContextMenuEvent *event)

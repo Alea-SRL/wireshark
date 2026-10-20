@@ -324,7 +324,6 @@
     <addaction name="actionGoPreviousHistoryPacket"/>
     <addaction name="separator"/>
     <addaction name="actionGoAutoScroll"/>
-    <addaction name="actionAggregationView"/>
    </widget>
    <widget class="QMenu" name="menuView">
     <property name="title">
@@ -409,6 +408,7 @@
      <addaction name="actionViewInternalsDissectorTables"/>
      <addaction name="actionViewInternalsSupportedProtocols"/>
      <addaction name="actionViewInternalsKeyboardShortcuts"/>
+     <addaction name="actionViewInternalsThemeDebug"/>
     </widget>
     <widget class="QMenu" name="menuAdditionalToolbars">
      <property name="title">
@@ -442,6 +442,10 @@
     <addaction name="actionViewColorizePacketList"/>
     <addaction name="actionViewColoringRules"/>
     <addaction name="menuColorizeConversation"/>
+    <addaction name="actionViewTaggingRules"/>
+    <addaction name="actionAggregationView"/>
+    <addaction name="actionViewPinSelectedRows"/>
+    <addaction name="actionViewUnpinAllRows"/>
     <addaction name="separator"/>
     <addaction name="actionViewResetLayout"/>
     <addaction name="actionViewResizeColumns"/>
@@ -520,6 +524,7 @@
      <addaction name="actionStatisticsTcpStreamThroughput"/>
      <addaction name="actionStatisticsTcpStreamRoundTripTime"/>
      <addaction name="actionStatisticsTcpStreamWindowScaling"/>
+     <addaction name="actionStatisticsTcpStreamDedupTable"/>
     </widget>
     <widget class="QMenu" name="menuBACnet">
      <property name="title">
@@ -616,6 +621,7 @@
     <addaction name="actionStatisticsIOGraph"/>
     <addaction name="actionStatisticsPlot"/>
     <addaction name="menuServiceResponseTime"/>
+    <addaction name="actionStatisticsDistribution"/>
     <addaction name="separator"/>
     <addaction name="actionStatistics_REGISTER_STAT_GROUP_UNSORTED"/>
     <addaction name="menu29West"/>
@@ -842,16 +848,16 @@
    <addaction name="actionFileClose"/>
    <addaction name="actionViewReload"/>
    <addaction name="separator"/>
-   <addaction name="actionEditFindPacket"/>
+  <addaction name="actionEditFindPacket"/>
    <addaction name="actionGoPreviousPacket"/>
    <addaction name="actionGoNextPacket"/>
    <addaction name="actionGoGoToPacket"/>
    <addaction name="actionGoFirstPacket"/>
    <addaction name="actionGoLastPacket"/>
    <addaction name="actionGoAutoScroll"/>
-   <addaction name="actionAggregationView"/>
    <addaction name="separator"/>
    <addaction name="actionViewColorizePacketList"/>
+   <addaction name="actionAggregationView"/>
    <addaction name="separator"/>
    <addaction name="actionViewZoomIn"/>
    <addaction name="actionViewZoomOut"/>
@@ -1371,9 +1377,9 @@
    <property name="text">
     <string>Reload as File Format/Capture</string>
    </property>
-   <property name="shortcut">
-    <string notr="true">Ctrl+Shift+F</string>
-   </property>
+    <property name="shortcut">
+     <string notr="true">Ctrl+Shift+F</string>
+    </property>
   </action>
   <action name="actionCaptureOptions">
    <property name="text">
@@ -1867,6 +1873,14 @@
     <string>TCP time sequence graph (tcptrace)</string>
    </property>
   </action>
+  <action name="actionStatisticsTcpStreamDedupTable">
+   <property name="text">
+    <string>Duplication Table</string>
+   </property>
+   <property name="toolTip">
+    <string>TCP capture-level duplicate packet table</string>
+   </property>
+  </action>
   <action name="actionSCTPAnalyseThisAssociation">
    <property name="text">
     <string>Analyse this Association</string>
@@ -1936,6 +1950,14 @@
    </property>
    <property name="toolTip">
     <string>Collectd statistics</string>
+   </property>
+  </action>
+  <action name="actionStatisticsDistribution">
+   <property name="text">
+    <string>Distribution</string>
+   </property>
+   <property name="toolTip">
+    <string>Distribution statistics</string>
    </property>
   </action>
   <action name="actionStatisticsDNS">
@@ -2334,6 +2356,22 @@
    </property>
    <property name="shortcut">
     <string notr="true">Ctrl+0</string>
+   </property>
+  </action>
+  <action name="actionViewPinSelectedRows">
+   <property name="text">
+    <string>Pin Selected Rows</string>
+   </property>
+   <property name="toolTip">
+    <string>Keep the selected packets at the top of the packet list, or unpin them if they are all pinned</string>
+   </property>
+  </action>
+  <action name="actionViewUnpinAllRows">
+   <property name="text">
+    <string>Unpin All Rows</string>
+   </property>
+   <property name="toolTip">
+    <string>Unpin all of the packets pinned to the top of the packet list</string>
    </property>
   </action>
   <action name="actionViewResetLayout">
@@ -2751,6 +2789,14 @@
     <string>Show the current keyboard shortcuts</string>
    </property>
   </action>
+  <action name="actionViewInternalsThemeDebug">
+   <property name="text">
+    <string>&amp;Theme Debug</string>
+   </property>
+   <property name="toolTip">
+    <string>Show the active theme, main window geometry, and live widget info</string>
+   </property>
+  </action>
   <action name="actionTelephonyGsmMapSummary">
    <property name="text">
     <string>MAP Summary</string>
@@ -2820,6 +2866,14 @@
     <string>Edit the packet list coloring rules.</string>
    </property>
   </action>
+  <action name="actionViewTaggingRules">
+   <property name="text">
+    <string>&amp;Tagging Rules…</string>
+   </property>
+   <property name="toolTip">
+    <string>Edit the packet tagging rules.</string>
+   </property>
+  </action>
   <action name="actionBluetoothATT_Server_Attributes">
    <property name="text">
     <string>Bluetooth ATT Server Attributes</string>
@@ -2867,7 +2921,7 @@
     <bool>true</bool>
    </property>
    <property name="text">
-    <string>Aggregation in Live Capture</string>
+    <string>Aggregate Packets</string>
    </property>
   </action>
   <action name="actionAnalyzeExpertInfo">

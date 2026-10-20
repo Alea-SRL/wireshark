@@ -15,7 +15,7 @@
 #include <config.h>
 
 #include "lua_debugger_utils.h"
-#include "ui_lua_debugger_dialog.h"
+#include <ui_lua_debugger_dialog.h>
 
 #include <QAbstractItemModel>
 #include <QAction>
@@ -53,10 +53,11 @@
 #include "lua_debugger_dialog.h"
 #include "lua_debugger_pause.h"
 #include "wsutil/filesystem.h"
-#include <epan/prefs.h>
 #include <epan/wslua/wslua_debugger.h>
 #include <ui/qt/utils/color_utils.h>
 #include <ui/qt/utils/qt_ui_utils.h>
+#include <ui/qt/utils/theme_manager.h>
+#include <ui/qt/utils/themes/color_math.h>
 
 /* ===== internal ===== */
 
@@ -145,11 +146,7 @@ const QKeySequence kLuaDbgCtxRemoveAllBreakpoints(QKeySequence(Qt::CTRL | Qt::SH
 
 QKeySequence luaDbgSeqFromKeyEvent(const QKeyEvent *ke)
 {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     return QKeySequence(QKeyCombination(ke->modifiers(), static_cast<Qt::Key>(ke->key())));
-#else
-    return QKeySequence(ke->key() | ke->modifiers());
-#endif
 }
 
 /* ===== path_utils ===== */
@@ -162,8 +159,8 @@ namespace LuaDebuggerPath
 LuaDbgInvalidFilterColors invalidFilterColors()
 {
     LuaDbgInvalidFilterColors colors;
-    colors.fg = ColorUtils::fromColorT(&prefs.gui_filter_invalid_fg);
-    colors.bg = ColorUtils::fromColorT(&prefs.gui_filter_invalid_bg);
+    colors.bg = ThemeManager::instance()->color(ThemeManager::FilterInvalid);
+    colors.fg = ColorMath::contrastingText(colors.bg);
     return colors;
 }
 
@@ -886,7 +883,7 @@ void styleLuaDebuggerHeaderPlusMinusButton(QToolButton *btn, int side, const QFo
 void styleLuaDebuggerHeaderIconOnlyButton(QToolButton *btn, int side)
 {
     btn->setToolButtonStyle(Qt::ToolButtonIconOnly);
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     const int btnSide = side;
 #else
     const int btnSide = qMax(1, side - 2);
@@ -1227,8 +1224,13 @@ void scheduleFlashClear(QObject *owner, QStandardItem *cell, qint32 serial, int 
     }
     QPointer<QAbstractItemModel> modelGuard(cell->model());
     const QPersistentModelIndex pix(cell->index());
-    QTimer::singleShot(delayMs, owner,
-                       [modelGuard, pix, serial]()
+    QTimer::singleShot(delayMs, owner, [
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+                       modelGuard = std::move(modelGuard),
+#else
+                       modelGuard,
+#endif
+                       pix, serial]()
                        {
                            if (!modelGuard || !pix.isValid())
                            {

@@ -92,12 +92,23 @@ QByteArray gchar_free_to_qbytearray(char *glib_string);
  */
 QByteArray gstring_free_to_qbytearray(GString *glib_gstring);
 
-/** Transfer ownership of a GbyteArray to a newly constructed QByteArray
+/** Transfer ownership of a GByteArray to a newly constructed QByteArray
  *
  * @param glib_array A GByteArray or NULL. Will be freed.
  * @return A QByteArray instance created from the input array.
  */
 QByteArray gbytearray_free_to_qbytearray(GByteArray *glib_array);
+
+/** Transfer ownership of a GBytes to a newly constructed QByteArray
+ *
+ * @param glib_bytes A GBytes or NULL. Will be freed.
+ * @return A QByteArray instance created from the input array.
+ *
+ * @note Do not call this if the GBytes has more than SSIZE_MAX bytes.
+ * QByteArray can store qsizetype (ssize_t), whereas QBytes can store size_t
+ * bytes. Cf. the warning on g_bytes_unref_to_array().
+ */
+QByteArray gbytes_free_to_qbytearray(GBytes *glib_bytes);
 
 /** Convert an integer to a formatted string representation.
  *
@@ -308,6 +319,19 @@ void storeLastDir(QString dir);
  * @return true if the two paths refer to the same file.
  */
 bool filePathsMatch(const QString &path1, const QString &path2);
+
+/**
+ * Directory in which to create temporary files.
+ *
+ * The directory the user asked for - from --temp-dir, the Capture Options
+ * dialog, or the capture.temp_dir preference - and QDir::tempPath() when
+ * none of those chose one. Use this rather than QDir::tempPath() for any
+ * scratch file whose size follows the capture, so that a user who has
+ * pointed Wireshark at a roomier disk actually gets it.
+ *
+ * @return The directory, without a trailing separator.
+ */
+QString tempPath();
 
 #endif /* __QT_UI_UTILS__H__ */
 

@@ -4359,8 +4359,8 @@ dissect_gtpv2_tra_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, prot
     /* GGSN - 1 octet */
     static int* const tra_info_lggsn_flags[] = {
         &hf_gtpv2_tra_info_lggsn_gmb,
-        & hf_gtpv2_tra_info_lggsn_gi,
-        & hf_gtpv2_tra_info_lggsn_gn,
+        &hf_gtpv2_tra_info_lggsn_gi,
+        &hf_gtpv2_tra_info_lggsn_gn,
         NULL
     };
     proto_tree_add_bitmask_list(lggsn_tree, tvb, offset, 1, tra_info_lggsn_flags, ENC_BIG_ENDIAN);
@@ -9456,7 +9456,7 @@ track_gtpv2_session(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, gtpv
 
             imsi = wmem_map_lookup(session_imsi, GUINT_TO_POINTER(session));
             if (imsi) {
-                add_assoc_imsi_item(tvb, tree, imsi);
+                add_assoc_imsi_item(tvb, pinfo, tree, imsi);
             }
         }
     }
@@ -9545,10 +9545,9 @@ dissect_gtpv2_ie_common(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, 
             /* Treat IE type zero special as type zero is used to end the loop in the else branch */
             expert_add_info(pinfo, ti, &ei_gtpv2_ie);
         } else {
-            i = -1;
             /* Loop over the IE dissector list to se if we find an entry;
                the last entry will have ie_type=0 breaking the loop */
-            while (gtpv2_ies[++i].ie_type) {
+            for (i = 0; gtpv2_ies[i].ie_type; i++) {
                 if (gtpv2_ies[i].ie_type == type)
                     break;
             }

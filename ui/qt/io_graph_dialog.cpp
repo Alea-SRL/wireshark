@@ -27,6 +27,8 @@
 #include <ui/qt/utils/qt_ui_utils.h>
 #include <ui/qt/utils/variant_pointer.h>
 #include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/plot_theme.h>
+#include <ui/qt/utils/theme_manager.h>
 #include <ui/qt/utils/tango_colors.h> //provides some default colors
 #include <ui/qt/widgets/qcustomplot.h>
 #include <ui/qt/widgets/qcp_string_legend_item.h>
@@ -241,14 +243,14 @@ IOGraphDialog::IOGraphDialog(QWidget &parent, CaptureFile &cf, const char* type_
     setAttribute(Qt::WA_DeleteOnClose, true);
     QCustomPlot *iop = ui->ioPlot;
 
-    ui->newToolButton->setStockIcon("list-add");
-    ui->deleteToolButton->setStockIcon("list-remove");
-    ui->copyToolButton->setStockIcon("list-copy");
-    ui->clearToolButton->setStockIcon("list-clear");
-    ui->moveUpwardsToolButton->setStockIcon("list-move-up");
-    ui->moveDownwardsToolButton->setStockIcon("list-move-down");
+    ui->newToolButton->setIconByName("list-add");
+    ui->deleteToolButton->setIconByName("list-remove");
+    ui->copyToolButton->setIconByName("list-copy");
+    ui->clearToolButton->setIconByName("list-clear");
+    ui->moveUpwardsToolButton->setIconByName("list-move-up");
+    ui->moveDownwardsToolButton->setIconByName("list-move-down");
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     ui->newToolButton->setAttribute(Qt::WA_MacSmallSize, true);
     ui->deleteToolButton->setAttribute(Qt::WA_MacSmallSize, true);
     ui->copyToolButton->setAttribute(Qt::WA_MacSmallSize, true);
@@ -280,10 +282,14 @@ IOGraphDialog::IOGraphDialog(QWidget &parent, CaptureFile &cf, const char* type_
     connect(ui->actionLegend, &QAction::triggered, this, &IOGraphDialog::actionLegendTriggered);
     connect(ui->actionTimeOfDay, &QAction::triggered, this, &IOGraphDialog::actionTimeOfDayTriggered);
     connect(ui->actionLogScale, &QAction::triggered, this, &IOGraphDialog::actionLogScaleTriggered);
+    connect(ui->actionMA, &QAction::triggered, this, &IOGraphDialog::actionMATriggered);
 
     stat_timer_ = new QTimer(this);
     connect(stat_timer_, SIGNAL(timeout()), this, SLOT(updateStatistics()));
     stat_timer_->start(stat_update_interval_);
+
+    connect(ThemeManager::instance(), &ThemeManager::themeChanged,
+            this, &IOGraphDialog::onThemeChanged);
 
     // Intervals (ms)
     // #6441 asks for arbitrary values. We could probably do that with
@@ -350,6 +356,7 @@ IOGraphDialog::IOGraphDialog(QWidget &parent, CaptureFile &cf, const char* type_
     ctx_menu_.addAction(ui->actionToggleTimeOrigin);
     ctx_menu_.addAction(ui->actionTimeOfDay);
     ctx_menu_.addAction(ui->actionLogScale);
+    ctx_menu_.addAction(ui->actionMA);
     ctx_menu_.addAction(ui->actionCrosshairs);
     ctx_menu_.addAction(ui->actionLegend);
 
@@ -420,7 +427,8 @@ void IOGraphDialog::initialize(QWidget& parent, uat_field_t* io_graph_fields, QS
         }
         /* selected conversations from a sibling dialog (typically conversations dialog) */
         for (int i = 0; i < convFilters.size(); ++i) {
-            addGraph(true, false, convFilters.at(i), convFilters.at(i), ColorUtils::graphColor(uat_model_->rowCount()),
+            QColor graphColor = ThemeManager::instance()->graphColor(uat_model_->rowCount());
+            addGraph(true, false, convFilters.at(i), convFilters.at(i), graphColor,
                 IOGraph::psLine, IOG_ITEM_UNIT_PACKETS, QString(), DEFAULT_MOVING_AVERAGE, DEFAULT_Y_AXIS_FACTOR);
         }
     }
@@ -451,6 +459,10 @@ void IOGraphDialog::initialize(QWidget& parent, uat_field_t* io_graph_fields, QS
     if (main_window != nullptr) {
         connect(main_window, &MainWindow::framesSelected, this, &IOGraphDialog::selectedFrameChanged);
     }
+
+    // Track the plot last: the title element added above is only themed
+    // once it exists.
+    PlotTheme::track(iop);
 }
 
 IOGraphDialog::~IOGraphDialog()
@@ -507,7 +519,7 @@ QString IOGraphDialog::getYFieldName(io_graph_item_unit_t value_units, const QSt
     return QString(val_to_str_const(value_units, y_axis_packet_vs, "Unknown")).replace("Y Field", yfield);
 }
 
-void IOGraphDialog::addGraph(bool checked, bool asAOT, QString name, QString dfilter, QRgb color_idx, IOGraph::PlotStyles style, io_graph_item_unit_t value_units, QString yfield, int moving_average, double y_axis_factor)
+void IOGraphDialog::addGraph(bool checked, bool asAOT, QString name, QString dfilter, QColor color, IOGraph::PlotStyles style, io_graph_item_unit_t value_units, QString yfield, int moving_average, double y_axis_factor)
 {
     if (uat_model_ == nullptr)
         return;
@@ -516,7 +528,7 @@ void IOGraphDialog::addGraph(bool checked, bool asAOT, QString name, QString dfi
     newRowData.append(checked ? Qt::Checked : Qt::Unchecked);
     newRowData.append(name);
     newRowData.append(dfilter);
-    newRowData.append(QColor(color_idx));
+    newRowData.append(color);
     newRowData.append(val_to_str_const(style, io_graph_style_vs, "None"));
     newRowData.append(getYAxisName(value_units));
     newRowData.append(yfield);
@@ -530,6 +542,9 @@ void IOGraphDialog::addGraph(bool checked, bool asAOT, QString name, QString dfi
         qDebug() << "Failed to add a new record";
         return;
     }
+    // Record the theme-derived default so onThemeChanged() can refresh
+    // it later without overwriting subsequent user customizations.
+    themeDefaultColors_.insert(newIndex.row(), color);
     ui->graphUat->setCurrentIndex(newIndex);
 }
 
@@ -548,7 +563,8 @@ void IOGraphDialog::addGraph(bool checked, bool asAOT, QString dfilter, io_graph
     } else {
         graph_name = getYFieldName(value_units, yfield);
     }
-    addGraph(checked, asAOT, std::move(graph_name), dfilter, ColorUtils::graphColor(uat_model_->rowCount()),
+    QColor graphColor = ThemeManager::instance()->graphColor(uat_model_->rowCount());
+    addGraph(checked, asAOT, std::move(graph_name), dfilter, graphColor,
         IOGraph::psLine, value_units, yfield, DEFAULT_MOVING_AVERAGE, DEFAULT_Y_AXIS_FACTOR);
 }
 
@@ -598,16 +614,10 @@ void IOGraphDialog::createIOGraph(int currentRow)
 
 void IOGraphDialog::addDefaultGraph(bool enabled, int idx)
 {
-    switch (idx % 2) {
-    case 0:
-        addGraph(enabled, false, tr("All Packets"), QString(), ColorUtils::graphColor(idx),
-                IOGraph::psLine, IOG_ITEM_UNIT_PACKETS, QString(), DEFAULT_MOVING_AVERAGE, DEFAULT_Y_AXIS_FACTOR);
-        break;
-    default:
-        addGraph(enabled, false, tr("TCP Errors"), "tcp.analysis.flags", ColorUtils::graphColor(4), // 4 = red
-                IOGraph::psBar, IOG_ITEM_UNIT_PACKETS, QString(), DEFAULT_MOVING_AVERAGE, DEFAULT_Y_AXIS_FACTOR);
-        break;
-    }
+    QString graph_name = (idx % 2 == 0) ? tr("All Packets") : tr("TCP Errors");
+    QColor graphColor = (idx % 2 == 0) ? ThemeManager::instance()->graphColor(idx) : ThemeManager::instance()->graphDefaultColor();
+    Graph::PlotStyles style = (idx % 2 == 0) ? IOGraph::psLine : IOGraph::psBar;
+    addGraph(enabled, false, graph_name, QString(), graphColor, style, IOG_ITEM_UNIT_PACKETS, QString(), DEFAULT_MOVING_AVERAGE, DEFAULT_Y_AXIS_FACTOR);
 }
 
 int IOGraphDialog::getYAxisValue(const QString& data)
@@ -701,6 +711,38 @@ void IOGraphDialog::scheduleRetap(bool now)
 {
     need_retap_ = true;
     if (now) updateStatistics();
+}
+
+void IOGraphDialog::onThemeChanged()
+{
+    if (!uat_model_)
+        return;
+
+    ThemeManager *tm = ThemeManager::instance();
+    bool anyUpdated = false;
+    for (int row = 0; row < uat_model_->rowCount(); ++row) {
+        const QColor current = uat_model_->data(
+            uat_model_->index(row, colColor), Qt::DecorationRole
+        ).value<QColor>();
+
+        // Only refresh rows the user has not customized — i.e. rows whose
+        // current color still matches the theme default we last recorded.
+        if (!themeDefaultColors_.contains(row) ||
+            themeDefaultColors_.value(row) != current)
+            continue;
+
+        const QColor next = tm->graphColor(row);
+        if (next == current)
+            continue;
+
+        uat_model_->setData(uat_model_->index(row, colColor),
+                            next, Qt::DecorationRole);
+        themeDefaultColors_.insert(row, next);
+        syncGraphSettings(row);
+        anyUpdated = true;
+    }
+    if (anyUpdated)
+        scheduleReplot(true);
 }
 
 void IOGraphDialog::reloadFields()
@@ -1206,21 +1248,12 @@ void IOGraphDialog::showContextMenu(const QPoint &pos)
         menu->setAttribute(Qt::WA_DeleteOnClose);
         menu->addAction(ui->actionLegend);
         menu->addSeparator();
-#if QT_VERSION >= QT_VERSION_CHECK(6, 2, 0)
         menu->addAction(tr("Move to top left"), this, &IOGraphDialog::moveLegend)->setData((Qt::AlignTop|Qt::AlignLeft).toInt());
         menu->addAction(tr("Move to top center"), this, &IOGraphDialog::moveLegend)->setData((Qt::AlignTop|Qt::AlignHCenter).toInt());
         menu->addAction(tr("Move to top right"), this, &IOGraphDialog::moveLegend)->setData((Qt::AlignTop|Qt::AlignRight).toInt());
         menu->addAction(tr("Move to bottom left"), this, &IOGraphDialog::moveLegend)->setData((Qt::AlignBottom|Qt::AlignLeft).toInt());
         menu->addAction(tr("Move to bottom center"), this, &IOGraphDialog::moveLegend)->setData((Qt::AlignBottom|Qt::AlignHCenter).toInt());
         menu->addAction(tr("Move to bottom right"), this, &IOGraphDialog::moveLegend)->setData((Qt::AlignBottom|Qt::AlignRight).toInt());
-#else
-        menu->addAction(tr("Move to top left"), this, &IOGraphDialog::moveLegend)->setData(static_cast<Qt::Alignment::Int>(Qt::AlignTop|Qt::AlignLeft));
-        menu->addAction(tr("Move to top center"), this, &IOGraphDialog::moveLegend)->setData(static_cast<Qt::Alignment::Int>(Qt::AlignTop|Qt::AlignHCenter));
-        menu->addAction(tr("Move to top right"), this, &IOGraphDialog::moveLegend)->setData(static_cast<Qt::Alignment::Int>(Qt::AlignTop|Qt::AlignRight));
-        menu->addAction(tr("Move to bottom left"), this, &IOGraphDialog::moveLegend)->setData(static_cast<Qt::Alignment::Int>(Qt::AlignBottom|Qt::AlignLeft));
-        menu->addAction(tr("Move to bottom center"), this, &IOGraphDialog::moveLegend)->setData(static_cast<Qt::Alignment::Int>(Qt::AlignBottom|Qt::AlignHCenter));
-        menu->addAction(tr("Move to bottom right"), this, &IOGraphDialog::moveLegend)->setData(static_cast<Qt::Alignment::Int>(Qt::AlignBottom|Qt::AlignRight));
-#endif
         menu->popup(ui->ioPlot->mapToGlobal(pos));
     } else if (ui->ioPlot->xAxis->selectTest(pos, false, nullptr) >= 0) {
         QMenu *menu = new QMenu(this);
@@ -1333,11 +1366,7 @@ void IOGraphDialog::moveLegend()
 {
     if (QAction *contextAction = qobject_cast<QAction*>(sender())) {
         if (contextAction->data().canConvert<Qt::Alignment::Int>()) {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 2, 0)
             ui->ioPlot->axisRect()->insetLayout()->setInsetAlignment(0, Qt::Alignment::fromInt(contextAction->data().value<Qt::Alignment::Int>()));
-#else
-            ui->ioPlot->axisRect()->insetLayout()->setInsetAlignment(0, static_cast<Qt::Alignment>(contextAction->data().value<Qt::Alignment::Int>()));
-#endif
             ui->ioPlot->replot();
         }
     }
@@ -2017,6 +2046,18 @@ void IOGraphDialog::actionLogScaleTriggered(bool checked)
             iop->yAxis->setTicker(QSharedPointer<QCPAxisTicker>(new QCPAxisTicker));
         }
     }
+    iop->replot();
+}
+
+void IOGraphDialog::actionMATriggered(bool checked)
+{
+    QCustomPlot *iop = ui->ioPlot;
+
+    // downward propagation to every graph
+    foreach(IOGraph* iog, ioGraphs_) {
+        iog->setMA(checked);
+    }
+
     iop->replot();
 }
 

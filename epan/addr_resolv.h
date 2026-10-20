@@ -77,14 +77,19 @@ typedef struct hashwka hashwka_t;
 struct hashmanuf;
 typedef struct hashmanuf hashmanuf_t;
 
+/**
+ * @brief Composite key used to look up a service name by port number and transport protocol type.
+ */
 typedef struct _serv_port_key {
-    uint16_t          port;
-    port_type         type;
+    uint16_t  port; /**< Transport layer port number */
+    port_type type; /**< Transport protocol type (e.g. TCP, UDP, SCTP) identifying the port's namespace */
 } serv_port_key_t;
 
-/* Used for manually edited DNS resolved names */
+/**
+ * @brief Stores a manually edited DNS-resolved hostname for an address.
+ */
 typedef struct _resolved_name {
-    char             name[MAXDNSNAMELEN];
+    char name[MAXDNSNAMELEN]; /**< Null-terminated hostname string, up to MAXDNSNAMELEN bytes including the terminator */
 } resolved_name_t;
 
 /*
@@ -976,7 +981,7 @@ unsigned ipv6_oat_hash(const void *key);
  *
  * @param v1 Pointer to the first IPv6 address.
  * @param v2 Pointer to the second IPv6 address.
- * @return TRUE if equal, FALSE otherwise.
+ * @return true if equal, false otherwise.
  */
 WS_DLL_LOCAL
 gboolean ipv6_equal(const void *v1, const void *v2);

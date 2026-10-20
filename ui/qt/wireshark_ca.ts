@@ -2,14 +2,6 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="ca">
 <context>
-    <name>Abbreviation</name>
-    <message>
-        <source></source>
-        <comment>for &quot;not applicable&quot;</comment>
-        <translation></translation>
-    </message>
-</context>
-<context>
     <name>AboutDialog</name>
     <message>
         <source>About Wireshark</source>
@@ -753,7 +745,7 @@ Els errors d&apos;execució es tracten com a falsos (silenciats) i es mostren am
     </message>
     <message>
         <source>Gate the pause on a hit counter. The dropdown next to N picks the comparison mode: from pauses on every hit from N onwards (default); every pauses on hits N, 2N, 3N, …; once pauses on the N-th hit and deactivates the breakpoint. Use 0 to disable the gate. The counter is preserved across edits to Expression / Hit Count / Log Message; lowering the target below the current count rolls the counter back to 0 so the breakpoint can wait for the next N hits. Right-click the row to reset it explicitly. Combined with an Expression on the same row, the hit-count gate runs first.</source>
-        <translation type="unfinished"></translation>
+        <translation>Estableix els moments en què es posa en pausa segons el recompte d&apos;execucions. El selector del costat de l&apos;N estableix el mètode de comparació: «a partir de» posa en pausa a l&apos;execució N i posteriors (per defecte); «cada» posa en pausa a les execucions N, 2N, 3N...; «una vegada» posa en pausa a l&apos;execució N i després es desactiva el punt d&apos;interrupció. Feu servir 0 per a desactivar la porta. El comptador es manté entre edicions de l&apos;expressió/recompte d&apos;execucions/registre de missatges; si es redueix l&apos;objectiu per sota del recompte actual, el comptador s&apos;estableix a 0 per tal que el punt d&apos;interrupció pugui esperar les N execucions següents. Feu clic amb el botó dret a la fila per a restablir-la explícitament. Si es combina amb una expressió a la mateixa fila, la porta del recompte d&apos;execucions s&apos;executa primer.</translation>
     </message>
     <message>
         <source>Log Message</source>
@@ -847,8 +839,23 @@ Desactivat = només punt de registre (coincideix amb la convenció històrica «
         <translation>Llista de les fonts de captura disponibles. Trieu-ne almenys una per a fer una captura.</translation>
     </message>
     <message>
+        <source>%1 / %2 interfaces</source>
+        <translation>%1 / %2 interfícies</translation>
+    </message>
+    <message>
+        <source>%1 / %2</source>
+        <translation>%1 / %2</translation>
+    </message>
+    <message>
         <source>All interfaces shown</source>
         <translation>Es mostren totes les interfícies</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n interface(s)</source>
+        <translation>
+            <numerusform>%n interfície</numerusform>
+            <numerusform>%n interfícies</numerusform>
+        </translation>
     </message>
     <message numerus="yes">
         <source>%n interface(s) shown, %1 hidden</source>
@@ -1301,25 +1308,26 @@ Desactivat = només punt de registre (coincideix amb la convenció històrica «
     </message>
 </context>
 <context>
-    <name>CaptureFilterCombo</name>
-    <message>
-        <source>Capture filter selector</source>
-        <translation>Seleccionador de filtres de captura</translation>
-    </message>
-</context>
-<context>
-    <name>CaptureFilterEdit</name>
+    <name>CaptureFilterEntry</name>
     <message>
         <source>Capture filter entry</source>
         <translation>Entrada dels filtres de captura</translation>
     </message>
     <message>
-        <source>Manage saved bookmarks.</source>
-        <translation>Gestiona els marcadors desats.</translation>
+        <source>Saved Capture Filters</source>
+        <translation>Filtres de captura desats</translation>
     </message>
     <message>
-        <source>Apply this filter string to the display.</source>
-        <translation>Aplica aquesta cadena de filtre a la visualització.</translation>
+        <source>Save this filter</source>
+        <translation>Desa aquest filtre</translation>
+    </message>
+    <message>
+        <source>Remove this filter</source>
+        <translation>Trau aquest filtre</translation>
+    </message>
+    <message>
+        <source>Manage Capture Filters</source>
+        <translation>Gestiona els filtres de captura</translation>
     </message>
     <message>
         <source>Multiple filters selected. Override them here or leave this blank to preserve them.</source>
@@ -1334,18 +1342,6 @@ Desactivat = només punt de registre (coincideix amb la convenció històrica «
         <source>Enter a capture filter %1</source>
         <translation>Escriviu un filtre de captura %1</translation>
     </message>
-    <message>
-        <source>Save this filter</source>
-        <translation>Desa aquest filtre</translation>
-    </message>
-    <message>
-        <source>Remove this filter</source>
-        <translation>Trau aquest filtre</translation>
-    </message>
-    <message>
-        <source>Manage Capture Filters</source>
-        <translation>Gestiona els filtres de captura</translation>
-    </message>
 </context>
 <context>
     <name>CaptureFilterSyntaxWorker</name>
@@ -1356,6 +1352,25 @@ Desactivat = només punt de registre (coincideix amb la convenció històrica «
     <message>
         <source>Unable to check capture filter (BPF extensions require a live handle)</source>
         <translation>No es pot comprovar el filtre de captura (les extensions BPF requereixen gestió en directe)</translation>
+    </message>
+</context>
+<context>
+    <name>CaptureFilterValidator</name>
+    <message>
+        <source>No interfaces selected</source>
+        <translation>No s&apos;ha seleccionat cap interfície</translation>
+    </message>
+    <message>
+        <source>Unable to check capture filter</source>
+        <translation>No es pot comprovar el filtre de captura</translation>
+    </message>
+    <message>
+        <source>Unable to check capture filter (BPF extensions require a live handle)</source>
+        <translation>No es pot comprovar el filtre de captura (les extensions BPF requereixen gestió en directe)</translation>
+    </message>
+    <message>
+        <source>Syntax checking unavailable</source>
+        <translation>La comprovació de sintaxi no està disponible.</translation>
     </message>
 </context>
 <context>
@@ -1385,38 +1400,6 @@ Desactivat = només punt de registre (coincideix amb la convenció històrica «
     <message>
         <source>Input</source>
         <translation>Entrada</translation>
-    </message>
-    <message>
-        <source>Interface</source>
-        <translation>Interfície</translation>
-    </message>
-    <message>
-        <source>Traffic</source>
-        <translation>Trànsit</translation>
-    </message>
-    <message>
-        <source>Link-layer Header</source>
-        <translation>Capçalera de la capa d&apos;enllaç</translation>
-    </message>
-    <message>
-        <source>Promiscuous</source>
-        <translation>Promiscu</translation>
-    </message>
-    <message>
-        <source>Snaplen (B)</source>
-        <translation>Snaplen (B)</translation>
-    </message>
-    <message>
-        <source>Buffer (MB)</source>
-        <translation>Memòria intermèdia (MB)</translation>
-    </message>
-    <message>
-        <source>Monitor Mode</source>
-        <translation>Mode monitor</translation>
-    </message>
-    <message>
-        <source>Capture Filter</source>
-        <translation>Filtre de captura</translation>
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;You probably want to enable this. Usually a network card will only capture the traffic sent to its own network address. If you want to capture all traffic that the network card can &amp;quot;see&amp;quot;, mark this option. See the FAQ for some more details of capturing packets from a switched network.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
@@ -1541,10 +1524,6 @@ For example, use 1 hour to have a new file created every hour on the hour.</sour
 Per exemple, si es tria un interval d&apos;una hora, es crearà un fitxer cada hora en punt.</translation>
     </message>
     <message>
-        <source>Optimize</source>
-        <translation>Optimitza</translation>
-    </message>
-    <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Usually a wireless network card will only capture the traffic sent to and from its own network address, and only captures &lt;em&gt;user data&lt;/em&gt; traffic with &amp;quot;fake&amp;quot; Ethernet headers. If you want to capture all traffic that wireless network cards can &amp;quot;see&amp;quot;, or are interested in 802.11 management or control packets, or radio-layer information, mark this option. Monitor mode availability depends on the wireless card and driver. See the Wiki for some more details of capturing packets on WLAN networks.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Normalment una xarxa sense fils només captura el trànsit que s&apos;envia o es rep des de la seva adreça de xarxa pròpia i només captura trànsit de &lt;em&gt;dades d&apos;usuari&lt;/em&gt; amb capçaleres Ethernet &amp;quot;falses&amp;quot;. Si voleu capturar tot el trànsit que pot &amp;quot;veure&amp;quot; la targeta, o si esteu interessats en gestionar o controlar paquets de 802.11 o de la informació de la capa de ràdio, marqueu aquesta opció. El mode monitor depèn del controlador i de la targeta de xarxa sense fils. Vegeu la Wiki per a obtenir més detalls de la captura de paquets en xarxes WLAN.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
@@ -1587,6 +1566,22 @@ Per exemple, si es tria un interval d&apos;una hora, es crearà un fitxer cada h
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;File index number before the date and time. This is the historic Wireshark ordering.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Número de fitxer abans de la data i del temps. Aquest és el format de nom històric del Wireshark.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Create a new interface bookmark.</source>
+        <translation>Crea un marcador d&apos;interfície nou.</translation>
+    </message>
+    <message>
+        <source>Remove this interface bookmark.</source>
+        <translation>Trau aquest marcador d&apos;interfície.</translation>
+    </message>
+    <message>
+        <source>Processes:</source>
+        <translation>Processos:</translation>
+    </message>
+    <message>
+        <source>Executable paths, command lines and user names will be stored in the capture file. A command line can contain a password.</source>
+        <translation>Els camins executables, les línies d&apos;ordres i els noms d&apos;usuaris s&apos;emmagatzemaran al fitxer de captura. Una línia d&apos;ordres pot contenir contrasenyes.</translation>
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;After capturing has switched to the next file and the given number of files has exceeded, the oldest file will be removed.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
@@ -1709,6 +1704,18 @@ Per exemple, si es tria un interval d&apos;una hora, es crearà un fitxer cada h
         <translation>Inici</translation>
     </message>
     <message>
+        <source>Don&apos;t record processes</source>
+        <translation>No gravis els processos</translation>
+    </message>
+    <message>
+        <source>Record process IDs and names</source>
+        <translation>Grava els ID i els noms dels processos</translation>
+    </message>
+    <message>
+        <source>Record process IDs, names, paths, command lines and users</source>
+        <translation>Grava els ID i els noms dels processos, els camins, les línies d&apos;ordres i els usuaris</translation>
+    </message>
+    <message>
         <source>Leave blank to use a temporary file</source>
         <translation>Deixa en blanc per a fer servir un fitxer temporal</translation>
     </message>
@@ -1721,24 +1728,16 @@ Per exemple, si es tria un interval d&apos;una hora, es crearà un fitxer cada h
         <translation>Especifica una carpeta temporal</translation>
     </message>
     <message>
-        <source>Extcap interface settings</source>
-        <translation>Configuració de la interfície Extcap</translation>
+        <source>Not supported on this platform.</source>
+        <translation>No està suportat en aquesta plataforma.</translation>
     </message>
     <message>
-        <source>%1: %2</source>
-        <translation>%1: %2</translation>
+        <source>Process information can only be recorded in pcapng files.</source>
+        <translation>La informació del procés només es pot gravar en fitxers pcapng.</translation>
     </message>
     <message>
-        <source>Addresses</source>
-        <translation>Adreces</translation>
-    </message>
-    <message>
-        <source>Address</source>
-        <translation>Adreça</translation>
-    </message>
-    <message>
-        <source>no addresses</source>
-        <translation>Sense adreces</translation>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Record which processes on this computer sent or received each packet, for the packets of TCP and UDP sockets. Which processes can be identified depends on your privileges, and the packets of very short-lived sockets can be missed.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Grava quins processos d&apos;aquest ordinador han rebut o enviat cada paquet, per als paquets de sòcols TCP i UDP. Els processos que es poden identificar depenen dels privilegis que teniu i els paquets de sòcols de vida molt curta poden passar per alt.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Error</source>
@@ -1792,6 +1791,14 @@ Per exemple, si es tria un interval d&apos;una hora, es crearà un fitxer cada h
         <translation>Captura paquets en format pcapng</translation>
     </message>
     <message>
+        <source>Record the processes that packets belong to:</source>
+        <translation>Grava els processos als quals pertanyen els paquets:</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;What to record, in pcapng files, of the processes on this computer that sent or received each packet. Executable paths, command lines and user names can be sensitive: a command line can contain a password.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Indica què s&apos;ha de gravar als fitxers pcapng dels processos d&apos;aquest ordinador que han enviat o rebut cadascun dels paquets. Els camins executables, les línies d&apos;ordres i els noms d&apos;usuaris poden ser dades sensibles: una línia d&apos;ordres podria contenir alguna contrasenya.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Update the list of packets while capture is in progress. This can result in dropped packets on high-speed networks.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Actualitza la llista de paquets mentre es realitza la captura. Pot provocar que es descartin paquets en xarxes d&apos;alta velocitat.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
@@ -1812,12 +1819,40 @@ Per exemple, si es tria un interval d&apos;una hora, es crearà un fitxer cada h
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;L&apos;interval entre actualitzacions dels paquets. Afecta la freqüència d&apos;actualització de la interfície i dels temporitzadors.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
+        <source>Temporary directory</source>
+        <translation>Carpeta temporal</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Directory in which to write temporary capture files. Leave empty to use the system default. Overridden by the --temp-dir option.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Carpeta temporal on escriure els fitxers de captura temporals. Deixeu-ho buit si voleu fer servir el lloc per defecte del sistema. Queda sobreescrit per l&apos;opció --temp-dir.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation>Navega…</translation>
+    </message>
+    <message>
         <source>Don&apos;t load interfaces on startup</source>
         <translation>No carreguis les interfícies a l&apos;inici</translation>
     </message>
     <message>
         <source>Disable external capture interfaces</source>
         <translation>Desactiva les interfícies de captura externa</translation>
+    </message>
+    <message>
+        <source>Nothing</source>
+        <translation>Res</translation>
+    </message>
+    <message>
+        <source>Process IDs and names</source>
+        <translation>ID i noms dels processos</translation>
+    </message>
+    <message>
+        <source>Process IDs, names, paths, command lines and users</source>
+        <translation>ID i noms dels processos, camins, línies d&apos;ordres i usuaris</translation>
+    </message>
+    <message>
+        <source>Temporary Directory</source>
+        <translation>Carpeta temporal</translation>
     </message>
 </context>
 <context>
@@ -2114,6 +2149,10 @@ Per exemple, si es tria un interval d&apos;una hora, es crearà un fitxer cada h
     <message>
         <source>Compress with &amp;LZ4</source>
         <translation>Comprimeix amb &amp;LZ4</translation>
+    </message>
+    <message>
+        <source>Compress with Zstandard</source>
+        <translation>Comprimeix amb el Zstandard</translation>
     </message>
 </context>
 <context>
@@ -2818,17 +2857,6 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     </message>
 </context>
 <context>
-    <name>DisplayFilterCombo</name>
-    <message>
-        <source>Display filter selector</source>
-        <translation>Mostra el selector de filtres</translation>
-    </message>
-    <message>
-        <source>Select from previously used filters.</source>
-        <translation>Tria d&apos;entre els filtres emprats anteriorment.</translation>
-    </message>
-</context>
-<context>
     <name>DisplayFilterEdit</name>
     <message>
         <source>Display filter entry</source>
@@ -2894,6 +2922,45 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
         <source>Filter Button Preferences…</source>
         <oldsource>Filter Button Preferences...</oldsource>
         <translation>Preferències del botó de filtre…</translation>
+    </message>
+</context>
+<context>
+    <name>DisplayFilterEntry</name>
+    <message>
+        <source>Display filter entry</source>
+        <translation>Mostra una entrada de filtre</translation>
+    </message>
+    <message>
+        <source>Saved Display Filters</source>
+        <translation>Filtres de visualització desats</translation>
+    </message>
+    <message>
+        <source>Save this filter</source>
+        <translation>Desa aquest filtre</translation>
+    </message>
+    <message>
+        <source>Remove this filter</source>
+        <translation>Trau aquest filtre</translation>
+    </message>
+    <message>
+        <source>Manage Display Filters</source>
+        <translation>Gestiona els filtres de visualització</translation>
+    </message>
+    <message>
+        <source>Filter Button Preferences…</source>
+        <translation>Preferències del botó de filtre…</translation>
+    </message>
+    <message>
+        <source>Apply a display filter %1 &lt;%2/&gt;</source>
+        <translation>Aplica un filtre de visualització %1 &lt;%2/&gt;</translation>
+    </message>
+    <message>
+        <source>Display Filter Expression…</source>
+        <translation>Mostra una expressió de filtre…</translation>
+    </message>
+    <message>
+        <source>Left align buttons</source>
+        <translation>Botons d&apos;alineació a l&apos;esquerra</translation>
     </message>
 </context>
 <context>
@@ -2992,6 +3059,13 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     </message>
 </context>
 <context>
+    <name>DisplayFilterValidator</name>
+    <message>
+        <source>&quot;%1&quot; is deprecated in favour of &quot;%2&quot;. See Help section 6.4.8 for details.</source>
+        <translation>«%1» ha quedat obsolet i s&apos;ha de substituir per «%2». Vegeu la secció d&apos;ajuda 6.4.8 per a més detalls.</translation>
+    </message>
+</context>
+<context>
     <name>DissectorSyntaxLineEdit</name>
     <message>
         <source>Dissector entry</source>
@@ -3015,6 +3089,18 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     <message>
         <source>Dissector Tables</source>
         <translation>Taules de dissectors</translation>
+    </message>
+    <message>
+        <source>Everywhere</source>
+        <translation>En qualsevol lloc</translation>
+    </message>
+    <message>
+        <source>Only Name</source>
+        <translation>Només al nom</translation>
+    </message>
+    <message>
+        <source>Only Description</source>
+        <translation>Només a la descripció</translation>
     </message>
 </context>
 <context>
@@ -3050,6 +3136,29 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     <message>
         <source>Selector Name</source>
         <translation>Nom del selector</translation>
+    </message>
+</context>
+<context>
+    <name>DistributionDialog</name>
+    <message>
+        <source>Field Values Distribution</source>
+        <translation>Distribució dels valors del camp</translation>
+    </message>
+    <message>
+        <source>Field Value</source>
+        <translation>Valor del camp</translation>
+    </message>
+    <message>
+        <source>Occurrences</source>
+        <translation>Freqüència</translation>
+    </message>
+    <message>
+        <source>Percent</source>
+        <translation>Percentatge</translation>
+    </message>
+    <message>
+        <source>Distribution:</source>
+        <translation>Distribució:</translation>
     </message>
 </context>
 <context>
@@ -3091,24 +3200,28 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
         <translation>Per tot arreu</translation>
     </message>
     <message>
-        <source>Only Protocols</source>
-        <translation>Només als protocols</translation>
+        <source>Only Protocol</source>
+        <translation>Només al protocol</translation>
     </message>
     <message>
         <source>Only Description</source>
         <translation>Només a la descripció</translation>
     </message>
     <message>
-        <source>Only enabled protocols</source>
-        <translation>Només als protocols activats</translation>
+        <source>all</source>
+        <translation>tots</translation>
     </message>
     <message>
-        <source>Only disabled protocols</source>
-        <translation>Només als protocols desactivats</translation>
+        <source>enabled</source>
+        <translation>activats</translation>
     </message>
     <message>
-        <source>any protocol</source>
-        <translation>qualsevol protocol</translation>
+        <source>disabled</source>
+        <translation>desactivats</translation>
+    </message>
+    <message>
+        <source>protocols</source>
+        <translation>protocols</translation>
     </message>
     <message>
         <source>non-heuristic protocols</source>
@@ -3490,11 +3603,11 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     </message>
     <message>
         <source>Unique</source>
-        <translation type="unfinished"></translation>
+        <translation>Únic</translation>
     </message>
     <message>
         <source>Only display the first of identical entries</source>
-        <translation type="unfinished"></translation>
+        <translation>De les entrades idèntiques, mostra&apos;n només la primera</translation>
     </message>
     <message>
         <source>Searching for objects</source>
@@ -3510,11 +3623,11 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     </message>
     <message>
         <source>Save All</source>
-        <translation type="unfinished"></translation>
+        <translation>Desa-ho tot</translation>
     </message>
     <message>
         <source>Save Displayed</source>
-        <translation type="unfinished"></translation>
+        <translation>Desa els que es mostren</translation>
     </message>
     <message>
         <source>Preview</source>
@@ -3538,7 +3651,7 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     </message>
     <message>
         <source>Save Objects In…</source>
-        <translation type="unfinished"></translation>
+        <translation>Desa els objectes en…</translation>
     </message>
     <message>
         <source>Save All Objects In…</source>
@@ -3619,6 +3732,10 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
         <source>%1 Select File</source>
         <translation>Selecciona el fitxer %1</translation>
     </message>
+    <message>
+        <source>%1 Select Folder</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ExtcapOptionsDialog</name>
@@ -3654,6 +3771,14 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     <message>
         <source>The help for the extcap interface %1 cannot be found. Given file: %2</source>
         <translation>L&apos;ajuda per a la interfície de l&apos;extcap %1 no s&apos;ha pogut trobar. Fitxer donat: %2</translation>
+    </message>
+    <message>
+        <source>Bookmark</source>
+        <translation>Marcador</translation>
+    </message>
+    <message>
+        <source>Type a name to create a bookmark</source>
+        <translation>Escriviu un nom per a crear un marcador</translation>
     </message>
     <message>
         <source>Save parameters on capture start</source>
@@ -3804,6 +3929,45 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     </message>
 </context>
 <context>
+    <name>FilterExpressionEdit</name>
+    <message>
+        <source>Saved Filters</source>
+        <translation>Filtres desats</translation>
+    </message>
+    <message>
+        <source>Save this filter</source>
+        <translation>Desa aquest filtre</translation>
+    </message>
+    <message>
+        <source>Remove this filter</source>
+        <translation>Trau aquest filtre</translation>
+    </message>
+    <message>
+        <source>Manage Saved Filters</source>
+        <translation>Gestiona els filtres desats</translation>
+    </message>
+    <message>
+        <source>Filter Button Preferences…</source>
+        <translation>Preferències del botó de filtre…</translation>
+    </message>
+    <message>
+        <source>Manage saved filters</source>
+        <translation>Gestiona els filtres desats</translation>
+    </message>
+    <message>
+        <source>Clear the filter</source>
+        <translation>Neteja el filtre</translation>
+    </message>
+    <message>
+        <source>Apply this filter</source>
+        <translation>Aplica aquest filtre</translation>
+    </message>
+    <message>
+        <source>Recent filters</source>
+        <translation>Filtres recents</translation>
+    </message>
+</context>
+<context>
     <name>FilterExpressionFrame</name>
     <message>
         <source>Frame</source>
@@ -3887,6 +4051,13 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     <message>
         <source>Filter Expression</source>
         <translation>Expressió de filtre</translation>
+    </message>
+</context>
+<context>
+    <name>FilterValidator</name>
+    <message>
+        <source>Invalid filter: %1</source>
+        <translation>Filtre no vàlid: %1</translation>
     </message>
 </context>
 <context>
@@ -4054,6 +4225,14 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
         <translation>Camí de l&apos;Extcap global</translation>
     </message>
     <message>
+        <source>Personal Themes</source>
+        <translation>Temes personals</translation>
+    </message>
+    <message>
+        <source>User-installed theme files (*.jsonc)</source>
+        <translation>Fitxers de temes instal·lats per l&apos;usuari (*.jsonc)</translation>
+    </message>
+    <message>
         <source>MaxMind DB path</source>
         <translation>Camí del MaxMind DB</translation>
     </message>
@@ -4100,11 +4279,6 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
 <context>
     <name>FollowStreamDialog</name>
     <message>
-        <source>Filter Out This Stream</source>
-        <oldsource>Hide this stream</oldsource>
-        <translation>Filtra aquest flux</translation>
-    </message>
-    <message>
         <source>Print</source>
         <translation>Imprimeix</translation>
     </message>
@@ -4149,6 +4323,14 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     <message>
         <source>Raw</source>
         <translation>Valors en brut (Raw)</translation>
+    </message>
+    <message>
+        <source>Prepare as Filter</source>
+        <translation>Prepara com a filtre</translation>
+    </message>
+    <message>
+        <source>Apply as Filter</source>
+        <translation>Aplica com a filtre</translation>
     </message>
     <message>
         <source>Save as…</source>
@@ -4316,61 +4498,16 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
         <translation>Tria una font</translation>
     </message>
     <message>
-        <source>Colors:</source>
-        <translation>Colors:</translation>
+        <source>Theme</source>
+        <translation>Tema</translation>
     </message>
     <message>
-        <source>System Default</source>
-        <translation>Per defecte del sistema</translation>
+        <source>Theme Author Information</source>
+        <translation>Informació de l&apos;autor del tema</translation>
     </message>
     <message>
-        <source>Solid</source>
-        <translation>Sòlid</translation>
-    </message>
-    <message>
-        <source>Sample ignored packet text</source>
-        <translation>Exemple de text de paquet ignorat</translation>
-    </message>
-    <message>
-        <source>Sample marked packet text</source>
-        <translation>Exemple de text de paquet marcat</translation>
-    </message>
-    <message>
-        <source>Sample active selected item</source>
-        <translation>Exemple d&apos;element seleccionat actiu</translation>
-    </message>
-    <message>
-        <source>Style:</source>
-        <translation>Estil:</translation>
-    </message>
-    <message>
-        <source>Gradient</source>
-        <translation>Gradient</translation>
-    </message>
-    <message>
-        <source>Sample inactive selected item</source>
-        <translation>Exemple d&apos;element seleccionat inactiu</translation>
-    </message>
-    <message>
-        <source>Sample &quot;Follow Stream&quot; client text</source>
-        <translation>Exemple de client de «Segueix el flux»</translation>
-    </message>
-    <message>
-        <source>Sample &quot;Follow Stream&quot; server text</source>
-        <translation>Exemple de text de servidor de «Segueix el flux»</translation>
-    </message>
-    <message>
-        <source>Sample valid filter</source>
-        <translation>Exemple de filtre vàlid</translation>
-    </message>
-    <message>
-        <source>Sample invalid filter</source>
-        <translation>Exemple de filtre no vàlid</translation>
-    </message>
-    <message>
-        <source>Sample warning filter</source>
-        <oldsource>Sample deprecated filter</oldsource>
-        <translation>Exemple de filtre d&apos;avís</translation>
+        <source>Theme Description</source>
+        <translation>Descripció del tema</translation>
     </message>
     <message>
         <source>Example GIF query packets have jumbo window sizes</source>
@@ -4382,16 +4519,28 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
         <translation>Els teixons mandrosos mouen paquets únics de meduses ceroses</translation>
     </message>
     <message>
-        <source>Color Scheme:</source>
-        <translation>Esquema de color:</translation>
+        <source>System</source>
+        <translation>Sistema</translation>
     </message>
     <message>
-        <source>Light Mode</source>
-        <translation>Mode clar</translation>
+        <source>Light</source>
+        <translation>Clar</translation>
     </message>
     <message>
-        <source>Dark Mode</source>
-        <translation>Mode fosc</translation>
+        <source>Dark</source>
+        <translation>Fosc</translation>
+    </message>
+    <message>
+        <source>Appearance mode:</source>
+        <translation>Mode d&apos;aparença:</translation>
+    </message>
+    <message>
+        <source>Theme:</source>
+        <translation>Tema:</translation>
+    </message>
+    <message>
+        <source>Theme by %1</source>
+        <translation>Tema de %1</translation>
     </message>
     <message>
         <source>Font</source>
@@ -4538,6 +4687,10 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
         <translation>Permet ressaltat amb el ratolí a sobre</translation>
     </message>
     <message>
+        <source>Annotations</source>
+        <translation>Notes</translation>
+    </message>
+    <message>
         <source>Add annotation…</source>
         <translation>Afegeix una anotació…</translation>
     </message>
@@ -4548,6 +4701,10 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     <message>
         <source>Remove annotation</source>
         <translation>Trau l&apos;anotació</translation>
+    </message>
+    <message>
+        <source>Offset markers</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Start byte for offset</source>
@@ -4592,6 +4749,10 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     <message>
         <source>…as EBCDIC</source>
         <translation>…en EBCDIC</translation>
+    </message>
+    <message>
+        <source>…as UTF-8</source>
+        <translation>…com a UTF-8</translation>
     </message>
     <message>
         <source>Comment: %1</source>
@@ -5832,6 +5993,92 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
     </message>
 </context>
 <context>
+    <name>ImsiListDialog</name>
+    <message>
+        <source>IMSI List</source>
+        <translation>Llista IMSI</translation>
+    </message>
+    <message>
+        <source>&lt;small&gt;Select one or more IMSIs to view flow sequence or prepare a display filter.&lt;/small&gt;</source>
+        <translation>&lt;small&gt;Trieu un o més IMSI per a veure la seqüència del flux o preparar un filtre de visualització.&lt;/small&gt;</translation>
+    </message>
+    <message>
+        <source>Only show IMSIs matching the current display filter</source>
+        <translation>Mostra només els IMSI que coincideixin amb el filtre de visualització actual.</translation>
+    </message>
+    <message>
+        <source>Limit to display filter</source>
+        <translation>Límit per a mostrar el filtre</translation>
+    </message>
+    <message>
+        <source>IMSI</source>
+        <translation>IMSI</translation>
+    </message>
+    <message>
+        <source>Packets</source>
+        <translation>Paquets</translation>
+    </message>
+    <message>
+        <source>First Frame</source>
+        <translation>Primera trama</translation>
+    </message>
+    <message>
+        <source>Last Frame</source>
+        <translation>Última trama</translation>
+    </message>
+    <message>
+        <source>Protocols</source>
+        <translation>Protocols</translation>
+    </message>
+    <message>
+        <source>Prepare Filter</source>
+        <translation>Prepara el filtre</translation>
+    </message>
+    <message>
+        <source>Prepare a display filter matching selected IMSIs.</source>
+        <translation>Prepara un filtre de visualització que coincideixi amb els IMSI seleccionats.</translation>
+    </message>
+    <message>
+        <source>&lt;small&gt;%1 IMSIs found. Double-click to filter.&lt;/small&gt;</source>
+        <translation>&lt;small&gt;S&apos;han trobat %1 IMSI. Feu doble clic per a filtrar.&lt;/small&gt;</translation>
+    </message>
+</context>
+<context>
+    <name>InPacketFindBar</name>
+    <message>
+        <source>String</source>
+        <translation>Cadena</translation>
+    </message>
+    <message>
+        <source>Regular Expression</source>
+        <translation>Expressió regular</translation>
+    </message>
+    <message>
+        <source>Case sensitive</source>
+        <translation>Distingeix majúscules i minúscules</translation>
+    </message>
+    <message>
+        <source>Find</source>
+        <translation>Cerca</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel·la</translation>
+    </message>
+    <message>
+        <source>invalid pattern</source>
+        <translation>patró no vàlid</translation>
+    </message>
+    <message>
+        <source>no matches</source>
+        <translation>sense coincidències</translation>
+    </message>
+    <message>
+        <source>%1 of %2</source>
+        <translation>%1 de %2</translation>
+    </message>
+</context>
+<context>
     <name>InfoBannerWidget</name>
     <message>
         <source>Tips and announcements</source>
@@ -5948,12 +6195,35 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
         <source>Hide Interface</source>
         <translation>Amaga la interfície</translation>
     </message>
+    <message>
+        <source>Unknown</source>
+        <translation>Desconegut</translation>
+    </message>
+    <message>
+        <source>Hide all &apos;%1&apos; interfaces</source>
+        <translation>Amaga totes les interfícies «%1»</translation>
+    </message>
 </context>
 <context>
     <name>InterfaceSortFilterModel</name>
     <message>
         <source>No interfaces to be displayed. %1 interfaces hidden.</source>
         <translation>No hi ha interfícies a mostrar. N&apos;hi ha %1 d&apos;amagades.</translation>
+    </message>
+</context>
+<context>
+    <name>InterfaceStatsWorker</name>
+    <message>
+        <source>The interface statistics stream stopped unexpectedly.</source>
+        <translation>El flux d&apos;estadístiques de la interfície ha parat inesperadament.</translation>
+    </message>
+    <message>
+        <source>Unable to start the interface statistics stream.</source>
+        <translation>El flux d&apos;estadístiques de la interfície no s&apos;ha pogut iniciar.</translation>
+    </message>
+    <message>
+        <source>This build has no packet capture support.</source>
+        <translation>Aquest muntatge no té suport de captura de paquets.</translation>
     </message>
 </context>
 <context>
@@ -6036,8 +6306,16 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
         <translation>Mode monitor</translation>
     </message>
     <message>
+        <source>Optimize</source>
+        <translation>Optimitza</translation>
+    </message>
+    <message>
         <source>Capture Filter</source>
         <translation>Filtre de captura</translation>
+    </message>
+    <message>
+        <source>Traffic</source>
+        <translation>Trànsit</translation>
     </message>
     <message>
         <source>Addresses</source>
@@ -7528,134 +7806,12 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
 </context>
 <context>
     <name>LuaDebuggerBreakpointsController</name>
-    <message>
-        <source>Location</source>
-        <translation>Ubicació</translation>
-    </message>
-    <message>
-        <source>&lt;p&gt;&lt;b&gt;Hit-count summary&lt;/b&gt;&lt;/p&gt;&lt;p&gt;&lt;code&gt;≥N&lt;/code&gt; &amp;mdash; &lt;i&gt;from&lt;/i&gt; mode: pause from hit &lt;i&gt;N&lt;/i&gt; onwards.&lt;br/&gt;&lt;code&gt;×N&lt;/code&gt; &amp;mdash; &lt;i&gt;every&lt;/i&gt; mode: pause on hits &lt;i&gt;N&lt;/i&gt;, &lt;i&gt;2N&lt;/i&gt;, &lt;i&gt;3N&lt;/i&gt;, &amp;hellip;&lt;br/&gt;&lt;code&gt;@N&lt;/code&gt; &amp;mdash; &lt;i&gt;once&lt;/i&gt; mode: pause once on the &lt;i&gt;N&lt;/i&gt;th hit, then deactivate.&lt;/p&gt;&lt;p&gt;The cell starts with the running hit counter; if a gate is set it follows in parentheses, e.g. &lt;code&gt;3 (≥10)&lt;/code&gt;. With no hit gate the cell is just the counter.&lt;/p&gt;&lt;p&gt;Edit the &lt;i&gt;Location&lt;/i&gt; cell to set or change the gate (see the breakpoint-extras section).&lt;/p&gt;</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Edit...</source>
-        <translation>Edita...</translation>
-    </message>
-    <message>
-        <source>Open Source</source>
-        <translation>Obre l&apos;origen</translation>
-    </message>
-    <message>
-        <source>Reset Hit Count</source>
-        <translation>Restableix el recompte d&apos;execucions</translation>
-    </message>
-    <message>
-        <source>Remove</source>
-        <translation>Trau</translation>
-    </message>
-    <message>
-        <source>Reset All Hit Counts</source>
-        <translation>Restableix tots els recomptes d&apos;execucions</translation>
-    </message>
-    <message>
-        <source>Remove All Breakpoints</source>
-        <translation>Trau tots els punts d&apos;interrupció</translation>
-    </message>
-    <message>
-        <source>Clear All Breakpoints</source>
-        <translation>Esborra tots els punts d&apos;interrupció</translation>
-    </message>
     <message numerus="yes">
         <source>Are you sure you want to remove %Ln breakpoint(s)?</source>
-        <translation>
-            <numerusform>Esteu segur que voleu traure el punt d&apos;interrupció?</numerusform>
-            <numerusform>Esteu segur que voleu traure els %Ln punts d&apos;interrupció?</numerusform>
+        <translation type="obsolete">
+            <numerusform>Are you sure you want to remove %Ln breakpoint?</numerusform>
+            <numerusform>Are you sure you want to remove %Ln breakpoints?</numerusform>
         </translation>
-    </message>
-    <message>
-        <source>Location: %1:%2</source>
-        <translation>Ubicació: %1:%2</translation>
-    </message>
-    <message>
-        <source>Condition: %1</source>
-        <translation>Condició: %1</translation>
-    </message>
-    <message>
-        <source>pauses on hits %1, 2×%1, 3×%1, …</source>
-        <translation>posa en pausa en execucions %1, 2×%1, 3×%1, …</translation>
-    </message>
-    <message>
-        <source>pauses once on hit %1, then deactivates the breakpoint</source>
-        <translation>posa en pausa una vegada que s&apos;executi %1, després desactiva el punt d&apos;interrupció</translation>
-    </message>
-    <message>
-        <source>pauses on every hit from %1 onwards</source>
-        <translation>posa en pausa en cada execució des de %1 endavant</translation>
-    </message>
-    <message>
-        <source>Hit Count: %1 / %2 (%3)</source>
-        <translation>Recompte d&apos;execucions: %1 / %2 (%3)</translation>
-    </message>
-    <message>
-        <source>Hits: %1</source>
-        <translation>Execucions: %1</translation>
-    </message>
-    <message>
-        <source>Log: %1</source>
-        <translation>Registre: %1</translation>
-    </message>
-    <message>
-        <source>(logpoint — also pauses)</source>
-        <translation>(punt de registre — també posa en pausa)</translation>
-    </message>
-    <message>
-        <source>(logpoint — does not pause)</source>
-        <translation>(punt de registre — no posa en pausa)</translation>
-    </message>
-    <message>
-        <source>Condition error on last evaluation — treated as false (silent). Edit or reset the breakpoint to clear.</source>
-        <translation>Error de condició a l&apos;última avaluació — tractada com a falsa (silenciosa). Editeu o restabliu el punt d&apos;interrupció per a netejar-ho.</translation>
-    </message>
-    <message>
-        <source>Condition error: %1</source>
-        <translation>Error de condició: %1</translation>
-    </message>
-    <message>
-        <source>File not found: %1</source>
-        <translation>Fitxer no trobat: %1</translation>
-    </message>
-    <message>
-        <source>&amp;Edit...</source>
-        <translation>&amp;Edita...</translation>
-    </message>
-    <message>
-        <source>&amp;Disable</source>
-        <translation>&amp;Desactiva</translation>
-    </message>
-    <message>
-        <source>&amp;Enable</source>
-        <translation>&amp;Activa</translation>
-    </message>
-    <message>
-        <source>&amp;Remove</source>
-        <translation>&amp;Trau</translation>
-    </message>
-    <message>
-        <source>No breakpoints
-%1: add or remove breakpoint on the current line in the editor</source>
-        <translation>No hi ha punts d&apos;interrupció.
-%1: afegiu o traieu un punt d&apos;interrupció a la línia actual de l&apos;editor.</translation>
-    </message>
-    <message>
-        <source>All breakpoints are inactive — click to activate all
-%1: add or remove on the current line in the editor</source>
-        <translation>Tots els punts d&apos;interrupció estan desactivats — feu clic per a activar-los tots
-%1: afegiu o traieu a la línia actual de l&apos;editor</translation>
-    </message>
-    <message>
-        <source>Click to deactivate all breakpoints
-%1: add or remove on the current line in the editor</source>
-        <translation>Feu clic per a desactivar tots els punts d&apos;interrupció.
-%1: afegiu o traieu a la línia actual de l&apos;editor</translation>
     </message>
 </context>
 <context>
@@ -7693,7 +7849,10 @@ Relatiu a la referència: n/a (fora del rang de referència)</translation>
 Drag existing breakpoint: move to nearest free visible line
 Shift+click: on an empty line, add a disabled breakpoint;
 on an existing breakpoint, toggle its active state</source>
-        <translation type="unfinished"></translation>
+        <translation>Clic: afegeix o elimina un punt d&apos;interrupció
+Arrossega un punt d&apos;interrupció existent: mou a la línia visible lliure més propera
+Maj+clic: en una línia buida, afegeix un punt d&apos;interrupció desactivat;
+en un punt d&apos;interrupció existent, commuta el seu estat entre actiu i desactivat</translation>
     </message>
 </context>
 <context>
@@ -7802,7 +7961,7 @@ on an existing breakpoint, toggle its active state</source>
     </message>
     <message>
         <source>&lt;p&gt;&lt;b&gt;Expression&lt;/b&gt;&lt;br/&gt;Pause only when this Lua expression is truthy in the current frame. Runtime errors count as false and surface a warning icon on the row.&lt;/p&gt;&lt;p&gt;&lt;b&gt;Hit Count&lt;/b&gt;&lt;br/&gt;Gate the pause on a hit counter. The dropdown next to &lt;i&gt;N&lt;/i&gt; picks the comparison mode: &lt;code&gt;from&lt;/code&gt; pauses on every hit from &lt;i&gt;N&lt;/i&gt; onwards (default); &lt;code&gt;every&lt;/code&gt; pauses on hits &lt;i&gt;N&lt;/i&gt;, 2&amp;times;&lt;i&gt;N&lt;/i&gt;, 3&amp;times;&lt;i&gt;N&lt;/i&gt;, &amp;hellip;; &lt;code&gt;once&lt;/code&gt; pauses on the &lt;i&gt;N&lt;/i&gt;-th hit and deactivates the breakpoint. The counter is preserved across edits; right-click the row to reset it.&lt;/p&gt;&lt;p&gt;&lt;b&gt;Log Message&lt;/b&gt;&lt;br/&gt;Write a line to the &lt;i&gt;Evaluate&lt;/i&gt; output (and Wireshark&apos;s debug log) each time the breakpoint fires &amp;mdash; after the &lt;i&gt;Hit Count&lt;/i&gt; gate and any &lt;i&gt;Expression&lt;/i&gt; allow it. By default execution continues; click the pause toggle on the editor row to also pause after emitting. Tags: &lt;code&gt;{expr}&lt;/code&gt; (any Lua value); &lt;code&gt;{filename}&lt;/code&gt;, &lt;code&gt;{basename}&lt;/code&gt;, &lt;code&gt;{line}&lt;/code&gt;, &lt;code&gt;{function}&lt;/code&gt;, &lt;code&gt;{what}&lt;/code&gt;; &lt;code&gt;{hits}&lt;/code&gt;, &lt;code&gt;{depth}&lt;/code&gt;, &lt;code&gt;{thread}&lt;/code&gt;; &lt;code&gt;{timestamp}&lt;/code&gt;, &lt;code&gt;{datetime}&lt;/code&gt;, &lt;code&gt;{epoch}&lt;/code&gt;, &lt;code&gt;{epoch_ms}&lt;/code&gt;, &lt;code&gt;{elapsed}&lt;/code&gt;, &lt;code&gt;{delta}&lt;/code&gt;; &lt;code&gt;{{&lt;/code&gt; / &lt;code&gt;}}&lt;/code&gt; for literal braces.&lt;/p&gt;&lt;p&gt;Edit the &lt;i&gt;Location&lt;/i&gt; cell (double-click, F2, or right-click &amp;rarr; Edit) to attach one of these. A white core inside the breakpoint dot &amp;mdash; in this list and in the gutter &amp;mdash; marks rows that carry extras.&lt;/p&gt;</source>
-        <translation type="unfinished"></translation>
+        <translation>&lt;p&gt;&lt;b&gt;Expressió&lt;/b&gt;&lt;br/&gt;Posa en pausa només quan aquesta expressió Lua sigui certa a la trama actual. Els errors en temps d&apos;execució compten com a falsos i mostren una icona d&apos;avís a la fila.&lt;/p&gt;&lt;p&gt;&lt;b&gt;Recompte d&apos;execucions&lt;/b&gt;&lt;br/&gt;Posa en pausa segons el recompte d&apos;execucions. El desplegable al costat de la &lt;i&gt;N&lt;/i&gt; determina el mode de comparació: &lt;code&gt;a partir de&lt;/code&gt; posa en pausa cada vegada a partir de la &lt;i&gt;N&lt;/i&gt; execució (per defecte); &lt;code&gt;cada&lt;/code&gt; posa en pausa a les execucions &lt;i&gt;N&lt;/i&gt;, 2&amp;times;&lt;i&gt;N&lt;/i&gt;, 3&amp;times;&lt;i&gt;N&lt;/i&gt;, &amp;hellip;; &lt;code&gt;una vegada&lt;/code&gt; posa en pausa a l&apos;execució &lt;i&gt;N&lt;/i&gt;-èssima i desactiva el punt d&apos;interrupció. El comptador es manté encara que es facin edicions; feu clic amb el botó dret per a restablir-ho.&lt;/p&gt;&lt;p&gt;&lt;b&gt;Missatge de registre&lt;/b&gt;&lt;br/&gt;Escriu una línia a la sortida &lt;i&gt;Avalua&lt;/i&gt; (i al registre de depuració del Wireshark) cada vegada que es passi pel punt d&apos;interrupció &amp;mdash; després que la porta del &lt;i&gt;Recompte d&apos;execucions&lt;/i&gt; i qualsevol altra &lt;i&gt;Expressió&lt;/i&gt; ho permetin. Per defecte, l&apos;execució continua; feu clic el commutador de pausa a la fila de l&apos;editor per a què també es posi en pausa després d&apos;emetre-la. Etiquetes: &lt;code&gt;{expr}&lt;/code&gt; (qualsevol valor Lua); &lt;code&gt;{filename}&lt;/code&gt;, &lt;code&gt;{basename}&lt;/code&gt;, &lt;code&gt;{line}&lt;/code&gt;, &lt;code&gt;{function}&lt;/code&gt;, &lt;code&gt;{what}&lt;/code&gt;; &lt;code&gt;{hits}&lt;/code&gt;, &lt;code&gt;{depth}&lt;/code&gt;, &lt;code&gt;{thread}&lt;/code&gt;; &lt;code&gt;{timestamp}&lt;/code&gt;, &lt;code&gt;{datetime}&lt;/code&gt;, &lt;code&gt;{epoch}&lt;/code&gt;, &lt;code&gt;{epoch_ms}&lt;/code&gt;, &lt;code&gt;{elapsed}&lt;/code&gt;, &lt;code&gt;{delta}&lt;/code&gt;; &lt;code&gt;{{&lt;/code&gt; / &lt;code&gt;}}&lt;/code&gt; per a escriure claus.&lt;/p&gt;&lt;p&gt;Editeu la cel·la d&apos;&lt;i&gt;Ubicació  (feu doble clic, F2, o feu clic amb el botó dret &amp;rarr; Edita) per a afegir-ne alguna. Un nucli blanc a l&apos;interior del punt d&apos;interrupció —tant en aquesta llista com al marge— marca les files que contenen elements addicionals.&lt;/p&gt;</translation>
     </message>
     <message>
         <source>Active</source>
@@ -7814,15 +7973,15 @@ on an existing breakpoint, toggle its active state</source>
     </message>
     <message>
         <source>Hits</source>
-        <translation type="unfinished"></translation>
+        <translation>Execucions</translation>
     </message>
     <message>
         <source>ON — Break on Lua errors</source>
-        <translation type="unfinished"></translation>
+        <translation>ON — Para quan hi hagi errors LUA</translation>
     </message>
     <message>
         <source>OFF — Break on Lua errors</source>
-        <translation type="unfinished"></translation>
+        <translation>OFF — Para quan hi hagi errors LUA</translation>
     </message>
     <message>
         <source>Files</source>
@@ -7833,8 +7992,12 @@ on an existing breakpoint, toggle its active state</source>
         <translation>Avalua</translation>
     </message>
     <message>
-        <source>Enter Lua expression (prefix with = to return value)</source>
-        <translation>Escriviu una expressió Lua (prefix amb = per al valor de retorn)</translation>
+        <source>&lt;b&gt;Lua Expression Evaluation&lt;/b&gt;&lt;br&gt;&lt;br&gt;Code runs in a protected environment: runtime errors are caught and shown in the output instead of propagating.&lt;br&gt;&lt;br&gt;&lt;b&gt;What works:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Read/modify global variables (&lt;code&gt;_G.x = 42&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Modify table contents (&lt;code&gt;my_table.field = 99&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Call functions and inspect return values&lt;/li&gt;&lt;/ul&gt;&lt;b&gt;Limitations:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Local variables cannot be modified directly (use &lt;code&gt;debug.setlocal()&lt;/code&gt;) unless there is an associated &lt;i&gt;assign&lt;/i&gt; method (&lt;code&gt;pinfo.src_port&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Long-running expressions are automatically aborted&lt;/li&gt;&lt;li&gt;&lt;b&gt;Warning:&lt;/b&gt; Changes to globals persist and can affect ongoing dissection&lt;/li&gt;&lt;/ul&gt;</source>
+        <translation>&lt;b&gt;Avaluació de l&apos;expressió Lua&lt;/b&gt;&lt;br&gt;&lt;br&gt;El codi s&apos;executa en un entorn protegit: els errors d&apos;execució es capturen i es mostren a la sortida en lloc de propagar-se.&lt;br&gt;&lt;br&gt;&lt;b&gt;Què funciona:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Llegir/modificar variables globals (&lt;code&gt;_G.x = 42&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Modificar els continguts de les taules (&lt;code&gt;my_table.field = 99&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Cridar funcions i inspeccionar els valors de retorn&lt;/li&gt;&lt;/ul&gt;&lt;b&gt;Limitacions:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Les variables locals no es poden modificar directament (feu servir &lt;code&gt;debug.setlocal()&lt;/code&gt;) a no ser que hi hagi un mètode d&apos;&lt;i&gt;assignació&lt;/i&gt; (&lt;code&gt;pinfo.src_port&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Les expressions de llarga execució s&apos;avorten automàticament&lt;/li&gt;&lt;li&gt;&lt;b&gt;Avís:&lt;/b&gt; Els canvis a les variables globals persisteixen i poden afectar a la dissecció que s&apos;estigui fent.&lt;/li&gt;&lt;/ul&gt;</translation>
+    </message>
+    <message>
+        <source>Enter Lua expression</source>
+        <translation>Escriviu una expressió Lua</translation>
     </message>
     <message>
         <source>Output</source>
@@ -7849,8 +8012,8 @@ on an existing breakpoint, toggle its active state</source>
         <translation>Neteja</translation>
     </message>
     <message>
-        <source>Clear input and output</source>
-        <translation>Neteja l&apos;entrada i la sortida</translation>
+        <source>Clear output</source>
+        <translation>Neteja la sortida</translation>
     </message>
     <message>
         <source>Settings</source>
@@ -7911,7 +8074,7 @@ on an existing breakpoint, toggle its active state</source>
     </message>
     <message>
         <source>&lt;p&gt;Each row is either a &lt;b&gt;Variables-tree path&lt;/b&gt; or a &lt;b&gt;Lua expression&lt;/b&gt;; the panel auto-detects which based on the syntax you type.&lt;/p&gt;&lt;p&gt;&lt;b&gt;Path watches&lt;/b&gt; &amp;mdash; resolved against the paused frame&apos;s locals, upvalues, and globals:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Section-qualified: &lt;code&gt;Locals.&lt;i&gt;name&lt;/i&gt;&lt;/code&gt;, &lt;code&gt;Upvalues.&lt;i&gt;name&lt;/i&gt;&lt;/code&gt;, &lt;code&gt;Globals.&lt;i&gt;name&lt;/i&gt;&lt;/code&gt;.&lt;/li&gt;&lt;li&gt;Section root alone: &lt;code&gt;Locals&lt;/code&gt;, &lt;code&gt;Upvalues&lt;/code&gt;, &lt;code&gt;Globals&lt;/code&gt; (&lt;code&gt;_G&lt;/code&gt; is an alias for &lt;code&gt;Globals&lt;/code&gt;).&lt;/li&gt;&lt;li&gt;Unqualified name: resolved in &lt;b&gt;Locals &amp;rarr; Upvalues &amp;rarr; Globals&lt;/b&gt; order; the row tooltip shows which section matched.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;After the first segment, chain &lt;code&gt;.field&lt;/code&gt; or bracket keys &amp;mdash; integer (&lt;code&gt;[1]&lt;/code&gt;, &lt;code&gt;[-1]&lt;/code&gt;, &lt;code&gt;[0x1F]&lt;/code&gt;), boolean (&lt;code&gt;[true]&lt;/code&gt;), or short-literal string (&lt;code&gt;[&quot;key&quot;]&lt;/code&gt;, &lt;code&gt;[&apos;k&apos;]&lt;/code&gt;). Depth is capped at 32 segments.&lt;/p&gt;&lt;p&gt;&lt;b&gt;Expression watches&lt;/b&gt; &amp;mdash; anything that is not a plain path (operators, function/method calls, table constructors, length &lt;code&gt;#&lt;/code&gt;, comparisons, &amp;hellip;) is evaluated as Lua against the same locals/upvalues/globals. &lt;b&gt;You do not need a leading &lt;code&gt;=&lt;/code&gt; or &lt;code&gt;return&lt;/code&gt;&lt;/b&gt;; value-returning expressions auto-return their value. Examples: &lt;code&gt;#packets&lt;/code&gt;, &lt;code&gt;tbl[i + 1]&lt;/code&gt;, &lt;code&gt;obj:method()&lt;/code&gt;, &lt;code&gt;a == b&lt;/code&gt;, &lt;code&gt;{x, y}&lt;/code&gt;. Tables produced by an expression are expandable, and children re-resolve on every pause.&lt;/p&gt;&lt;p&gt;Values are only read while the debugger is &lt;b&gt;paused&lt;/b&gt;; otherwise the Value column shows a muted em dash. Values that differ from the previous pause are drawn in a &lt;b&gt;bold accent color&lt;/b&gt;, and briefly flash on the pause that introduced the change.&lt;/p&gt;&lt;p&gt;Double-click or press &lt;b&gt;F2&lt;/b&gt; to edit a row; &lt;b&gt;Delete&lt;/b&gt; removes it; drag rows to reorder. Use the &lt;b&gt;Evaluate&lt;/b&gt; panel below to run statements with side effects (assignments, blocks, loops).&lt;/p&gt;</source>
-        <translation type="unfinished"></translation>
+        <translation>&lt;p&gt;Cada fila és un &lt;b&gt;camí de l&apos;arbre de variables&lt;/b&gt; o una &lt;b&gt;expressió Lua&lt;/b&gt;; el panell detecta automàticament en quina sintaxi s&apos;ha escrit.&lt;/p&gt;&lt;p&gt;&lt;b&gt;Punts de vigilància de camins&lt;/b&gt; &amp;mdash; resolts respecte les trames en pausa locals, upvalues i globals:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Qualificats per secció: &lt;code&gt;Locals.&lt;i&gt;nom&lt;/i&gt;&lt;/code&gt;, &lt;code&gt;Upvalues.&lt;i&gt;nom&lt;/i&gt;&lt;/code&gt;, &lt;code&gt;Globals.&lt;i&gt;nom&lt;/i&gt;&lt;/code&gt;.&lt;/li&gt;&lt;li&gt;Només secció root: &lt;code&gt;Locals&lt;/code&gt;, &lt;code&gt;Upvalues&lt;/code&gt;, &lt;code&gt;Globals&lt;/code&gt; (&lt;code&gt;_G&lt;/code&gt; és un àlies per a &lt;code&gt;Globals&lt;/code&gt;).&lt;/li&gt;&lt;li&gt;Nom sense qualificar: es resol en aquest ordre: &lt;b&gt;Locals &amp;rarr; Upvalues &amp;rarr; Globals&lt;/b&gt;; la fila d&apos;ajuda mostra a quina secció es correspon.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Després del primer segment, la cadena &lt;code&gt;.field&lt;/code&gt; o tecles de claudàtor &amp;mdash; enter (&lt;code&gt;[1]&lt;/code&gt;, &lt;code&gt;[-1]&lt;/code&gt;, &lt;code&gt;[0x1F]&lt;/code&gt;), booleà (&lt;code&gt;[true]&lt;/code&gt;), o cadena literal curta (&lt;code&gt;[&quot;key&quot;]&lt;/code&gt;, &lt;code&gt;[&apos;k&apos;]&lt;/code&gt;). La profunditat es mostra truncada a 32 segments.&lt;/p&gt;&lt;p&gt;&lt;b&gt;Punts de vigilància d&apos;expressions&lt;/b&gt; &amp;mdash; qualsevol expressió que no sigui un camí (operadors, crides a funcions/mètodes, constructors de taules, llargada &lt;code&gt;#&lt;/code&gt;, comparacions, &amp;hellip;) s&apos;avalua com a Lua amb els mateixos locals/upvalues/globals. &lt;b&gt;No cal començar amb el símbol &lt;code&gt;=&lt;/code&gt; o un &lt;code&gt;retorn&lt;/code&gt;&lt;/b&gt;; les expressions que retornen valors els retornen automàticament. Exemples: &lt;code&gt;#packets&lt;/code&gt;, &lt;code&gt;tbl[i + 1]&lt;/code&gt;, &lt;code&gt;obj:method()&lt;/code&gt;, &lt;code&gt;a == b&lt;/code&gt;, &lt;code&gt;{x, y}&lt;/code&gt;. Les taules produïdes amb expressions es poden expandir i els fills es tornen a resoldre a cada pausa.&lt;/p&gt;&lt;p&gt;Els valors només es llegeixen quan el depurador està en &lt;b&gt;pausa&lt;/b&gt;; altrament la columna Valor mostra un guió llarg mutat. Els valors de variables que han canviat respecte la pausa anterior es mostren en un &lt;b&gt;color ressaltat&lt;/b&gt; i pampalluguegen breument durant la pausa en què ha canviat el valor.&lt;/p&gt;&lt;p&gt;Feu doble clic o premeu &lt;b&gt;F2&lt;/b&gt; per a editar una fila; &lt;b&gt;Esborra&lt;/b&gt; la trau; arrossegueu files per a reordenar-les. Feu servir el panell d&apos;&lt;b&gt;Avalua&lt;/b&gt; que hi ha a sota de les sentències d&apos;execució amb efectes col·laterals (assignacions, blocs o bucles).&lt;/p&gt;</translation>
     </message>
     <message>
         <source>Remove Watch (%1)</source>
@@ -7936,10 +8099,6 @@ on an existing breakpoint, toggle its active state</source>
     <message>
         <source>Remove All Breakpoints (%1)</source>
         <translation>Trau tots els punts d&apos;interrupció (%1)</translation>
-    </message>
-    <message>
-        <source>&lt;b&gt;Lua Expression Evaluation&lt;/b&gt;&lt;br&gt;&lt;br&gt;Code runs in a protected environment: runtime errors are caught and shown in the output instead of propagating.&lt;br&gt;&lt;br&gt;&lt;b&gt;Prefix with &lt;code&gt;=&lt;/code&gt;&lt;/b&gt; to return a value (e.g., &lt;code&gt;=my_var&lt;/code&gt;).&lt;br&gt;&lt;br&gt;&lt;b&gt;What works:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Read/modify global variables (&lt;code&gt;_G.x = 42&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Modify table contents (&lt;code&gt;my_table.field = 99&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Call functions and inspect return values&lt;/li&gt;&lt;/ul&gt;&lt;b&gt;Limitations:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Local variables cannot be modified directly (use &lt;code&gt;debug.setlocal()&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Long-running expressions are automatically aborted&lt;/li&gt;&lt;li&gt;&lt;b&gt;Warning:&lt;/b&gt; Changes to globals persist and can affect ongoing dissection&lt;/li&gt;&lt;/ul&gt;</source>
-        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Undo</source>
@@ -8011,7 +8170,7 @@ on an existing breakpoint, toggle its active state</source>
     </message>
     <message>
         <source>(runtime error)</source>
-        <translation type="unfinished"></translation>
+        <translation>(error d&apos;execució)</translation>
     </message>
     <message>
         <source>Running</source>
@@ -8103,44 +8262,6 @@ on an existing breakpoint, toggle its active state</source>
     </message>
 </context>
 <context>
-    <name>LuaDebuggerEvalController</name>
-    <message>
-        <source>Evaluation available when debugger is paused</source>
-        <translation>L&apos;avaluació és disponible quan el depurador està en pausa.</translation>
-    </message>
-    <message>
-        <source>Enter Lua expression (prefix with = to return value)</source>
-        <translation>Escriviu una expressió Lua (prefix amb = per al valor de retorn)</translation>
-    </message>
-    <message>
-        <source>Error: %1</source>
-        <translation>Error: %1</translation>
-    </message>
-    <message>
-        <source>Error: Unknown error</source>
-        <translation>Error: Error desconegut</translation>
-    </message>
-</context>
-<context>
-    <name>LuaDebuggerFilesController</name>
-    <message>
-        <source>Open Source</source>
-        <translation>Obre l&apos;origen</translation>
-    </message>
-    <message>
-        <source>Show in Finder</source>
-        <translation>Mostra al cercador</translation>
-    </message>
-    <message>
-        <source>Show in Folder</source>
-        <translation>Mostra a la carpeta</translation>
-    </message>
-    <message>
-        <source>Copy Path</source>
-        <translation>Copia el camí</translation>
-    </message>
-</context>
-<context>
     <name>LuaDebuggerFindFrame</name>
     <message>
         <source>Find:</source>
@@ -8187,21 +8308,6 @@ on an existing breakpoint, toggle its active state</source>
     </message>
 </context>
 <context>
-    <name>LuaDebuggerLuaReloadCoordinator</name>
-    <message>
-        <source>Reload Lua Plugins</source>
-        <translation>Torna a carregar els complements Lua</translation>
-    </message>
-    <message>
-        <source>Are you sure you want to reload all Lua plugins?
-
-This will restart all Lua scripts and may affect capture analysis.</source>
-        <translation>Esteu segur que voleu tornar a carregar tots els complements Lua?
-
-Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captura.</translation>
-    </message>
-</context>
-<context>
     <name>LuaDebuggerPauseOverlay</name>
     <message>
         <source>Lua debugger paused</source>
@@ -8213,58 +8319,12 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     </message>
 </context>
 <context>
-    <name>LuaDebuggerStackController</name>
-    <message>
-        <source>Open Source</source>
-        <translation>Obre l&apos;origen</translation>
-    </message>
-    <message>
-        <source>Copy Location</source>
-        <translation>Copia la ubicació</translation>
-    </message>
-</context>
-<context>
-    <name>LuaDebuggerVariablesController</name>
-    <message>
-        <source>Type: %1</source>
-        <translation>Tipus: %1</translation>
-    </message>
-    <message>
-        <source>%1 = %2</source>
-        <translation>%1 = %2</translation>
-    </message>
-    <message>
-        <source>Copy Name</source>
-        <translation>Copia el nom</translation>
-    </message>
-    <message>
-        <source>Copy Value</source>
-        <translation>Copia el valor</translation>
-    </message>
-    <message>
-        <source>Copy Path</source>
-        <translation>Copia el camí</translation>
-    </message>
-    <message>
-        <source>Copy Name &amp;&amp; Value</source>
-        <translation>Copia el nom &amp;i el valor</translation>
-    </message>
-    <message>
-        <source>Add Watch: &quot;%1&quot;</source>
-        <translation>Afegeix vigilància a: «%1»</translation>
-    </message>
-</context>
-<context>
     <name>LuaDebuggerWatchController</name>
-    <message>
-        <source>Clear All Watches</source>
-        <translation>Esborra totes les vigilàncies</translation>
-    </message>
     <message numerus="yes">
         <source>Are you sure you want to remove %Ln watch(es)?</source>
-        <translation>
-            <numerusform>Esteu segur que voleu traure el punt de vigilància?</numerusform>
-            <numerusform>Esteu segur que voleu traure els %Ln punts de vigilància?</numerusform>
+        <translation type="obsolete">
+            <numerusform>Are you sure you want to remove %Ln watch?</numerusform>
+            <numerusform>Are you sure you want to remove %Ln watches?</numerusform>
         </translation>
     </message>
     <message>
@@ -8277,14 +8337,6 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
             <numerusform>L&apos;expressió de vigilància és massa llarga (com a màxim %Ln caràcter).</numerusform>
             <numerusform>L&apos;expressió de vigilància és massa llarga (com a màxim %Ln caràcters).</numerusform>
         </translation>
-    </message>
-    <message>
-        <source>Maximum watch depth reached</source>
-        <translation>S&apos;ha assolit la profunditat de vigilància màxima.</translation>
-    </message>
-    <message>
-        <source>Maximum watch depth reached.</source>
-        <translation>Profunditat de vigilància màxima assolida</translation>
     </message>
 </context>
 <context>
@@ -8463,7 +8515,7 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     </message>
     <message>
         <source> %1 Aggregated: %2</source>
-        <translation type="unfinished"></translation>
+        <translation> %1 agragat: %2</translation>
     </message>
     <message>
         <source> %1 Selected: %2 (%3%)</source>
@@ -9101,8 +9153,20 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Diàleg</translation>
     </message>
     <message>
+        <source>&amp;Edit</source>
+        <translation>&amp;Edita</translation>
+    </message>
+    <message>
         <source>&lt;small&gt;&lt;i&gt;&lt;/i&gt;&lt;/small&gt;</source>
         <translation>&lt;small&gt;&lt;i&gt;&lt;/i&gt;&lt;/small&gt;</translation>
+    </message>
+    <message>
+        <source>Find in Packet</source>
+        <translation>Troba al paquet</translation>
+    </message>
+    <message>
+        <source>Find in the packet details tree (Ctrl+Alt+F)</source>
+        <translation>Troba a l&apos;arbre de detalls del paquet (Ctrl+Alt+F)</translation>
     </message>
     <message>
         <source>Show packet bytes</source>
@@ -9111,6 +9175,14 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     <message>
         <source>Layout:</source>
         <translation>Disposició:</translation>
+    </message>
+    <message>
+        <source>Find in &amp;Packet</source>
+        <translation>Troba al &amp;paquet</translation>
+    </message>
+    <message>
+        <source>Find in the packet details tree (%1)</source>
+        <translation>Troba a l&apos;arbre de detalls del paquet (%1)</translation>
     </message>
     <message>
         <source>Packet %1</source>
@@ -9151,6 +9223,84 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     </message>
 </context>
 <context>
+    <name>PacketFormatCArraysGroupBox</name>
+    <message>
+        <source>GroupBox</source>
+        <translation>GroupBox</translation>
+    </message>
+    <message>
+        <source>Packet Format</source>
+        <translation>Format del paquet</translation>
+    </message>
+    <message>
+        <source>Include secondary data sources</source>
+        <translation>Inclou les fonts de dades secundàries</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Generate arrays for secondary data sources like reassembled or decrypted buffers in addition to the frame&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Genera taules per als orígens de dades secundaris com ara memòries intermèdies tornades a unir o desencriptades, a més a més de la trama.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Include an array to index into the list of frames&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Inclou una taula per a indexar la llista de trames.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Include index</source>
+        <translation>Inclou l&apos;índex</translation>
+    </message>
+</context>
+<context>
+    <name>PacketFormatCSVGroupBox</name>
+    <message>
+        <source>GroupBox</source>
+        <translation>GroupBox</translation>
+    </message>
+    <message>
+        <source>Packet Format</source>
+        <translation>Format del paquet</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Escape non-ASCII and whitespace characters&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Escapa els caràcters no-ASCII i d&apos;espai en blanc.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>ASCII</source>
+        <translation>ASCII</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Export as a UTF-8 CSV&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Exporta com a CSV UTF-8.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>UTF-8</source>
+        <translation>UTF-8</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Include a Byte Order Mark at the beginning of the file, for Windows&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Inclou una marca d&apos;ordre de bytes a l&apos;inici del fitxer per a Windows.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Include Byte Order Mark</source>
+        <translation>Inclou una marca d&apos;ordre de bytes</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Prefix values that a spreadsheet would evaluate as a formula (those starting with &quot;=&quot;, &quot;+&quot;, &quot;-&quot; or &quot;@&quot;) with an apostrophe, so that packet data cannot inject a formula into the exported file&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Posa un prefix als valors que els fulls de càlcul avaluarien com una fórmula (els que comencen amb «=», «+», «-» or «@») amb un apòstrof, de manera que les dades del paquet no puguin injectar una fórmula al fitxer exportat.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Escape spreadsheet formulas</source>
+        <translation>Escapament de fórmules en fulls de càlcul</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Replace whitespace characters (tabs, newlines, etc.) with C-style escapes&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Reemplaça els caràcters d&apos;espais en blanc (tabuladors, línies noves, etc.) amb escapament d&apos;estil en C.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Escape whitespace</source>
+        <translation>Espais en blanc d&apos;escapament</translation>
+    </message>
+</context>
+<context>
     <name>PacketFormatJSONGroupBox</name>
     <message>
         <source>GroupBox</source>
@@ -9167,6 +9317,14 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     <message>
         <source>No duplicate keys</source>
         <translation>Sense claus duplicades</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Output compact JSON without indentation (significantly faster and smaller)&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;JSON de sortida compacta sense sagnat (bastant més ràpid i petit)&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Compact (no indentation)</source>
+        <translation>Compacte (sense sagnat)</translation>
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Export a name/value pair for each field with the field value&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
@@ -9267,6 +9425,14 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
 <context>
     <name>PacketList</name>
     <message>
+        <source>Go to Packet</source>
+        <translation>Vés al paquet</translation>
+    </message>
+    <message>
+        <source>Tag Links</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Summary as Text</source>
         <translation>Resum com a text</translation>
     </message>
@@ -9297,6 +9463,28 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     <message>
         <source>[ Comment text exceeds %1. Stopping. ]</source>
         <translation>[ El text del comentari excedeix %1. Es para. ]</translation>
+    </message>
+    <message>
+        <source>Unpin Selected Rows</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Pin Selected Rows (max %Ln)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Pin Selected Rows</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>At most %Ln rows can be pinned.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
     </message>
 </context>
 <context>
@@ -9334,16 +9522,24 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Mostra com a cadenes</translation>
     </message>
     <message>
-        <source>Display as packet Details</source>
-        <translation>Mostra com a detalls de paquets</translation>
-    </message>
-    <message>
         <source>Column Preferences…</source>
         <translation>Preferències de la columna…</translation>
     </message>
     <message>
         <source>Resize Column to Width…</source>
         <translation>Redimensiona l&apos;amplada de la columna…</translation>
+    </message>
+    <message>
+        <source>Unfreeze Columns</source>
+        <translation>Descongela les columnes</translation>
+    </message>
+    <message>
+        <source>Freeze Column</source>
+        <translation>Congela les columnes</translation>
+    </message>
+    <message>
+        <source>Display as Packet Details</source>
+        <translation>Mostra com a detalls del paquet</translation>
     </message>
     <message>
         <source>Remove this Column</source>
@@ -9361,22 +9557,6 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
 <context>
     <name>PacketListModel</name>
     <message>
-        <source>Column</source>
-        <translation>Columna</translation>
-    </message>
-    <message>
-        <source>%1 can only be sorted with %2 or fewer visible rows; increase cache size in Layout preferences</source>
-        <translation>%1 només es pot ordenar amb %2 o menys files visibles; augmenteu la memòria cau a les preferències de disposició.</translation>
-    </message>
-    <message>
-        <source>Sorting &quot;%1&quot;…</source>
-        <translation>S&apos;ordena «%1»…</translation>
-    </message>
-    <message>
-        <source>Sorting …</source>
-        <translation>S&apos;ordena…</translation>
-    </message>
-    <message>
         <source>Marked</source>
         <translation>Marcat</translation>
     </message>
@@ -9391,6 +9571,25 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     <message>
         <source>Modified</source>
         <translation>Modificat</translation>
+    </message>
+</context>
+<context>
+    <name>PacketListProxyModel</name>
+    <message>
+        <source>Column</source>
+        <translation>Columna</translation>
+    </message>
+    <message>
+        <source>%1 can only be sorted with %2 or fewer visible rows; increase cache size in Layout preferences</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sorting &quot;%1&quot;…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sorting …</source>
+        <translation>S&apos;ordena…</translation>
     </message>
 </context>
 <context>
@@ -9467,10 +9666,21 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     </message>
 </context>
 <context>
+    <name>PinnedRowsModel</name>
+    <message>
+        <source>This packet is pinned but doesn&apos;t match the display filter.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This packet is pinned but has been aggregated into a later row with the same key.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>Plot</name>
     <message>
-        <source>Field cannot be empty!</source>
-        <translation>El camp no es pot deixar buit!</translation>
+        <source>Field cannot be empty.</source>
+        <translation>El camp no pot ser buit.</translation>
     </message>
 </context>
 <context>
@@ -10099,8 +10309,8 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Columnes</translation>
     </message>
     <message>
-        <source>Font and Colors</source>
-        <translation>Fonts i colors</translation>
+        <source>Theme and Font</source>
+        <translation>Tema i tipus de lletra</translation>
     </message>
     <message>
         <source>Welcome Page</source>
@@ -10124,7 +10334,7 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     </message>
     <message>
         <source>Aggregation</source>
-        <translation type="unfinished"></translation>
+        <translation>Agregació</translation>
     </message>
 </context>
 <context>
@@ -10501,6 +10711,10 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Plega-ho tot</translation>
     </message>
     <message>
+        <source>Distribution…</source>
+        <translation>Distribuci…</translation>
+    </message>
+    <message>
         <source>Copy</source>
         <translation>Copia</translation>
     </message>
@@ -10535,6 +10749,14 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     <message>
         <source>Filter Field Reference</source>
         <translation>Filtra la referència del filtre</translation>
+    </message>
+    <message>
+        <source>Tagging Rules...</source>
+        <translation>Regles d&apos;etiquetatge...</translation>
+    </message>
+    <message>
+        <source>Tag Links</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Coloring Rule Preferences...</source>
@@ -11129,6 +11351,10 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Id UE</translation>
     </message>
     <message>
+        <source></source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Name</source>
         <translation>Nom</translation>
     </message>
@@ -11318,12 +11544,237 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <source>Personal</source>
         <translation>Personal</translation>
     </message>
-</context>
-<context>
-    <name>QObject::QObject::QObject</name>
     <message>
-        <source>CCCH</source>
-        <translation>CCCH</translation>
+        <source>Type: %1</source>
+        <translation>Tipus: %1</translation>
+    </message>
+    <message>
+        <source>%1 = %2</source>
+        <translation>%1 = %2</translation>
+    </message>
+    <message>
+        <source>Copy Name</source>
+        <translation>Copia el nom</translation>
+    </message>
+    <message>
+        <source>Copy Value</source>
+        <translation>Copia el valor</translation>
+    </message>
+    <message>
+        <source>Copy Path</source>
+        <translation>Copia el camí</translation>
+    </message>
+    <message>
+        <source>Copy Name &amp;&amp; Value</source>
+        <translation>Copia el nom &amp;i el valor</translation>
+    </message>
+    <message>
+        <source>Add Watch: &quot;%1&quot;</source>
+        <translation>Afegeix vigilància: «%1»</translation>
+    </message>
+    <message>
+        <source>Reload Lua Plugins</source>
+        <translation>Torna a carregar els complements Lua</translation>
+    </message>
+    <message>
+        <source>Are you sure you want to reload all Lua plugins?
+
+This will restart all Lua scripts and may affect capture analysis.</source>
+        <translation>Esteu segur que voleu tornar a carregar tots els complements Lua?
+
+Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captura.</translation>
+    </message>
+    <message>
+        <source>Evaluation available when debugger is paused</source>
+        <translation>L&apos;avaluació és disponible quan el depurador està en pausa.</translation>
+    </message>
+    <message>
+        <source>Enter Lua expression</source>
+        <translation>Escriviu una expressió Lua</translation>
+    </message>
+    <message>
+        <source>Error: %1</source>
+        <translation>Error: %1</translation>
+    </message>
+    <message>
+        <source>Error: Unknown error</source>
+        <translation>Error: Error desconegut</translation>
+    </message>
+    <message>
+        <source>Open Source</source>
+        <translation>Obre l&apos;origen</translation>
+    </message>
+    <message>
+        <source>Copy Location</source>
+        <translation>Copia la ubicació</translation>
+    </message>
+    <message>
+        <source>Show in Finder</source>
+        <translation>Mostra al cercador</translation>
+    </message>
+    <message>
+        <source>Show in Folder</source>
+        <translation>Mostra a la carpeta</translation>
+    </message>
+    <message>
+        <source>Add Watch</source>
+        <translation>Afegeix vigilància</translation>
+    </message>
+    <message>
+        <source>Remove All Watches</source>
+        <translation>Trau totes les vigilàncies</translation>
+    </message>
+    <message>
+        <source>Duplicate Watch</source>
+        <translation>Duplica la vigilància</translation>
+    </message>
+    <message>
+        <source>Edit Watch</source>
+        <translation>Edita la vigilància</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Trau</translation>
+    </message>
+    <message>
+        <source>Clear All Watches</source>
+        <translation>Esborra totes les vigilàncies</translation>
+    </message>
+    <message numerus="yes">
+        <source>Are you sure you want to remove %Ln watch(es)?</source>
+        <translation>
+            <numerusform>Esteu segur que voleu traure el punt de vigilància?</numerusform>
+            <numerusform>Esteu segur que voleu traure els %Ln punts de vigilància?</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Maximum watch depth reached</source>
+        <translation>S&apos;ha assolit la profunditat de vigilància màxima.</translation>
+    </message>
+    <message>
+        <source>Maximum watch depth reached.</source>
+        <translation>Profunditat de vigilància màxima assolida</translation>
+    </message>
+    <message>
+        <source>Location</source>
+        <translation>Ubicació</translation>
+    </message>
+    <message>
+        <source>&lt;p&gt;&lt;b&gt;Hit-count summary&lt;/b&gt;&lt;/p&gt;&lt;p&gt;&lt;code&gt;≥N&lt;/code&gt; &amp;mdash; &lt;i&gt;from&lt;/i&gt; mode: pause from hit &lt;i&gt;N&lt;/i&gt; onwards.&lt;br/&gt;&lt;code&gt;×N&lt;/code&gt; &amp;mdash; &lt;i&gt;every&lt;/i&gt; mode: pause on hits &lt;i&gt;N&lt;/i&gt;, &lt;i&gt;2N&lt;/i&gt;, &lt;i&gt;3N&lt;/i&gt;, &amp;hellip;&lt;br/&gt;&lt;code&gt;@N&lt;/code&gt; &amp;mdash; &lt;i&gt;once&lt;/i&gt; mode: pause once on the &lt;i&gt;N&lt;/i&gt;th hit, then deactivate.&lt;/p&gt;&lt;p&gt;The cell starts with the running hit counter; if a gate is set it follows in parentheses, e.g. &lt;code&gt;3 (≥10)&lt;/code&gt;. With no hit gate the cell is just the counter.&lt;/p&gt;&lt;p&gt;Edit the &lt;i&gt;Location&lt;/i&gt; cell to set or change the gate (see the breakpoint-extras section).&lt;/p&gt;</source>
+        <translation>&lt;p&gt;&lt;b&gt;Resum del recompte d&apos;execucions&lt;/b&gt;&lt;/p&gt;&lt;p&gt;&lt;code&gt;≥N&lt;/code&gt; &amp;mdash; Mode &lt;i&gt;a partir de&lt;/i&gt;: pausa des de l&apos;execució &lt;i&gt;N&lt;/i&gt; endavant.&lt;br/&gt;&lt;code&gt;×N&lt;/code&gt; &amp;mdash; Mode &lt;i&gt;cada&lt;/i&gt;: posa en pausa a les execucions &lt;i&gt;N&lt;/i&gt;, &lt;i&gt;2N&lt;/i&gt;, &lt;i&gt;3N&lt;/i&gt;, &amp;hellip;&lt;br/&gt;&lt;code&gt;@N&lt;/code&gt; &amp;mdash; Mode &lt;i&gt;una vegada&lt;/i&gt;: posa en pausa només a l&apos;execució &lt;i&gt;N&lt;/i&gt; i, després, es desactiva.&lt;/p&gt;&lt;p&gt;La cel·la comença amb el recompte d&apos;execució; si s&apos;estableix una porta, va seguida d&apos;un parèntesi, com ara &lt;code&gt;3 (≥10)&lt;/code&gt;. Si no hi ha cap porta, la cel·la mostra només el comptador.&lt;/p&gt;&lt;p&gt;Editeu la cel·la d&apos;&lt;i&gt;ubicació&lt;/i&gt; per a establir o canviar la porta (llegiu la secció addicional de punts d&apos;interrupció).&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <source>Edit...</source>
+        <translation>Edita...</translation>
+    </message>
+    <message>
+        <source>Reset Hit Count</source>
+        <translation>Restableix el recompte d&apos;execucions</translation>
+    </message>
+    <message>
+        <source>Reset All Hit Counts</source>
+        <translation>Restableix tots els recomptes d&apos;execucions</translation>
+    </message>
+    <message>
+        <source>Remove All Breakpoints</source>
+        <translation>Trau tots els punts d&apos;interrupció</translation>
+    </message>
+    <message>
+        <source>Clear All Breakpoints</source>
+        <translation>Esborra tots els punts d&apos;interrupció</translation>
+    </message>
+    <message numerus="yes">
+        <source>Are you sure you want to remove %Ln breakpoint(s)?</source>
+        <translation>
+            <numerusform>Esteu segur que voleu traure el punt d&apos;interrupció?</numerusform>
+            <numerusform>Esteu segur que voleu traure els %Ln punts d&apos;interrupció?</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Location: %1:%2</source>
+        <translation>Ubicació: %1:%2</translation>
+    </message>
+    <message>
+        <source>Condition: %1</source>
+        <translation>Condició: %1</translation>
+    </message>
+    <message>
+        <source>pauses on hits %1, 2×%1, 3×%1, …</source>
+        <translation>posa en pausa en execucions %1, 2×%1, 3×%1, …</translation>
+    </message>
+    <message>
+        <source>pauses once on hit %1, then deactivates the breakpoint</source>
+        <translation>posa en pausa una vegada que s&apos;executi %1, després desactiva el punt d&apos;interrupció</translation>
+    </message>
+    <message>
+        <source>pauses on every hit from %1 onwards</source>
+        <translation>posa en pausa en cada execució des de %1 endavant</translation>
+    </message>
+    <message>
+        <source>Hit Count: %1 / %2 (%3)</source>
+        <translation>Recompte d&apos;execucions: %1 / %2 (%3)</translation>
+    </message>
+    <message>
+        <source>Hits: %1</source>
+        <translation>Execucions: %1</translation>
+    </message>
+    <message>
+        <source>Log: %1</source>
+        <translation>Registre: %1</translation>
+    </message>
+    <message>
+        <source>(logpoint — also pauses)</source>
+        <translation>(punt de registre — també posa en pausa)</translation>
+    </message>
+    <message>
+        <source>(logpoint — does not pause)</source>
+        <translation>(punt de registre — no posa en pausa)</translation>
+    </message>
+    <message>
+        <source>Condition error on last evaluation — treated as false (silent). Edit or reset the breakpoint to clear.</source>
+        <translation>Error de condició a l&apos;última avaluació — tractada com a falsa (silenciosa). Editeu o restabliu el punt d&apos;interrupció per a netejar-ho.</translation>
+    </message>
+    <message>
+        <source>Condition error: %1</source>
+        <translation>Error de condició: %1</translation>
+    </message>
+    <message>
+        <source>File not found: %1</source>
+        <translation>Fitxer no trobat: %1</translation>
+    </message>
+    <message>
+        <source>&amp;Edit...</source>
+        <translation>&amp;Edita...</translation>
+    </message>
+    <message>
+        <source>&amp;Disable</source>
+        <translation>&amp;Desactiva</translation>
+    </message>
+    <message>
+        <source>&amp;Enable</source>
+        <translation>&amp;Activa</translation>
+    </message>
+    <message>
+        <source>&amp;Remove</source>
+        <translation>&amp;Trau</translation>
+    </message>
+    <message>
+        <source>No breakpoints
+%1: add or remove breakpoint on the current line in the editor</source>
+        <translation>No hi ha punts d&apos;interrupció.
+%1: afegiu o traieu un punt d&apos;interrupció a la línia actual de l&apos;editor.</translation>
+    </message>
+    <message>
+        <source>All breakpoints are inactive — click to activate all
+%1: add or remove on the current line in the editor</source>
+        <translation>Tots els punts d&apos;interrupció estan desactivats — feu clic per a activar-los tots
+%1: afegiu o traieu a la línia actual de l&apos;editor</translation>
+    </message>
+    <message>
+        <source>Click to deactivate all breakpoints
+%1: add or remove on the current line in the editor</source>
+        <translation>Feu clic per a desactivar tots els punts d&apos;interrupció.
+%1: afegiu o traieu a la línia actual de l&apos;editor</translation>
     </message>
 </context>
 <context>
@@ -12248,6 +12699,14 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Inverteix l&apos;estat de silenciador dels fluxos seleccionats</translation>
     </message>
     <message>
+        <source>Solo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unmute selected streams and mute all other streams</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Route audio to left channel of selected streams</source>
         <translation>Encamina l&apos;àudio al canal esquerre dels fluxos seleccionats</translation>
     </message>
@@ -12516,8 +12975,12 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>, inici: %1, cursor: %2. Premeu «G» per a anar al paquet %3. Doble clic al gràfic per a establir l&apos;inici de la reproducció.</translation>
     </message>
     <message>
-        <source>Playback of stream %1 failed!</source>
-        <translation>La reproducció del flux %1 ha fallat!</translation>
+        <source>Playback of stream %1 failed.</source>
+        <translation>La reproducció del flux %1 ha fallat.</translation>
+    </message>
+    <message>
+        <source>Save failed.</source>
+        <translation>La desada ha fallat.</translation>
     </message>
     <message>
         <source>Automatic</source>
@@ -12567,10 +13030,6 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     <message>
         <source>No streams are suitable for save</source>
         <translation>No hi ha fluxos que es puguin desar.</translation>
-    </message>
-    <message>
-        <source>Save failed!</source>
-        <translation>S&apos;ha produït un error a la desada!</translation>
     </message>
     <message>
         <source>Can&apos;t write header of AU file</source>
@@ -13367,6 +13826,14 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Ocurrències múltiples</translation>
     </message>
     <message>
+        <source>Search the selected packet details tree</source>
+        <translation>Cerca l&apos;arbre de detalls del paquet seleccionat</translation>
+    </message>
+    <message>
+        <source>Find in selected Packet</source>
+        <translation>Troba al paquet seleccionat</translation>
+    </message>
+    <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Search for data using display filter syntax (e.g. ip.addr==10.1.1.1), a hexadecimal string (e.g. fffffda5), a plain string (e.g. My String) or a regular expression (e.g. colou?r).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <oldsource>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Search for data using display filter syntax (e.g. ip.addr==10.1.1.1), a hexadecimal string (e.g. fffffda5) or a plain string (e.g. My String).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</oldsource>
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Cerca dades fent servir la sintaxi de filtres de visualització (com ara ip.addr==10.1.1.1), com a cadena hexadecimal (com ara fffffda5), una cadena neta (com ara «La meva cadena») o una expressió regular (com ara un color).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
@@ -13402,6 +13869,14 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     <message>
         <source>Invalid filter.</source>
         <translation>Filtre no vàlid.</translation>
+    </message>
+    <message>
+        <source>Search for a plain text string in the current packet details tree (e.g. My String).</source>
+        <translation>Cerca una cadena normal a l&apos;arbre de detalls del paquet (com ara «La meva cadena»).</translation>
+    </message>
+    <message>
+        <source>Search using a regular expression in the current packet details tree (e.g. colou?r).</source>
+        <translation>Cerca amb una expressió regular a l&apos;arbre de detalls del paquet (com ara «colo?r»).</translation>
     </message>
     <message>
         <source>That filter doesn&apos;t test anything.</source>
@@ -13446,6 +13921,30 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     <message>
         <source>No packet matched that filter.</source>
         <translation>Cap paquet compleix aquest filtre.</translation>
+    </message>
+    <message>
+        <source>Find in Packet supports string and regular expression search only.</source>
+        <translation>Troba al paquet suporta només cerques per cadena o amb expressions regulars.</translation>
+    </message>
+    <message>
+        <source>[no matches] %1</source>
+        <translation>[sense coincidències] %1</translation>
+    </message>
+    <message>
+        <source>No %1 found.</source>
+        <translation>No s&apos;ha trobat cap %1.</translation>
+    </message>
+    <message>
+        <source>[%1 of %2]</source>
+        <translation>[%1 de %2]</translation>
+    </message>
+    <message>
+        <source>Search for a plain text string/char in the current packet details tree (e.g. &apos;flag&apos; or &apos;f&apos;).</source>
+        <translation>Cerca una cadena normal o un caràcter a l&apos;arbre de detalls del paquet (com ara «La meva cadena» o «f»).</translation>
+    </message>
+    <message>
+        <source>Search using a regular expression in the current packet details tree (e.g. &apos;d&apos;).</source>
+        <translation>Cerca amb una expressió regular a l&apos;arbre de detalls del paquet (com ara «d»).</translation>
     </message>
 </context>
 <context>
@@ -13938,6 +14437,10 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     <message>
         <source>UTF-8</source>
         <translation>UTF-8</translation>
+    </message>
+    <message>
+        <source>UTF-8 Unescaped</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>YAML</source>
@@ -14864,6 +15367,177 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     </message>
 </context>
 <context>
+    <name>TaggingRulesDialog</name>
+    <message>
+        <source>Dialog</source>
+        <translation>Diàleg</translation>
+    </message>
+    <message>
+        <source>Follow Link:</source>
+        <translation>Segueix l&apos;enllaç:</translation>
+    </message>
+    <message>
+        <source>How to open a tag link in the packet list.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ctrl+Shift+Click</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Click</source>
+        <translation>Clic</translation>
+    </message>
+    <message>
+        <source>Right-click only</source>
+        <translation>Només amb clic dret</translation>
+    </message>
+    <message>
+        <source>Emoji Size:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Emoji size as a percentage of the row height. Does not affect text tag labels or the separator character.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>100%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>90%</source>
+        <translation type="unfinished">90&#xa0;%</translation>
+    </message>
+    <message>
+        <source>80%</source>
+        <translation type="unfinished">80&#xa0;%</translation>
+    </message>
+    <message>
+        <source>70%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>60%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>50%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Separator:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Single character shown between tags when more than one rule matches. Leave empty for none.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save these tagging rules and open the Coloring Rules dialog with this rule&apos;s filter and name pre-filled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy to Coloring Rule</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;small&gt;&lt;i&gt;A hint.&lt;/i&gt;&lt;/small&gt;</source>
+        <translation type="unfinished">&lt;small&gt;&lt;i&gt;Un consell.&lt;/i&gt;&lt;/small&gt;</translation>
+    </message>
+    <message>
+        <source>Add a new tagging rule.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete this tagging rule.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Duplicate this tagging rule.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear all tagging rules.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tagging Rules %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Shift+Command+Click</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import…</source>
+        <translation>Importa…</translation>
+    </message>
+    <message>
+        <source>Select a file and add its rules to the end of the list.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export…</source>
+        <translation type="unfinished">Exporta…</translation>
+    </message>
+    <message>
+        <source>Save rules to a file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy tagging rules from another profile.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open </source>
+        <translation type="unfinished">Obre</translation>
+    </message>
+    <message>
+        <source>(no tagrules.jsonc file yet — will be created on save)</source>
+        <oldsource>(no tagrules file yet — will be created on save)</oldsource>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Click to edit. Drag to move. Sample Emojis &lt;a href=&quot;https://emojipedia.org&quot;&gt;here&lt;/a&gt;. All matching rules are applied.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import Tagging Rules</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export %1 Tagging Rules</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>TaggingRulesModel</name>
+    <message>
+        <source>Name</source>
+        <translation type="unfinished">Nom</translation>
+    </message>
+    <message>
+        <source>Filter</source>
+        <translation type="unfinished">Filtre</translation>
+    </message>
+    <message>
+        <source>Tag</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Link</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Comment</source>
+        <translation type="unfinished">Comentari</translation>
+    </message>
+    <message>
+        <source>New tagging rule</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>TapParameterDialog</name>
     <message>
         <source>Dialog</source>
@@ -14929,6 +15603,313 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     <message>
         <source>Error saving file %1</source>
         <translation>S&apos;ha produït un error mentre es desava el fitxer %1</translation>
+    </message>
+</context>
+<context>
+    <name>TcpDedupDialog</name>
+    <message>
+        <source>TCP Duplication Table</source>
+        <translation>Taula de duplicats TCP</translation>
+    </message>
+    <message>
+        <source>The &quot;Detect duplication (capture-level) packets&quot; preference must be enabled in
+Preferences → Protocols → TCP to use this table.</source>
+        <translation>S&apos;ha d&apos;activar l&apos;opció «Detecta paquets duplicats (a nivell de captura)» que hi ha a 
+Preferències → Protocols → TCP per a fer servir aquesta taula.</translation>
+    </message>
+    <message>
+        <source>Time</source>
+        <translation>Temps</translation>
+    </message>
+    <message>
+        <source>Delta</source>
+        <translation>Delta</translation>
+    </message>
+    <message>
+        <source>Frame Number</source>
+        <translation>Número de trama</translation>
+    </message>
+    <message>
+        <source>Duplication Total</source>
+        <translation>Total de duplicats</translation>
+    </message>
+    <message>
+        <source>Frame List</source>
+        <translation>Llista de trames</translation>
+    </message>
+    <message>
+        <source>Info</source>
+        <translation>Info</translation>
+    </message>
+    <message>
+        <source>Stream:</source>
+        <translation>Flux:</translation>
+    </message>
+</context>
+<context>
+    <name>ThemeDebugDialog</name>
+    <message>
+        <source>Theme Debug</source>
+        <translation>Depuració del tema</translation>
+    </message>
+    <message>
+        <source>Name:</source>
+        <translation>Nom:</translation>
+    </message>
+    <message>
+        <source>Internal:</source>
+        <translation>Intern:</translation>
+    </message>
+    <message>
+        <source>Version:</source>
+        <translation>Versió:</translation>
+    </message>
+    <message>
+        <source>Author:</source>
+        <translation>Autor:</translation>
+    </message>
+    <message>
+        <source>Description:</source>
+        <translation>Descripció:</translation>
+    </message>
+    <message>
+        <source>Mode:</source>
+        <translation>Mode:</translation>
+    </message>
+    <message>
+        <source>Dark mode:</source>
+        <translation>Mode fosc:</translation>
+    </message>
+    <message>
+        <source>Theme</source>
+        <translation>Tema</translation>
+    </message>
+    <message>
+        <source>Geometry:</source>
+        <translation>Geometria:</translation>
+    </message>
+    <message>
+        <source>Frame geometry:</source>
+        <translation>Geometria de la trama:</translation>
+    </message>
+    <message>
+        <source>Screen:</source>
+        <translation>Pantalla:</translation>
+    </message>
+    <message>
+        <source>DPI / DPR:</source>
+        <translation>DPI / DPR:</translation>
+    </message>
+    <message>
+        <source>Window state:</source>
+        <translation>Estat de la finestra:</translation>
+    </message>
+    <message>
+        <source>These values refresh live while the dialog is open.</source>
+        <translation>Aquests valors s&apos;actualitzen en directe mentre el diàleg estigui obert.</translation>
+    </message>
+    <message>
+        <source>Main Window</source>
+        <translation>Finestra principal</translation>
+    </message>
+    <message>
+        <source>Track widget under mouse</source>
+        <translation>Rastreja el giny que hi ha sota el ratolí</translation>
+    </message>
+    <message>
+        <source>The inspector reports any widget in this application under the cursor — including child dialogs. Widgets that belong to this debug window are skipped so the last hovered target stays pinned. Hold Alt+Shift and click any widget to pin it: this turns off tracking and locks the readout onto that widget (re-check the box above to resume). Note: on macOS, tool windows are hidden whenever another application has focus, so tracking pauses until Wireshark is frontmost again.</source>
+        <translation>L&apos;inspector informa de qualsevol giny d&apos;aquesta aplicació sota el cursor, inclosos els diàlegs fills. Els ginys que pertanyen a aquesta finestra de depuració s&apos;ometen de manera que l&apos;últim objectiu sota el cursor es manté fix. Mantingueu premut Alt + Maj i feu clic a qualsevol giny per a fixar-lo: això desactiva el seguiment i en bloca la lectura (torneu a marcar la casella de dalt per a reprendre). Nota: en macOS, les finestres de l&apos;eina s&apos;amaguen cada vegada que una altra aplicació té focus, de manera que el seguiment fa una pausa fins que Wireshark torna a estar al davant.</translation>
+    </message>
+    <message>
+        <source>Cursor (global):</source>
+        <translation>Cursor (global):</translation>
+    </message>
+    <message>
+        <source>Class:</source>
+        <translation>Classe:</translation>
+    </message>
+    <message>
+        <source>Object name:</source>
+        <translation>Nom de l&apos;objecte:</translation>
+    </message>
+    <message>
+        <source>Font:</source>
+        <translation>Tipus de lletra:</translation>
+    </message>
+    <message>
+        <source>Global rect:</source>
+        <translation>Rectangle global:</translation>
+    </message>
+    <message>
+        <source>Parent chain:</source>
+        <translation>Cadena pare:</translation>
+    </message>
+    <message>
+        <source>Palette (Active group):</source>
+        <translation>Paleta (grup actiu):</translation>
+    </message>
+    <message>
+        <source>Role</source>
+        <translation>Rol</translation>
+    </message>
+    <message>
+        <source>Color</source>
+        <translation>Color</translation>
+    </message>
+    <message>
+        <source>ThemeManager token</source>
+        <translation>Token del ThemeManager</translation>
+    </message>
+    <message>
+        <source>Swatch</source>
+        <translation>Swatch</translation>
+    </message>
+    <message>
+        <source>Stylesheet:</source>
+        <translation>Full d&apos;estils:</translation>
+    </message>
+    <message>
+        <source>(no stylesheet)</source>
+        <translation>(sense full d&apos;estils)</translation>
+    </message>
+    <message>
+        <source>Widget Inspector</source>
+        <translation>Inspector de ginys</translation>
+    </message>
+    <message>
+        <source>Token</source>
+        <translation>Token</translation>
+    </message>
+    <message>
+        <source>Hex</source>
+        <translation>Hex</translation>
+    </message>
+    <message>
+        <source>Tokens</source>
+        <translation>Tokens</translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <translation>Actualitza</translation>
+    </message>
+    <message>
+        <source>yes</source>
+        <translation>sí</translation>
+    </message>
+    <message>
+        <source>no</source>
+        <translation>no</translation>
+    </message>
+    <message>
+        <source>(no main window)</source>
+        <translation>(sense finestra principal)</translation>
+    </message>
+    <message>
+        <source>(unknown)</source>
+        <translation>(desconeguda)</translation>
+    </message>
+    <message>
+        <source>maximized</source>
+        <translation>maximitzada</translation>
+    </message>
+    <message>
+        <source>minimized</source>
+        <translation>minimitzada</translation>
+    </message>
+    <message>
+        <source>fullscreen</source>
+        <translation>pantalla completa</translation>
+    </message>
+    <message>
+        <source>active</source>
+        <translation>activa</translation>
+    </message>
+    <message>
+        <source>normal</source>
+        <translation>normal</translation>
+    </message>
+    <message>
+        <source>(unset)</source>
+        <translation>(sense establir)</translation>
+    </message>
+    <message>
+        <source>(none)</source>
+        <translation>(cap)</translation>
+    </message>
+    <message>
+        <source>(unnamed)</source>
+        <translation>(sense nom)</translation>
+    </message>
+</context>
+<context>
+    <name>ThemePreviewWidget</name>
+    <message>
+        <source>No.</source>
+        <translation>Núm.</translation>
+    </message>
+    <message>
+        <source>Time</source>
+        <translation>Temps</translation>
+    </message>
+    <message>
+        <source>Delta</source>
+        <translation>Delta</translation>
+    </message>
+    <message>
+        <source>Source</source>
+        <translation>Origen</translation>
+    </message>
+    <message>
+        <source>Destination</source>
+        <translation>Destí</translation>
+    </message>
+    <message>
+        <source>Protocol</source>
+        <translation>Protocol</translation>
+    </message>
+    <message>
+        <source>Length</source>
+        <translation>Longitud</translation>
+    </message>
+    <message>
+        <source>Show Coloring Rules</source>
+        <translation>Mostra les regles d&apos;acoloriment</translation>
+    </message>
+    <message>
+        <source>Save Image As…</source>
+        <translation>Desa la imatge com a…</translation>
+    </message>
+    <message>
+        <source>Save Theme Preview</source>
+        <translation>Desa la vista prèvia del tema</translation>
+    </message>
+    <message>
+        <source>PNG Image (*.png)</source>
+        <translation>Imatge PNG (*.png)</translation>
+    </message>
+    <message>
+        <source>Could not write the image to &quot;%1&quot;.</source>
+        <translation>No s&apos;ha pogut escriure la imatge a «%1».</translation>
+    </message>
+    <message>
+        <source>Info</source>
+        <translation>Info</translation>
+    </message>
+    <message>
+        <source>Ready</source>
+        <translation>Preparat</translation>
+    </message>
+    <message>
+        <source>Profile: Default</source>
+        <translation>Perfil: per defecte</translation>
+    </message>
+    <message>
+        <source>Packets: %1</source>
+        <translation>Paquets: %1</translation>
+    </message>
+    <message>
+        <source>Displayed: %1 (100.0%)</source>
+        <translation>Mostrats: %1 (100.0 %)</translation>
     </message>
 </context>
 <context>
@@ -15429,10 +16410,6 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Versió de l&apos;aplicació en execució</translation>
     </message>
     <message>
-        <source>4.7.0 (v4.7.0rc0-2438-g68ddfc1bcba4)</source>
-        <translation>4.7.0 (v4.7.0rc0-2438-g68ddfc1bcba4)</translation>
-    </message>
-    <message>
         <source>Variant of the application running</source>
         <translation>Variant de l&apos;aplicació en execució</translation>
     </message>
@@ -15606,6 +16583,14 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Trama</translation>
     </message>
     <message>
+        <source>Show the Open and Capture sections next to each other when the window is wide enough, otherwise stacked.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Prefer Open and Capture sections side-by-side</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Tips Section</source>
         <translation>Secció de consells</translation>
     </message>
@@ -15631,7 +16616,7 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     </message>
     <message>
         <source>Auto advance slides</source>
-        <translation type="unfinished"></translation>
+        <translation>Avança de diapositiva automàticament</translation>
     </message>
     <message>
         <source>Slide display interval</source>
@@ -17147,6 +18132,22 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Cabal TCP</translation>
     </message>
     <message>
+        <source>Duplication Table</source>
+        <translation>Taula de duplicats</translation>
+    </message>
+    <message>
+        <source>TCP capture-level duplicate packet table</source>
+        <translation>Taula de paquets TCP duplicats a nivell de captura</translation>
+    </message>
+    <message>
+        <source>Distribution</source>
+        <translation>Distribució</translation>
+    </message>
+    <message>
+        <source>Distribution statistics</source>
+        <translation>Estadístiques de la distribució</translation>
+    </message>
+    <message>
         <source>General</source>
         <translation>General</translation>
     </message>
@@ -17249,6 +18250,22 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     <message>
         <source>Normal Size</source>
         <translation>Mida normal</translation>
+    </message>
+    <message>
+        <source>Pin Selected Rows</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keep the selected packets at the top of the packet list, or unpin them if they are all pinned</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unpin All Rows</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unpin all of the packets pinned to the top of the packet list</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Reset layout to default size</source>
@@ -17451,6 +18468,14 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Mostra les dreceres de teclat actuals.</translation>
     </message>
     <message>
+        <source>&amp;Theme Debug</source>
+        <translation>Depuració del &amp;tema</translation>
+    </message>
+    <message>
+        <source>Show the active theme, main window geometry, and live widget info</source>
+        <translation>Mostra el tema actiu, la geometria de la finestra principal i la informació de ginys en directe.</translation>
+    </message>
+    <message>
         <source>MAP Summary</source>
         <translation>Resum MAP</translation>
     </message>
@@ -17467,12 +18492,16 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Regles d&apos;a&amp;coloriment…</translation>
     </message>
     <message>
-        <source>Show Linked Packet in New Window</source>
-        <translation>Mostra el paquet enllaçat en una finestra nova</translation>
+        <source>&amp;Tagging Rules…</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Aggregation in Live Capture</source>
-        <translation>Agregació en captura en directe</translation>
+        <source>Edit the packet tagging rules.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show Linked Packet in New Window</source>
+        <translation>Mostra el paquet enllaçat en una finestra nova</translation>
     </message>
     <message>
         <source>New Coloring Rule…</source>
@@ -17642,6 +18671,10 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Desplaça automàticament fins a l&apos;últim paquet durant les captures en directe.</translation>
     </message>
     <message>
+        <source>Aggregate Packets</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Expert Information</source>
         <translation>Informació avançada</translation>
     </message>
@@ -17786,6 +18819,14 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>No podeu exportar paquets al fitxer de captura actual.</translation>
     </message>
     <message>
+        <source>Display frames grouped by your configured aggregation fields.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Display frames grouped by your configured aggregation fields. To activate, go to Preferences → Aggregation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Do you want to save the changes you&apos;ve made%1?</source>
         <oldsource>Do you want to save the captured packets</oldsource>
         <translation>Voleu desar els canvis que heu fet%1?</translation>
@@ -17845,14 +18886,6 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
         <translation>Tipus de fitxer desconegut retornat per un diàleg d&apos;exportació.</translation>
     </message>
     <message>
-        <source>Aggregation View — displays frames grouped by your configured aggregation fields.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Aggregation View — displays frames grouped by your configured aggregation fields. To activate, go to Preferences → Aggregation.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Unsaved packets…</source>
         <translation>Paquets sense desar…</translation>
     </message>
@@ -17909,6 +18942,14 @@ Es reiniciaran tots els scripts Lua i pot afectar a l&apos;anàlisi de la captur
     <message>
         <source>Show and analyze DIS radio streams</source>
         <translation>Mostra i analitza fluxos de ràdio DIS</translation>
+    </message>
+    <message>
+        <source>IMSI List</source>
+        <translation>Llista IMSI</translation>
+    </message>
+    <message>
+        <source>Show all IMSIs in the capture</source>
+        <translation>Mostra tots els IMSI de la captura</translation>
     </message>
     <message>
         <source>Lua Debugger</source>

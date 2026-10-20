@@ -54,7 +54,8 @@ wtap_setup_syscall_rec(wtap_rec* rec)
  // Event header (libs:driver/ppm_events_public.h:ppm_evt_hdr):
  //   uint64_t Timestamp
  //   uint64_t Thread ID
- //   uint32_t Event length. Includes this header.
+ //   uint32_t Event length. Includes this header and possibly the number
+ //            of params; see in_memory_nparams_len.
  //   uint16_t Event type
  //   uint32_t Number of params (optional, sysdig_has_nparams)
 
@@ -76,6 +77,13 @@ pcapng_read_sysdig_event_block(wtap* wth, FILE_T fh, uint32_t block_type,
     bool has_nparams = sysdig_has_nparams(block_type);
     unsigned preamble_len = MIN_SYSDIG_PREAMBLE_SIZE + (has_flags ? 4 : 0);
     unsigned event_header_len = MIN_SYSDIG_EVENT_SIZE + (has_nparams ? 4 : 0);
+    // libscap always has a number-of-params field in its in-memory representation
+    // of an event, including its size in the event length, and it inserts one when
+    // reading a block type that has none, adding 4 to the length as it does so.
+    // Some writers of those block types emit that in-memory event length rather
+    // than backing the 4 bytes out again, so their events are 4 bytes shorter in
+    // the block than the length says.
+    unsigned in_memory_nparams_len = sysdig_has_nparams(block_type) ? 0 : 4;
 
     // Preamble
     if (ckd_sub(&block_remaining, block_remaining, preamble_len)) {
@@ -144,13 +152,6 @@ pcapng_read_sysdig_event_block(wtap* wth, FILE_T fh, uint32_t block_type,
         byte_order = G_BYTE_ORDER;
     }
 
-    if (ts) {
-        wblock->rec->presence_flags |= WTAP_HAS_TS;
-    }
-
-    wblock->rec->ts.secs = (time_t)(ts / 1000000000);
-    wblock->rec->ts.nsecs = (int)(ts % 1000000000);
-
     // Event data
     uint32_t event_data_len;
 
@@ -165,18 +166,28 @@ pcapng_read_sysdig_event_block(wtap* wth, FILE_T fh, uint32_t block_type,
         return false;
     }
 
-    if (event_len > block_remaining + event_header_len) {
-        ws_debug("Truncating event length %u to %u", event_len, block_remaining + event_header_len);
-        // ...or should we just return false here?
-        event_len = block_remaining + event_header_len;
+    //
+    // Some writers of the block types that have no number-of-params field
+    // nevertheless count that field in the event length, so their events are
+    // 4 bytes shorter in the block than the length says. Only assume that's
+    // what happened if it's the only way the event fits in the block; the
+    // original sysdig writers don't do it.
+    //
+    if (event_data_len > block_remaining && in_memory_nparams_len <= event_data_len
+        && event_data_len - in_memory_nparams_len <= block_remaining) {
+        ws_debug("Event length %u appears to count an absent number-of-params field", event_len);
+        event_data_len -= in_memory_nparams_len;
     }
 
-    if (ckd_sub(&block_remaining, block_remaining, event_data_len)) {
-        *err = WTAP_ERR_BAD_FILE;
-        *err_info = ws_strdup_printf("pcapng: block content length %u of a Sysdig event block is too small for %u bytes of event data",
-            block_content_length, event_data_len);
-        return false;
+    if (event_data_len > block_remaining) {
+        ws_debug("Truncating event data length %u to %u", event_data_len, block_remaining);
+        // ...or should we just return false here?
+        event_data_len = block_remaining;
     }
+
+    block_remaining -= event_data_len;
+
+    event_len = event_data_len + event_header_len;
 
     // XXX Should we include the event header here? It would ensure that
     // we always have data and avoid the "consumed = 1" workaround in the
@@ -199,19 +210,25 @@ pcapng_read_sysdig_event_block(wtap* wth, FILE_T fh, uint32_t block_type,
     }
 
     /* Options */
+    wblock->block = wtap_block_create(WTAP_BLOCK_SYSDIG_EVENT);
+
     unsigned opt_cont_buf_len = block_remaining;
     if (!pcapng_process_options(fh, wblock, section_info, opt_cont_buf_len,
         NULL,
         OPT_LITTLE_ENDIAN, err, err_info))
         return false;
 
-    wblock->block = wtap_block_create(WTAP_BLOCK_SYSDIG_EVENT);
-
     wtap_setup_syscall_rec(wblock->rec);
     wblock->rec->rec_header.syscall_header.record_type = block_type;
     wblock->rec->presence_flags = WTAP_HAS_CAP_LEN /*|WTAP_HAS_INTERFACE_ID */;
+    if (ts) {
+        wblock->rec->presence_flags |= WTAP_HAS_TS;
+    }
+    wblock->rec->ts.secs = (time_t)(ts / 1000000000);
+    wblock->rec->ts.nsecs = (int)(ts % 1000000000);
     wblock->rec->tsprec = WTAP_TSPREC_NSEC;
     wblock->rec->rec_header.syscall_header.pathname = wth->pathname;
+    wblock->rec->rec_header.syscall_header.wth = wth;
 
     wblock->rec->rec_header.syscall_header.byte_order = byte_order;
     wblock->rec->rec_header.syscall_header.cpu_id = cpu_id;
@@ -327,19 +344,30 @@ pcapng_write_sysdig_event_block(wtap_dumper* wdh, const wtap_rec* rec,
     return pcapng_write_block_footer(wdh, block_content_length, err);
 }
 
-/* Process a Sysdig meta event block that we have just read. */
+/* Process a Falco libs meta event block that we have just read. */
 bool
 pcapng_process_meta_event(wtap* wth, section_info_t *section_info _U_,
                           wtapng_block_t* wblock)
 {
-    ws_debug("block type Sysdig meta event");
+    ws_debug("block type Falco libs meta event");
 
-    // XXX add wtapng_process_meta_event(wth, wblock->block);
+    /*
+     * Deliver the raw metadata block to a registered pcapng block callback.
+     * The Falco/Stratoshark dissector uses this to feed section header and
+     * metadata blocks (machine info, process/fd/interface/user lists) to
+     * libsinsp's raw_block engine; event blocks are delivered separately as
+     * records. Blocks read before a callback is registered are replayed from
+     * wth->meta_events by wtap_set_cb_pcapng_block().
+     */
+    if (wth->pcapng_block_cb) {
+        const wtapng_meta_event_mandatory_t *mev_mand =
+            (const wtapng_meta_event_mandatory_t *)wtap_block_get_mandatory_data(wblock->block);
+        wth->pcapng_block_cb(mev_mand->mev_block_type, mev_mand->mev_data,
+                             mev_mand->mev_data_len, wth->pcapng_block_cb_data);
+    }
 
     /* Store meta event such that it can be saved by the dumper. */
     g_array_append_val(wth->meta_events, wblock->block);
-
-    /* Do not free wblock->block, it is consumed by pcapng_process_sysdig_meb */
 
     return true;
 }
@@ -428,7 +456,7 @@ void register_sysdig(void)
     static pcapng_block_type_information_t IL_V1 = { BLOCK_TYPE_SYSDIG_IL_V1, pcapng_read_meta_event_block, pcapng_process_meta_event, NULL, true, NULL };
     static pcapng_block_type_information_t UL_V1 = { BLOCK_TYPE_SYSDIG_UL_V1, pcapng_read_meta_event_block, pcapng_process_meta_event, NULL, true, NULL };
     static pcapng_block_type_information_t PL_V2 = { BLOCK_TYPE_SYSDIG_PL_V2, pcapng_read_meta_event_block, pcapng_process_meta_event, NULL, true, NULL };
-    static pcapng_block_type_information_t EVF = { BLOCK_TYPE_SYSDIG_EVF, pcapng_read_sysdig_event_block, NULL, pcapng_write_sysdig_event_block, true, NULL };
+    static pcapng_block_type_information_t EVF = { BLOCK_TYPE_SYSDIG_EVF, pcapng_read_sysdig_event_block, NULL, pcapng_write_sysdig_event_block, false, NULL };
     static pcapng_block_type_information_t PL_V3 = { BLOCK_TYPE_SYSDIG_PL_V3, pcapng_read_meta_event_block, pcapng_process_meta_event, NULL, true, NULL };
     static pcapng_block_type_information_t PL_V4 = { BLOCK_TYPE_SYSDIG_PL_V4, pcapng_read_meta_event_block, pcapng_process_meta_event, NULL, true, NULL };
     static pcapng_block_type_information_t PL_V5 = { BLOCK_TYPE_SYSDIG_PL_V5, pcapng_read_meta_event_block, pcapng_process_meta_event, NULL, true, NULL };
@@ -438,8 +466,8 @@ void register_sysdig(void)
     static pcapng_block_type_information_t PL_V9 = { BLOCK_TYPE_SYSDIG_PL_V9, pcapng_read_meta_event_block, pcapng_process_meta_event, NULL, true, NULL };
     static pcapng_block_type_information_t EVENT_V2 = { BLOCK_TYPE_SYSDIG_EVENT_V2, pcapng_read_sysdig_event_block, NULL, pcapng_write_sysdig_event_block, false, NULL };
     static pcapng_block_type_information_t EVENT_V2_LARGE = { BLOCK_TYPE_SYSDIG_EVENT_V2_LARGE, pcapng_read_sysdig_event_block, NULL, pcapng_write_sysdig_event_block, false, NULL };
-    static pcapng_block_type_information_t EVF_V2 = { BLOCK_TYPE_SYSDIG_EVF_V2, pcapng_read_sysdig_event_block, NULL, pcapng_write_sysdig_event_block, true, NULL };
-    static pcapng_block_type_information_t EVF_V2_LARGE = { BLOCK_TYPE_SYSDIG_EVF_V2_LARGE, pcapng_read_sysdig_event_block, NULL, pcapng_write_sysdig_event_block, true, NULL };
+    static pcapng_block_type_information_t EVF_V2 = { BLOCK_TYPE_SYSDIG_EVF_V2, pcapng_read_sysdig_event_block, NULL, pcapng_write_sysdig_event_block, false, NULL };
+    static pcapng_block_type_information_t EVF_V2_LARGE = { BLOCK_TYPE_SYSDIG_EVF_V2_LARGE, pcapng_read_sysdig_event_block, NULL, pcapng_write_sysdig_event_block, false, NULL };
     static pcapng_block_type_information_t FDL_V2 = { BLOCK_TYPE_SYSDIG_FDL_V2, pcapng_read_meta_event_block, pcapng_process_meta_event, NULL, true, NULL };
     static pcapng_block_type_information_t IL_V2 = { BLOCK_TYPE_SYSDIG_IL_V2, pcapng_read_meta_event_block, pcapng_process_meta_event, NULL, true, NULL };
     static pcapng_block_type_information_t UL_V2 = { BLOCK_TYPE_SYSDIG_UL_V2, pcapng_read_meta_event_block, pcapng_process_meta_event, NULL, true, NULL };

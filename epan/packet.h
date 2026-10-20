@@ -103,9 +103,12 @@ typedef int (*dissector_cb_t)(tvbuff_t *, packet_info *, proto_tree *, void *, v
 typedef bool (*heur_dissector_t)(tvbuff_t *tvb, packet_info *pinfo,
 	proto_tree *tree, void *);
 
+/**
+ * @brief Controls whether a heuristic dissector is active.
+ */
 typedef enum {
-    HEURISTIC_DISABLE,
-    HEURISTIC_ENABLE
+    HEURISTIC_DISABLE, /**< Heuristic dissector is disabled and will not be invoked */
+    HEURISTIC_ENABLE   /**< Heuristic dissector is enabled and may be invoked for matching traffic */
 } heuristic_enable_e;
 
 typedef void (*DATFunc) (const char *table_name, ftenum_t selector_type,
@@ -377,23 +380,6 @@ WS_DLL_PUBLIC int dissector_try_uint(dissector_table_t sub_dissectors,
 WS_DLL_PUBLIC int dissector_try_uint_with_data(dissector_table_t sub_dissectors,
     const uint32_t uint_val, tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, const bool add_proto_name, void *data);
 
-/**
- * @brief Try to dissect using a uint-keyed dissector table entry, with additional options and caller data.
- * @param sub_dissectors  The dissector table to search.
- * @param uint_val        The uint selector value to look up.
- * @param tvb             The packet buffer.
- * @param pinfo           The packet info.
- * @param tree            The protocol tree.
- * @param add_proto_name  Whether to add the protocol name to the tree.
- * @param data            Caller-supplied data passed to the dissector.
- * @return The number of bytes consumed by the dissector, or 0 if no
- *         matching entry was found.
-*/
-WS_DEPRECATED_X("Use dissector_try_uint_with_data instead")
-static inline int dissector_try_uint_new(dissector_table_t sub_dissectors,
-	const uint32_t uint_val, tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, const bool add_proto_name, void* data) \
-{	return dissector_try_uint_with_data(sub_dissectors, uint_val, tvb, pinfo, tree, add_proto_name, data); }
-
 /** Look for a given value in a given uint dissector table and, if found,
  * return the current dissector handle for that value.
  *
@@ -470,44 +456,6 @@ WS_DLL_PUBLIC bool dissector_is_string_changed(dissector_table_t const subdissec
 WS_DLL_PUBLIC int dissector_try_string_with_data(dissector_table_t sub_dissectors,
 	const char* string, tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, const bool add_proto_name, void* data);
 
-/**
- * @brief Look for a given string in a given dissector table and, if found, call
- * the dissector with the arguments supplied, and return the number of
- * bytes consumed, otherwise return 0.
- * @param sub_dissectors The dissector table to search.
- * @param string The string to look for.
- * @param tvb The TVBuffer containing the data to dissect.
- * @param pinfo Packet information for the current packet.
- * @param tree The protocol tree to add nodes to.
- * @param data Pointer to additional data to pass to the dissector.
- * @return The number of bytes consumed by the dissector, or 0 if not found.
- */
-WS_DEPRECATED_X("Use dissector_try_string_with_data instead")
-static inline int
-dissector_try_string(dissector_table_t sub_dissectors, const char* string,\
-	tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void* data) \
-	{ return dissector_try_string_with_data(sub_dissectors, string, tvb, pinfo, tree, true, data); }
-
-/**
- * @brief Look for a given string in a given dissector table and, if found, call
- * the dissector with the arguments supplied, and return the number of
- * bytes consumed, otherwise return 0.
- * @param sub_dissectors The dissector table to search.
- * @param string The string to look for.
- * @param tvb The TVBuffer containing the data to dissect.
- * @param pinfo Packet information for the current packet.
- * @param tree The protocol tree to add nodes to.
- * @param add_proto_name Whether to add the protocol name to each node.
- * @param data Pointer to additional data to pass to the dissector.
- * @return The number of bytes consumed by the dissector, or 0 if not found.
- */
-WS_DEPRECATED_X("Use dissector_try_string_with_data instead")
-static inline int
-dissector_try_string_new(dissector_table_t sub_dissectors, const char* string, \
-	tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, const bool add_proto_name, void* data) \
-{ return dissector_try_string_with_data(sub_dissectors, string, tvb, pinfo, tree, add_proto_name, data); }
-
-
 /** Look for a given value in a given string dissector table and, if found,
  * return the current dissector handle for that value.
  *
@@ -546,12 +494,15 @@ WS_DLL_PUBLIC void dissector_add_custom_table_handle(const char *name, void *pat
  */
 WS_DLL_PUBLIC dissector_handle_t dissector_get_custom_table_handle(
     dissector_table_t sub_dissectors, void *key);
-/* Key for GUID dissector tables.  This is based off of DCE/RPC needs
-   so some dissector tables may not need the ver portion of the hash
+
+/**
+ * @brief Lookup key for GUID-indexed dissector tables, combining a GUID with an optional version field.
+ *
+ * Based on DCE/RPC requirements; some dissector tables may not use the ver field.
  */
 typedef struct _guid_key {
-    e_guid_t guid;
-    uint16_t ver;
+    e_guid_t guid; /**< The GUID identifying the protocol or interface. */
+    uint16_t ver;  /**< Version of the interface identified by the GUID; may be unused by some dissector tables. */
 } guid_key;
 
 /**
@@ -621,43 +572,6 @@ WS_DLL_PUBLIC dissector_handle_t dissector_get_guid_handle(
 WS_DLL_PUBLIC int dissector_try_payload_with_data(dissector_table_t sub_dissectors,
     tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, const bool add_proto_name, void *data);
 
-/**
- * @brief Invoke the currently assigned payload dissector for a dissector table.
- *
- * @param sub_dissectors  The dissector table whose payload dissector to invoke.
- * @param tvb             The packet buffer to dissect.
- * @param pinfo           The packet info for the current packet.
- * @param tree            The protocol tree to populate.
- * @param add_proto_name  Whether to add the protocol name to the protocol tree.
- * @param data            Caller-supplied data passed through to the dissector.
- * @return The number of bytes consumed by the dissector, or 0 if no payload
- *         dissector is assigned.
- */
-WS_DEPRECATED_X("Use dissector_try_payload_with_data instead")
-static inline int dissector_try_payload_new(dissector_table_t sub_dissectors,
-	tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, const bool add_proto_name, void* data){ \
-	return dissector_try_payload_with_data(sub_dissectors, tvb, pinfo, tree, add_proto_name, data); \
-}
-
-/**
- * @brief Use the currently assigned payload dissector for the dissector table and,
- * if any, call the dissector with the arguments supplied, and return the
- * number of bytes consumed, otherwise return 0.
- *
- * @param sub_dissectors The dissector table whose payload dissector to invoke.
- * @param tvb The TVBuffer containing the data to dissect.
- * @param pinfo Packet information for the current packet.
- * @param tree The protocol tree to add nodes to.
- * @return The number of bytes consumed by the dissector, or 0 if no payload
- *         dissector is assigned.
- */
-WS_DEPRECATED_X("Use dissector_try_payload_with_data instead")
-static inline int dissector_try_payload(dissector_table_t sub_dissectors,
-	tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree) {
-	\
-	return dissector_try_payload_with_data(sub_dissectors, tvb, pinfo, tree, true, NULL); \
-}
-
 /** @brief Override the payload dissector for an FT_NONE dissector table.
  *  @param abbrev The internal name of the payload dissector table.
  *  @param handle The new dissector handle to assign as the payload dissector. */
@@ -721,7 +635,18 @@ WS_DLL_PUBLIC ftenum_t dissector_table_get_type(dissector_table_t dissector_tabl
  *
  * @param dissector_table The dissector table to mark.
  */
+WS_DEPRECATED_X("Use register_decode_as instead")
 WS_DLL_PUBLIC void dissector_table_allow_decode_as(dissector_table_t dissector_table);
+
+/**
+ * @brief Mark a dissector table as supporting Decode As.
+ *
+ * @note Internal to libwireshark. Not for use by dissectors or applications.
+ *
+ * @param dissector_table The dissector table to mark.
+ */
+extern void
+dissector_table_allow_decode_as_internal(dissector_table_t dissector_table);
 
 /**
  * @brief Return whether a dissector table supports Decode As.
@@ -740,14 +665,17 @@ struct heur_dissector_list;
 typedef struct heur_dissector_list *heur_dissector_list_t;
 
 
+/**
+ * @brief Represents a single entry in a heuristic dissector table, binding a heuristic dissector to its protocol and configuration.
+ */
 typedef struct heur_dtbl_entry {
-	heur_dissector_t dissector;
-	protocol_t *protocol; /* this entry's protocol */
-	char *list_name;     /* the list name this entry is in the list of */
-	const char *display_name;     /* the string used to present heuristic to user */
-	char *short_name;     /* string used for "internal" use to uniquely identify heuristic */
-	bool enabled;
-	bool enabled_by_default;
+    heur_dissector_t dissector;        /**< The heuristic dissector function to invoke when attempting to identify this protocol. */
+    protocol_t*      protocol;         /**< The protocol associated with this heuristic dissector entry. */
+    char*            list_name;        /**< Name of the heuristic dissector list this entry belongs to. */
+    const char*      display_name;     /**< Human-readable name presented to the user in the heuristics configuration UI. */
+    char*            short_name;       /**< Internal unique identifier string used to distinguish this heuristic from others. */
+    bool             enabled;          /**< Whether this heuristic dissector is currently enabled. */
+    bool             enabled_by_default; /**< Whether this heuristic dissector is enabled by default upon registration. */
 } heur_dtbl_entry_t;
 
 /** A protocol uses this function to register a heuristic sub-dissector list.
@@ -924,19 +852,6 @@ WS_DLL_PUBLIC const char *dissector_handle_get_protocol_long_name(
  */
 WS_DLL_PUBLIC const char *dissector_handle_get_protocol_short_name(
     const dissector_handle_t handle);
-
-/**
- * @brief Return the short protocol name for a dissector handle.
- *
- * For backwards source and binary compatibility.
- *
- * @param handle A valid dissector handle.
- * @return The short protocol name string, or NULL if @p handle is invalid.
- */
-G_DEPRECATED_FOR(dissector_handle_get_protocol_short_name)
-WS_DLL_PUBLIC const char *dissector_handle_get_short_name(
-    const dissector_handle_t handle);
-
 
 /**
  * @brief Return the user-visible description for a dissector handle.
@@ -1246,9 +1161,12 @@ extern void
 final_registration_all_protocols(void);
 
 // XXX Should we move frame_data.encoding here?
+/**
+ * @brief MIME media type descriptor for a packet data source buffer.
+ */
 typedef enum {
-    DS_MEDIA_TYPE_APPLICATION_OCTET_STREAM,
-    DS_MEDIA_TYPE_APPLICATION_JSON,
+    DS_MEDIA_TYPE_APPLICATION_OCTET_STREAM, /**< Raw binary data (application/octet-stream) */
+    DS_MEDIA_TYPE_APPLICATION_JSON,         /**< JSON-encoded data (application/json) */
 } data_source_media_type_e;
 
 struct data_source;
@@ -1295,7 +1213,8 @@ WS_DLL_PUBLIC void remove_last_data_source(packet_info *pinfo);
  * @brief Return the display name of a data source.
  *
  * @param src The data source whose name should be returned.
- * @return A newly allocated string of the form @c "Name (N bytes)".
+ * @return The name string associated with @p src. The string is valid
+ *         for the lifetime of the packet dissection pool; do not free it.
  */
 WS_DLL_PUBLIC const char *get_data_source_name(const struct data_source *src);
 
@@ -1303,8 +1222,8 @@ WS_DLL_PUBLIC const char *get_data_source_name(const struct data_source *src);
  * @brief Return the description of a data source.
  *
  * @param src The data source whose description should be returned.
- * @return The description string. The pointer is valid for the lifetime
- *         of the packet dissection pool; do not free it.
+ * @return A newly allocated string of the form "Name (N bytes)".
+ *         This string should be freed with "g_free".
  */
 WS_DLL_PUBLIC char *get_data_source_description(const struct data_source *src);
 
@@ -1332,6 +1251,15 @@ WS_DLL_PUBLIC struct data_source *get_data_source_by_name(const packet_info *pin
  * @return the data source or NULL if not found
  */
 WS_DLL_PUBLIC struct data_source *get_data_source_by_tvb(const packet_info *pinfo, const tvbuff_t *tvb);
+
+/**
+ * Find and return the index of a data source for the given tvb.
+ * @param pinfo packet_info for the packet whose data sources are to be searched
+ * @param tvb tvb of the data source.
+ * This should be the output of tvb_get_ds_tvb() for an arbitrary starting TVB.
+ * @return the index of the data source or -1 if not found
+ */
+WS_DLL_PUBLIC int32_t get_data_source_index_by_tvb(const packet_info *pinfo, const tvbuff_t *tvb);
 
 /**
  * Get a data source's media type.
@@ -1366,26 +1294,24 @@ extern void free_data_sources(packet_info *pinfo);
  */
 WS_DLL_PUBLIC void mark_frame_as_depended_upon(frame_data *fd, uint32_t frame_num);
 
-/* Structure passed to the frame dissector */
+/**
+ * @brief Holds the data passed to the frame dissector for dissection of a single packet frame.
+ */
 typedef struct frame_data_s
 {
-    int file_type_subtype;
-    /*
-     * This might be the block from the packet's wtap_rec or it might
-     * be a modified copy of that, as, for example, the comments
-     * might have been edited but not yet saved to the file.
-     */
-    wtap_block_t pkt_block;         /**< NULL if not available */
-    struct epan_dissect *color_edt; /** Used strictly for "coloring rules" */
-
+    int          file_type_subtype; /**< File type and subtype of the capture file containing this frame. */
+    wtap_block_t pkt_block;         /**< Metadata block for the packet (e.g. comments); may be the original from
+                                         wtap_rec or a modified copy if edits have not yet been saved; NULL if unavailable. */
+    struct epan_dissect* color_edt; /**< Epan dissect structure used exclusively for evaluating coloring rules; not for general dissection. */
 } frame_data_t;
 
-/* Structure passed to the file dissector */
+/**
+ * @brief Holds the data passed to the file dissector for dissection of a capture file as a whole.
+ */
 typedef struct file_data_s
 {
-    wtap_block_t pkt_block;         /**< NULL if not available */
-    struct epan_dissect *color_edt; /** Used strictly for "coloring rules" */
-
+    wtap_block_t pkt_block;         /**< Metadata block associated with the file; NULL if unavailable. */
+    struct epan_dissect* color_edt; /**< Epan dissect structure used exclusively for evaluating coloring rules; not for general dissection. */
 } file_data_t;
 
 /**
@@ -1409,14 +1335,16 @@ extern void dissect_record(struct epan_dissect *edt, int file_type_subtype,
 extern void dissect_file(struct epan_dissect *edt,
     wtap_rec *rec, frame_data *fd, column_info *cinfo);
 
-/* Structure passed to the ethertype dissector */
+/**
+ * @brief Holds the parameters passed to the Ethertype dissector for dissecting an Ethernet payload.
+ */
 typedef struct ethertype_data_s
 {
-    uint16_t etype;
-    int payload_offset;
-    proto_tree *fh_tree;
-    int trailer_id;
-    int fcs_len;
+    uint16_t    etype;          /**< The Ethertype value identifying the encapsulated protocol. */
+    int         payload_offset; /**< Offset within the current tvbuff at which the Ethertype payload begins. */
+    proto_tree* fh_tree;        /**< Protocol tree node under which Ethertype fields should be added. */
+    int         trailer_id;     /**< Header field ID used to label any trailing padding bytes after the payload. */
+    int         fcs_len;        /**< Length in bytes of the frame check sequence (FCS) appended after the payload; 0 if absent. */
 } ethertype_data_t;
 
 /**

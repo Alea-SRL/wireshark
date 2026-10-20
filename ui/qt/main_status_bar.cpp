@@ -13,6 +13,7 @@
 
 #include <epan/expert.h>
 #include <epan/prefs.h>
+#include <epan/tag_rules.h>
 
 #include <wsutil/filesystem.h>
 #include <wsutil/utf8_entities.h>
@@ -24,8 +25,10 @@
 #include "capture_file.h"
 #include "main_status_bar.h"
 #include "profile_dialog.h"
-#include <ui/qt/utils/stock_icon.h>
 #include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/font_manager.h>
+#include <ui/qt/utils/themes/contrast_adapt_icon.h>
+#include <ui/qt/utils/themes/themed_icon.h>
 #include <ui/qt/capture_file.h>
 #include <ui/qt/widgets/clickable_label.h>
 #include <ui/recent.h>
@@ -77,18 +80,13 @@ packets_bar_update(void)
     cur_main_status_bar_->updateCaptureStatistics(NULL);
 }
 
-static const int icon_size = 14; // px
+static const int base_icon_size = 14; // px, before zoom
 
 MainStatusBar::MainStatusBar(QWidget *parent) :
     QStatusBar(parent),
     cap_file_(NULL),
     cs_fixed_(false),
-    cs_count_(0),
-#ifdef HAVE_LIBPCAP
-    ready_msg_(tr("Ready to load or capture"))
-#else
-    ready_msg_(tr("Ready to load file"))
-#endif
+    cs_count_(0)
 {
     QSplitter *splitter = new QSplitter(this);
     QWidget *info_progress = new QWidget(this);
@@ -105,7 +103,7 @@ MainStatusBar::MainStatusBar(QWidget *parent) :
                                 ));
 #endif
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     profile_status_.setAttribute(Qt::WA_MacSmallSize, true);
 #endif
 
@@ -123,7 +121,6 @@ MainStatusBar::MainStatusBar(QWidget *parent) :
             "}";
 
     expert_button_ = new QToolButton(this);
-    expert_button_->setIconSize(QSize(icon_size, icon_size));
     expert_button_->setStyleSheet(button_ss);
     expert_button_->setAccessibleName(tr("Expert information"));
     expert_button_->setAccessibleDescription(tr("Opens the expert information dialog, showing errors, warnings, and other relevant information about the capture."));
@@ -131,10 +128,9 @@ MainStatusBar::MainStatusBar(QWidget *parent) :
 
     // We just want a clickable image. Using a QPushButton or QToolButton would require
     // a lot of adjustment.
-    StockIcon comment_icon("x-capture-comment-update");
+    ThemedIcon comment_icon(QStringLiteral(":/svg_icons/capture-comment.svg"), ThemeManager::PaletteText);
     comment_button_ = new QToolButton(this);
     comment_button_->setIcon(comment_icon);
-    comment_button_->setIconSize(QSize(icon_size, icon_size));
     comment_button_->setStyleSheet(button_ss);
     comment_button_->setAccessibleName(tr("Capture comment"));
     comment_button_->setAccessibleDescription(tr("Opens the Capture File Properties dialog to view or edit capture-level comments."));
@@ -144,7 +140,15 @@ MainStatusBar::MainStatusBar(QWidget *parent) :
     connect(expert_button_, &QToolButton::clicked, this, &MainStatusBar::showExpertInfo);
     connect(comment_button_, &QToolButton::clicked, this, &MainStatusBar::editCaptureComment);
 
-    info_progress_hb->setContentsMargins(icon_size / 2, 0, 0, 0);
+    auto applyIconSize = [this]() {
+        const int s = qRound(base_icon_size * FontManager::zoomFactor());
+        expert_button_->setIconSize(QSize(s, s));
+        comment_button_->setIconSize(QSize(s, s));
+    };
+    applyIconSize();
+    connect(FontManager::instance(), &FontManager::zoomChanged, this, applyIconSize);
+
+    info_progress_hb->setContentsMargins(base_icon_size / 2, 0, 0, 0);
 
     info_status_.setTemporaryContext(STATUS_CTX_TEMPORARY);
     info_status_.setShrinkable(true);
@@ -177,15 +181,15 @@ MainStatusBar::MainStatusBar(QWidget *parent) :
     cur_main_status_bar_ = this;
 
     splitter->hide();
-    info_status_.pushText(ready_msg_, STATUS_CTX_MAIN);
+    setReadyMsg();
     packets_bar_update();
 
 #ifdef QWINTASKBARPROGRESS_H
     progress_frame_.enableTaskbarUpdates(true);
 #endif
 
-    connect(mainApp, &MainApplication::appInitialized, splitter, &QSplitter::show);
-    connect(mainApp, &MainApplication::appInitialized, this, &MainStatusBar::appInitialized);
+    mainApp->whenInitialized(splitter, [splitter]() { splitter->show(); });
+    mainApp->whenInitialized(this, [this]() { appInitialized(); });
     connect(&info_status_, &LabelStack::toggleTemporaryFlash, this, &MainStatusBar::toggleBackground);
     connect(mainApp, &MainApplication::profileNameChanged, this, &MainStatusBar::setProfileName);
     connect(&profile_status_, &ClickableLabel::clickedAt, this, &MainStatusBar::showProfileMenu);
@@ -206,6 +210,9 @@ void MainStatusBar::showExpert() {
 void MainStatusBar::captureFileClosing() {
     expert_button_->hide();
     progress_frame_.captureFileClosing();
+    field_status_supplement_.clear();
+    field_status_include_base_ = true;
+    field_status_base_.clear();
     popGenericStatus(STATUS_CTX_FIELD);
 }
 
@@ -213,7 +220,7 @@ void MainStatusBar::expertUpdate() {
     // <img> won't load @2x versions in Qt versions earlier than 5.4.
     // https://bugreports.qt.io/browse/QTBUG-36383
     // We might have to switch to a QPushButton.
-    QString stock_name = "x-expert-";
+    QString stock_name = "expert-";
     QString tt_text = tr(" is the highest expert information level");
 
     switch(expert_get_highest_severity()) {
@@ -242,7 +249,8 @@ void MainStatusBar::expertUpdate() {
         break;
     }
 
-    StockIcon expert_icon(stock_name);
+    ContrastAdaptIcon expert_icon(QStringLiteral(":/svg_icons/") + stock_name.toLatin1() + QStringLiteral(".svg"),
+                                  QPalette::Window);
     expert_button_->setIcon(expert_icon);
     expert_button_->setToolTip(tt_text);
     expert_button_->show();
@@ -259,11 +267,21 @@ void MainStatusBar::setFileName(CaptureFile &cf)
     }
 }
 
+void MainStatusBar::setReadyMsg()
+{
+#ifdef HAVE_LIBPCAP
+    QString ready_msg(tr("Ready to load or capture"));
+#else
+    QString ready_msg(tr("Ready to load file"));
+#endif
+    info_status_.pushText(std::move(ready_msg), STATUS_CTX_MAIN);
+}
+
 void MainStatusBar::changeEvent(QEvent *event)
 {
     if (event->type() == QEvent::LanguageChange) {
         info_status_.popText(STATUS_CTX_MAIN);
-        info_status_.pushText(ready_msg_, STATUS_CTX_MAIN);
+        setReadyMsg();
         setStatusbarForCaptureFile();
         showCaptureStatistics();
         setProfileName();
@@ -288,12 +306,34 @@ void MainStatusBar::setStatusbarForCaptureFile()
     }
 }
 
+void MainStatusBar::setFieldStatusSupplement(const QString &supplement, bool include_selected_field)
+{
+    field_status_supplement_ = supplement;
+    field_status_include_base_ = include_selected_field;
+    refreshFieldStatus();
+}
+
+void MainStatusBar::refreshFieldStatus()
+{
+    QString display;
+    if (!field_status_supplement_.isEmpty()) {
+        display = field_status_supplement_;
+        if (field_status_include_base_ && !field_status_base_.isEmpty()) {
+            display += QLatin1Char(' ') + field_status_base_;
+        }
+    } else {
+        display = field_status_base_;
+    }
+    pushGenericStatus(STATUS_CTX_FIELD, display);
+}
+
 void MainStatusBar::selectedFieldChanged(FieldInformation * finfo)
 {
     QString item_info;
 
     if (! finfo) {
-        pushGenericStatus(STATUS_CTX_FIELD, item_info);
+        field_status_base_.clear();
+        refreshFieldStatus();
         return;
     }
 
@@ -301,7 +341,23 @@ void MainStatusBar::selectedFieldChanged(FieldInformation * finfo)
 
     if (hInfo.isValid)
     {
-        if (hInfo.description.length() > 0) {
+        /* For frame.tag items, show the rule's comment in the status bar instead of the blurb. */
+        if (hInfo.abbreviation == "frame.tag") {
+            field_info *fi = finfo->fieldInfo();
+            const char *rule_name = fi ? fvalue_get_string(fi->value) : nullptr;
+            QString comment_str;
+            if (rule_name) {
+                for (const GSList *r = tag_rules_get_list(); r; r = g_slist_next(r)) {
+                    const tag_rule_t *rule = (const tag_rule_t *)r->data;
+                    if (strcmp(rule->rule_name, rule_name) == 0) {
+                        if (rule->comment && rule->comment[0])
+                            comment_str = QString::fromUtf8(rule->comment);
+                        break;
+                    }
+                }
+            }
+            item_info.append(comment_str.isEmpty() ? hInfo.description : comment_str);
+        } else if (hInfo.description.length() > 0) {
             item_info.append(hInfo.description);
         } else {
             item_info.append(hInfo.name);
@@ -324,7 +380,8 @@ void MainStatusBar::selectedFieldChanged(FieldInformation * finfo)
         }
     }
 
-    pushGenericStatus(STATUS_CTX_FIELD, item_info);
+    field_status_base_ = item_info;
+    refreshFieldStatus();
 }
 
 void MainStatusBar::highlightedFieldChanged(FieldInformation * finfo)
@@ -395,7 +452,9 @@ void MainStatusBar::showCaptureStatistics()
 
     QList<int> rows;
     MainWindow * mw = mainApp->mainWindow();
-    if (mw) {
+    // Only a single selected packet is shown, so don't build the
+    // list of a large selection.
+    if (mw && !mw->hasSelection()) {
         rows = mw->selectedRows(true);
     }
 

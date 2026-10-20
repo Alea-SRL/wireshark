@@ -84,6 +84,7 @@ static const range_string class_id_names[] = {
 #define GENEVE_GCP_TIMESTAMP 0x01320F
 #define GENEVE_GCP_NETWORK_STABLE_ID 0x013210
 #define GENEVE_GCP_PRIMARY_IP4 0x013211
+#define GENEVE_GCP_FOPIC_TIMESTAMP 0x013213
 #define GENEVE_CILIUM_SERVICE   0x014B81
 #define GENEVE_CPACKET_METADATA  0x016400
 
@@ -94,6 +95,7 @@ static const val64_string option_names[] = {
   { GENEVE_GCP_TIMESTAMP, "GCP Timestamp" },
   { GENEVE_GCP_NETWORK_STABLE_ID, "GCP Network Stable ID" },
   { GENEVE_GCP_PRIMARY_IP4, "GCP Primary IPv4 Address" },
+  { GENEVE_GCP_FOPIC_TIMESTAMP, "GCP FOPiC Timestamp" },
   { GENEVE_CILIUM_SERVICE,    "Cilium Service IP" },
   { GENEVE_CPACKET_METADATA,  "cPacket Meta-data" },
   { 0, NULL }
@@ -131,6 +133,7 @@ static int hf_geneve_opt_gcp_timestamp;
 static int hf_geneve_opt_gcp_project_number;
 static int hf_geneve_opt_gcp_network_id;
 static int hf_geneve_opt_gcp_primary_ip4;
+static int hf_geneve_opt_gcp_fopic_timestamp;
 static int hf_geneve_opt_cilium_service_ipv4;
 static int hf_geneve_opt_cilium_service_ipv6;
 static int hf_geneve_opt_cilium_service_port;
@@ -266,6 +269,15 @@ dissect_option(packet_info *pinfo, tvbuff_t *tvb, proto_tree *opts_tree, int off
               proto_tree_add_item(opt_tree, hf_geneve_opt_gcp_primary_ip4, tvb, offset,
                                   4, ENC_BIG_ENDIAN);
               break;
+          case GENEVE_GCP_FOPIC_TIMESTAMP:
+              {
+                  uint64_t ns = tvb_get_ntoh64(tvb, offset);
+                  nstime_t ts;
+                  ts.secs = (time_t)(ns / 1000000000);
+                  ts.nsecs = (int)(ns % 1000000000);
+                  proto_tree_add_time(opt_tree, hf_geneve_opt_gcp_fopic_timestamp, tvb, offset, 8, &ts);
+              }
+              break;
           case GENEVE_CILIUM_SERVICE:
               switch (geneve_option->opt_len) {
                   case 12: {
@@ -376,7 +388,7 @@ dissect_geneve(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
     proto_item *ti, *rsvd_item;
     proto_tree *geneve_tree;
     tvbuff_t *next_tvb;
-    int offset = 0;
+    unsigned offset = 0;
     uint8_t ver_opt;
     uint8_t ver;
     uint8_t flags;
@@ -592,6 +604,11 @@ proto_register_geneve(void)
             FT_IPv4, BASE_NONE, NULL, 0x00,
             NULL, HFILL }
         },
+        { &hf_geneve_opt_gcp_fopic_timestamp,
+          { "GCP FOPiC Timestamp", "geneve.option.gcp.fopic_timestamp",
+            FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0x00,
+            "Timestamp in nanoseconds since epoch", HFILL }
+        },
         { &hf_geneve_opt_cilium_service_ipv4,
           { "Cilium Service IPv4", "geneve.option.cilium.service.ipv4",
             FT_IPv4, BASE_NONE, NULL, 0x00,
@@ -693,7 +710,7 @@ proto_register_geneve(void)
     proto_register_field_array(proto_geneve, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    geneve_vendor_dissector_table = register_dissector_table("geneve.vendor_opts", "Genenve Vendor OPTs", proto_geneve, FT_UINT32, BASE_DEC);
+    geneve_vendor_dissector_table = register_dissector_table("geneve.vendor_opts", "Geneve Vendor OPTs", proto_geneve, FT_UINT32, BASE_DEC);
 
     expert_geneve = expert_register_protocol(proto_geneve);
     expert_register_field_array(expert_geneve, ei, array_length(ei));

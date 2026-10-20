@@ -37,7 +37,7 @@ public:
      * @param parent The parent widget, defaults to 0.
      * @param add_filter An optional filter string to add initially, defaults to an empty string.
      */
-    explicit ColoringRulesDialog(QWidget *parent = 0, QString add_filter = QString());
+    explicit ColoringRulesDialog(QWidget *parent = 0, QString add_filter = QString(), QString add_name = QString());
 
     /**
      * @brief Destroys the ColoringRulesDialog.
@@ -58,7 +58,7 @@ protected:
      * @brief Handles the show event for the dialog.
      * @param event The show event object.
      */
-    void showEvent(QShowEvent *event);
+    void showEvent(QShowEvent *event) override;
 
 private slots:
     /**

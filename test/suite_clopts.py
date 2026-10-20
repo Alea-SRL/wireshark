@@ -9,12 +9,16 @@
 '''Command line option tests'''
 
 import json
-import sys
 import os.path
 import subprocess
-import subprocesstest
-from subprocesstest import ExitCodes, grep_output, count_output
+import sys
+import sysconfig
+import types
+
 import pytest
+
+import subprocesstest
+from subprocesstest import ExitCodes, count_output, grep_output
 
 #glossaries = ('fields', 'protocols', 'values', 'decodes', 'defaultprefs', 'currentprefs')
 
@@ -220,11 +224,23 @@ class TestTsharkDumpGlossaries:
         '''Folders output with unicode'''
         if not features.have_lua:
             pytest.skip('Test requires Lua scripting support.')
-        if sys.platform == 'win32' and not features.have_lua_unicode:
-            pytest.skip('Test requires a patched Lua build with UTF-8 support.')
+#        if sys.platform == 'win32' and not features.have_lua_unicode:
+#            pytest.skip('Test requires a patched Lua build with UTF-8 support.')
         proc = subprocesstest.run((cmd_tshark, '-G', 'folders'), capture_output=True, env=unicode_env.env)
         out = proc.stdout
         pluginsdir = [x.split('\t', 1)[1] for x in out.splitlines() if x.startswith('Personal Lua Plugins:')]
+        if sys.platform == 'win32' and sysconfig.get_platform().startswith('mingw') and os.altsep:
+            # https://www.msys2.org/docs/python
+            # TShark (wsutil/filesystem) always uses the Windows path separator
+            # ('\') on MSYS2, but MSYS2's CPython swaps the path separators and
+            # prefers '/' when running inside an active MSYS2 environment
+            # (e.g., when compiling and running tests.) unicode.env.pluginsdir,
+            # unicode_env.path, unicode_env.env['APPDATA'] all use '/' from
+            # os.sep in such case. wsutil/filesystem.c probably should use
+            # g_build_filename and g_path_get_basename in order to try to
+            # handle both directory separator options, but normalize around
+            # that for now.
+            pluginsdir = [path.replace(os.altsep, os.sep) for path in pluginsdir]
         assert [unicode_env.pluginsdir] == pluginsdir
 
 
@@ -320,30 +336,43 @@ class TestTsharkZExpert:
         assert not grep_output(proc.stdout, 'Chats')
 
 
+@pytest.fixture
+def extcap_pyenv(home_path, test_env, features):
+    if not features.have_pcap:
+        pytest.skip('Test requires libpcap at runtime.')
+    # Various guides and vulnerability scanners recommend setting /tmp noexec.
+    # If our temp path is such, the extcap script won't work.
+    try:
+        if os.statvfs(home_path).f_flag & os.ST_NOEXEC:
+            pytest.skip('Test requires temp directory to allow execution')
+    except AttributeError:
+        # Most Linux and NetBSD have ST_NOEXEC; Darwin and other *BSDs don't.
+        # Windows doesn't have statvfs
+        pass
+    # If the git config core.fileMode is set to false, then the execute bit
+    # won't be set. Respect the security policy rather than overriding it.
+    if not os.access(home_path, os.X_OK):
+        pytest.skip('Test requires execute permission for sampleif.py (is git config core.fileMode false?)')
+    extcap_dir_path = os.path.join(home_path, 'extcap')
+    os.makedirs(extcap_dir_path)
+    test_env['WIRESHARK_EXTCAP_DIR'] = extcap_dir_path
+    if sys.platform == 'win32':
+        # Assume that Python files (.py) are associated with an appropriate
+        # Python interpreter. (We could check this with winreg, perhaps?)
+        # To ensure that files are seen as executable,
+        # PATHEXT must contain the .py extension. Note this does not affect
+        # what Python returns for os.access(source_file, os.X_OK), which uses
+        # hardcoded extensions. It does affect what shutil.which() returns.
+        test_env['PATHEXT'] += ';.py'
+    return types.SimpleNamespace(
+        env=test_env,
+        extcap_dir=extcap_dir_path
+    )
+
 class TestTsharkExtcap:
     # dumpcap dependency has been added to run this test only with capture support
-    def test_tshark_extcap_interfaces(self, cmd_tshark, cmd_dumpcap, test_env, home_path):
-        # Script extcaps don't work with the current code on windows.
-        # https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html
-        # TODO: skip this test until it will get fixed.
-        if sys.platform == 'win32':
-            pytest.skip('FIXME extcap .py scripts needs special treatment on Windows')
-        # Various guides and vulnerability scanners recommend setting /tmp noexec.
-        # If our temp path is such, the extcap script won't work.
-        try:
-            if os.statvfs(home_path).f_flag & os.ST_NOEXEC:
-                pytest.skip('Test requires temp directory to allow execution')
-        except AttributeError:
-            # Most Linux and NetBSD have ST_NOEXEC; Darwin and other *BSDs don't.
-            pass
+    def test_tshark_extcap_interfaces(self, cmd_tshark, cmd_dumpcap, extcap_pyenv):
         source_file = os.path.join(os.path.dirname(__file__), 'sampleif.py')
-        # If the git config core.fileMode is set to false, then the execute bit
-        # won't be set. Respect the security policy rather than overriding it.
-        if not os.access(home_path, os.X_OK):
-            pytest.skip('Test requires execute permission for sampleif.py (is git config core.fileMode false?)')
-        extcap_dir_path = os.path.join(home_path, 'extcap')
-        os.makedirs(extcap_dir_path)
-        test_env['WIRESHARK_EXTCAP_DIR'] = extcap_dir_path
         # We run our tests in a bare, reproducible home environment. This can result in an
         # invalid or missing Python interpreter if our main environment has a wonky Python
         # path, as is the case in the GitLab SaaS macOS runners which use `asdf`. Force
@@ -352,16 +381,16 @@ class TestTsharkExtcap:
             sampleif_py = sf.read()
             sampleif_py = sampleif_py.replace('/usr/bin/env python3', sys.executable)
             sys.stderr.write(sampleif_py)
-            extcap_file = os.path.join(extcap_dir_path, 'sampleif.py')
+            extcap_file = os.path.join(extcap_pyenv.extcap_dir, 'sampleif.py')
             with open(extcap_file, 'w') as ef:
                 ef.write(sampleif_py)
                 os.fchmod(ef.fileno(), os.fstat(sf.fileno()).st_mode)
 
         # Ensure the test extcap_tool is properly loaded
-        proc = subprocesstest.run((cmd_tshark, '-D'), capture_output=True, env=test_env)
+        proc = subprocesstest.run((cmd_tshark, '-D'), capture_output=True, env=extcap_pyenv.env)
         assert count_output(proc.stdout, 'sampleif') == 1
         # Ensure tshark lists 2 interfaces in the preferences
-        proc = subprocesstest.run((cmd_tshark, '-G', 'currentprefs'), capture_output=True, env=test_env)
+        proc = subprocesstest.run((cmd_tshark, '-G', 'currentprefs'), capture_output=True, env=extcap_pyenv.env)
         assert count_output(proc.stdout, 'extcap.sampleif.test') == 2
 
 class TestStratoOptions:
@@ -401,3 +430,10 @@ class TestStratoOptions:
     #     assert obj.get('eth.type', 'NOT FOUND') == ['0x0800']
     #     assert obj.get('ip.proto', 'NOT FOUND') == ['6']
     #     assert obj.get('http.host', 'NOT FOUND') == 'NOT FOUND'
+
+class TestDftestUnicodeClopts:
+    def test_dftest_unicode_display_filter(self, cmd_dftest, test_env):
+        '''Dftest Unicode (UTF-8) display filter'''
+        process = subprocesstest.run((cmd_dftest, 'tcp.payload contains "é" and _ws.string contains "\U0001F988"'), capture_output=True, env=test_env)
+        assert grep_output(process.stdout, 'contains c3:a9')
+        assert grep_output(process.stdout, 'contains f0:9f:a6:88') # Unicode Shark

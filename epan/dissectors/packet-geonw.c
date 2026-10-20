@@ -1249,7 +1249,7 @@ dissect_sec_intx(tvbuff_t *tvb, int *offset, packet_info *pinfo, proto_tree *tre
     ti = proto_tree_add_item(tree, hf_sgeonw_intx, tvb, start, (*offset) - start, ENC_NA);
     subtree = proto_item_add_subtree(ti, ett_sgeonw_intx);
     proto_tree_add_bits_item(subtree, hf_sgeonw_var_len_det, tvb, start << 3, (*offset) - start, ENC_NA);
-    if ((hf != hf_sgeonw_app_id) || ((*offset) - start) > 4) {
+    if ((hf != hf_sgeonw_app_id) && ((*offset) - start) > 4) {
         proto_tree_add_uint64_bits_format_value(subtree, hf, tvb, (start << 3) + (*offset) - start,
             (((*offset) - start) << 3) - ((*offset) - start), tmp_val, ENC_BIG_ENDIAN, "%" PRIu64, tmp_val);
     }
@@ -2141,7 +2141,7 @@ dissect_geonw_internal(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
     uint32_t header_type;
     uint32_t rhl;
     uint32_t tmp_val;
-    int offset = 0;
+    unsigned offset = 0;
     proto_item *ti;
     proto_item *top_item;
     proto_item* rhl_ti = NULL;
@@ -3698,6 +3698,11 @@ proto_reg_handoff_geonw(void)
     dissector_add_uint("ieee1609dot2.psid", psid_geonetworking_management_communications, sgeonw_handle_);
     dissector_add_uint("ieee1609dot2.psid", psid_traffic_light_control_status_service, sgeonw_handle_);
     dissector_add_uint("ieee1609dot2.psid", psid_collective_perception_service, sgeonw_handle_);
+    dissector_add_uint("ieee1609dot2.psid", psid_avm_service, sgeonw_handle_);
+    dissector_add_uint("ieee1609dot2.psid", psid_vru_awareness_basic_service, sgeonw_handle_);
+    dissector_add_uint("ieee1609dot2.psid", psid_imz_basic_service, sgeonw_handle_);
+    dissector_add_uint("ieee1609dot2.psid", psid_mr_service, sgeonw_handle_);
+    dissector_add_uint("ieee1609dot2.psid", psid_poi_service, sgeonw_handle_);
 
 }
 

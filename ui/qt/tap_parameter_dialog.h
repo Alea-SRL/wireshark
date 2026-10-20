@@ -165,7 +165,7 @@ protected:
      * @brief Shows the context menu with filter and tree collapse/expand actions.
      * @param event The context menu event carrying the cursor position.
      */
-    void contextMenuEvent(QContextMenuEvent *event);
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
     /**
      * @brief Populates the context menu with filter actions for the selected tree item.
@@ -202,6 +202,15 @@ protected:
      */
     void setRetapOnShow(bool retap);
 
+    /**
+     * @brief Retrieves the UI object.
+     * @return Pointer to the UI object.
+     */
+    Ui::TapParameterDialog * getUI(void)
+    {
+        return (ui);
+    }
+
 protected slots:
     /**
      * @brief Applies the filter action associated with the triggered context menu action.
@@ -218,7 +227,7 @@ protected slots:
      * @brief Refreshes the enabled/disabled state of UI widgets based on current
      *        capture and filter state.
      */
-    void updateWidgets();
+    void updateWidgets() override;
 
 private:
     Ui::TapParameterDialog *ui;                  /**< Qt Designer-generated UI object. */

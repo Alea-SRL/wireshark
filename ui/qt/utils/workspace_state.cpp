@@ -72,6 +72,32 @@ QString WorkspaceState::recentProfileFilePath() const
     return path;
 }
 
+QString WorkspaceState::personalThemesPath() const
+{
+    // Mirrors init_extcap_pers_dir() in wsutil/filesystem.c.  Kept in
+    // the UI layer because themes are a Qt-only concern; the C analyzer
+    // libraries never need this path.
+    const char *env_prefix = application_configuration_environment_prefix();
+
+#ifdef _WIN32
+    // Personal config root: %APPDATA%\<App>\themes.  from_profile=false
+    // matches extcap behaviour — personal themes are cross-profile.
+    char *raw = get_persconffile_path(THEMES_DIR_NAME, false, env_prefix);
+    QString path = QString::fromUtf8(raw);
+    g_free(raw);
+    return path;
+#else
+    // Unix layout: ~/.local/lib/<app_lower>/themes (e.g. ~/.local/lib/wireshark/themes).
+    char *app_lower = g_ascii_strdown(env_prefix, -1);
+    char *raw = g_build_filename(g_get_home_dir(), ".local/lib",
+                                 app_lower, THEMES_DIR_NAME, (char *)NULL);
+    QString path = QString::fromUtf8(raw);
+    g_free(app_lower);
+    g_free(raw);
+    return path;
+#endif
+}
+
 bool WorkspaceState::parseRecentFile(const QString &filePath,
                                      std::function<void(const QString &key, const QString &value)> handler)
 {
@@ -176,9 +202,17 @@ void WorkspaceState::addRecentCaptureFile(const QString &filePath)
         return;
     }
 
+    // Note: QDir.canonicalPath requires that a file actually exist,
+    // as that's the only way to resolve symbolic links.
+    // absolutePath followed by cleanPath is similar to canonicalPath,
+    // but doesn't resolve symbolic links, thus not requiring the file
+    // exists.
+    QDir fileDir(filePath);
+    QString canonicalFilePath = QDir::toNativeSeparators(QDir::cleanPath(fileDir.absolutePath()));
+
     // Remove existing entry if present (Qt5-compatible approach)
-    auto matchesPath = [&filePath](const RecentFileInfo &info) {
-        return filePathsMatch(info.filename, filePath);
+    auto matchesPath = [&canonicalFilePath](const RecentFileInfo &info) {
+        return filePathsMatch(info.filename, canonicalFilePath);
     };
     recent_capture_files_.erase(
         std::remove_if(recent_capture_files_.begin(), recent_capture_files_.end(), matchesPath),
@@ -188,7 +222,7 @@ void WorkspaceState::addRecentCaptureFile(const QString &filePath)
     RecentFileInfo info;
     info.size = 0;
     info.accessible = false;
-    info.filename = filePath;
+    info.filename = canonicalFilePath;
     recent_capture_files_.append(info);
 
     // Trim to max size (remove oldest = front of list)
@@ -198,7 +232,7 @@ void WorkspaceState::addRecentCaptureFile(const QString &filePath)
     }
 
     // Queue async status check for the newly added file
-    queueFileStatusCheck(filePath);
+    queueFileStatusCheck(canonicalFilePath);
 
     emit recentCaptureFilesChanged();
     write_recent();  // Persist immediately
@@ -206,9 +240,11 @@ void WorkspaceState::addRecentCaptureFile(const QString &filePath)
 
 void WorkspaceState::removeRecentCaptureFile(const QString &filePath)
 {
+    QDir fileDir(filePath);
+    QString canonicalFilePath = QDir::toNativeSeparators(QDir::cleanPath(fileDir.absolutePath()));
     // Qt5-compatible approach using std::remove_if
-    auto matchesPath = [&filePath](const RecentFileInfo &info) {
-        return filePathsMatch(info.filename, filePath);
+    auto matchesPath = [&canonicalFilePath](const RecentFileInfo &info) {
+        return filePathsMatch(info.filename, canonicalFilePath);
     };
     auto originalSize = recent_capture_files_.size();
     auto newEnd = std::remove_if(recent_capture_files_.begin(), recent_capture_files_.end(), matchesPath);

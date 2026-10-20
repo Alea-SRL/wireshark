@@ -10,7 +10,9 @@
 
 import json
 import subprocess
+
 import pytest
+
 from matchers import MatchAny, MatchList, MatchObject, MatchRegExp
 
 
@@ -37,7 +39,7 @@ def run_sharkd_session(cmd_sharkd, base_env):
             try:
                 jdata = json.loads(line)
             except json.JSONDecodeError:
-                pytest.fail('Invalid JSON: %r' % line)
+                pytest.fail(f'Invalid JSON: {line!r}')
             outputs.append(jdata)
         return tuple(outputs)
     return run_sharkd_session_real
@@ -180,11 +182,13 @@ class TestSharkd:
         check_sharkd_session((
             {"jsonrpc":"2.0", "id":1, "method":"status"},
         ), (
-            {"jsonrpc":"2.0","id":1,"result":{"frames":0,"duration":0.000000000,"columns":["No.","Time","Source","Destination","Protocol","Length","Info"],
+            {"jsonrpc":"2.0","id":1,"result":{"frames":0,"duration":0.000000000,"columns":["No.","Time","Delta","Source","Destination","Protocol","Length","Info"],
                 "column_info":[{
                     "title":"No.","format": "%m","visible":True, "display": "R"
                 },{
                     "title": "Time", "format": "%t", "visible":True, "display": "R"
+                },{
+                    "title": "Delta", "format": "%Gt", "visible":True, "display": "R"
                 },{
                     "title": "Source", "format": "%s", "visible":True, "display": "R"
                 },{
@@ -209,11 +213,13 @@ class TestSharkd:
             {"jsonrpc":"2.0","id":1,"result":{"status":"OK"}},
             {"jsonrpc":"2.0","id":2,"result":{"frames": 4, "duration": 0.070345000,
                 "filename": "dhcp.pcap", "filesize": 1400,
-                "columns":["No.","Time","Source","Destination","Protocol","Length","Info"],
+                "columns":["No.","Time","Delta","Source","Destination","Protocol","Length","Info"],
                 "column_info":[{
                     "title":"No.","format": "%m","visible":True, "display": "R"
                 },{
                     "title": "Time", "format": "%t", "visible":True, "display": "R"
+                },{
+                    "title": "Delta", "format": "%Gt", "visible":True, "display": "R"
                 },{
                     "title": "Source", "format": "%s", "visible":True, "display": "R"
                 },{
@@ -352,9 +358,9 @@ class TestSharkd:
             {"jsonrpc":"2.0","id":1,"result":{"status":"OK"}},
             {"jsonrpc":"2.0","id":2,"result":
                 [
-                    {"c":["3","0.610021","::","ff02::1:ffdc:6277","ICMPv6","78","Neighbor Solicitation for fe80::c2c1:c0ff:fedc:6277"],"num":3,"ct":True,"comments":["hello hello"],"bg":"fce0ff","fg":"12272e"},
-                    {"c":["4","0.760023","::","ff02::1:ffdc:6277","ICMPv6","78","Neighbor Solicitation for fec0::c2c1:c0ff:fedc:6277"],"num":4,"ct":True,"comments":["goodbye goodbye"],"bg":"fce0ff","fg":"12272e"},
-                    {"c":["5","0.802338","10.0.0.1","224.0.0.251","MDNS","138","Standard query response 0x0000 A, cache flush 10.0.0.1 PTR, cache flush Cisco29401.local NSEC, cache flush Cisco29401.local"],"num":5,"bg":"daeeff","fg":"12272e"}
+                    {"c":["3","0.610021","","::","ff02::1:ffdc:6277","ICMPv6","78","Neighbor Solicitation for fe80::c2c1:c0ff:fedc:6277"],"num":3,"ct":True,"comments":["hello hello"],"bg":"fce0ff","fg":"12272e"},
+                    {"c":["4","0.760023","0.150002","::","ff02::1:ffdc:6277","ICMPv6","78","Neighbor Solicitation for fec0::c2c1:c0ff:fedc:6277"],"num":4,"ct":True,"comments":["goodbye goodbye"],"bg":"fce0ff","fg":"12272e"},
+                    {"c":["5","0.802338","0.042315","10.0.0.1","224.0.0.251","MDNS","138","Standard query response 0x0000 A, cache flush 10.0.0.1 PTR, cache flush Cisco29401.local NSEC, cache flush Cisco29401.local"],"num":5,"bg":"daeeff","fg":"12272e"}
                 ],
              },
         ))
@@ -1529,6 +1535,43 @@ class TestSharkd:
         ), (
             {"jsonrpc":"2.0","id":1,"error":{"code":-4005,"message":"Unable to set the preference: Unknown preference"}},
         ))
+
+    def test_sharkd_req_load_wg_keylog_after_dsb(self, run_sharkd_session, capture_file, result_file):
+        keylog_file = result_file('wireguard.keys')
+        with open(keylog_file, 'w') as f:
+            f.write('\n'.join((
+                # PSK without a preceding ephemeral key in this file.
+                'PRESHARED_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=',
+                'REMOTE_STATIC_PUBLIC_KEY=YDCttCs9e1J52/g9vEnwJJa+2x6RqaayAYMpSVQfGEY=',
+                'LOCAL_STATIC_PRIVATE_KEY=AKeZaHwBxjiKLFnkY2unvEdOTtg4AL+M9dQXfopFVFk=',
+                'LOCAL_EPHEMERAL_PRIVATE_KEY=iCv2VTi/BC/q0egU931KXrrQ4TSwXaezMgrhh7uCbXs=',
+                'PRESHARED_KEY=//////////////////////////////////////////8=',
+                'LOCAL_EPHEMERAL_PRIVATE_KEY=0G6t5j1B/We65MXVEBIGuRGYadwB2ITdvJovtAuATmc=',
+                'PRESHARED_KEY=iIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIg=',
+            )))
+        outputs = run_sharkd_session([json.dumps(x) for x in (
+            # The embedded secrets end with an ephemeral key without a PSK.
+            {"jsonrpc":"2.0", "id":1, "method":"load",
+            "params":{"file": capture_file('wireguard-ping-tcp-dsb.pcapng')}
+            },
+            {"jsonrpc":"2.0", "id":2, "method":"setconf",
+            "params":{"name": "wg.keylog_file", "value": keylog_file}
+            },
+            {"jsonrpc":"2.0", "id":3, "method":"load",
+            "params":{"file": capture_file('wireguard-psk.pcap')}
+            },
+            {"jsonrpc":"2.0", "id":4, "method":"frames",
+            "params":{"filter": "wg.handshake_ok == 1"}
+            },
+        )])
+        assert len(outputs) == 4
+        assert outputs[:3] == (
+            {"jsonrpc":"2.0","id":1,"result":{"status":"OK"}},
+            {"jsonrpc":"2.0","id":2,"result":{"status":"OK"}},
+            {"jsonrpc":"2.0","id":3,"result":{"status":"OK"}},
+        )
+        assert outputs[3]['id'] == 4
+        assert [frame['num'] for frame in outputs[3]['result']] == [2, 4]
 
     def test_sharkd_req_dumpconf_bad(self, check_sharkd_session):
         check_sharkd_session((

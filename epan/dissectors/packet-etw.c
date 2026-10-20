@@ -141,6 +141,9 @@ static e_guid_t webio_providerid = { 0x50B3E73C, 0x9370, 0x461D, { 0xBB, 0x9F, 0
 static dissector_handle_t ldap_dissector;
 static e_guid_t ldapclient_providerid = { 0x099614A5, 0x5DD7, 0x4788, { 0x8B, 0xC9, 0xE2, 0x9F, 0x43, 0xDB, 0x28, 0xFC } };
 
+static dissector_handle_t blth_dissector;
+static e_guid_t bthbthport_providerid = { 0x8A1F9517, 0x3A8C, 0x4A9E, { 0xA0, 0x18, 0x4F, 0x17, 0xA2, 0x00, 0xF2, 0x77 } };
+
 static const value_string etw_edata_types[] = {
     { 0x0001, "RELATED_ACTIVITYID" },
     { 0x0002, "SID" },
@@ -388,7 +391,7 @@ dissect_edata_tlvs(tvbuff_t* tvb, packet_info* pinfo, proto_tree* edata_tree, ui
         case 0x000B:  // EVENT_SCHEMA_TL
         {
             uint8_t schema_size = 0;
-            int item_size = 0;
+            unsigned item_size = 0;
 
             *is_tl = true;
             proto_item_set_text(ti, "Data (EVENT_SCHEMA_TL)");
@@ -456,9 +459,10 @@ dissect_etw(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree _U_, void* data 
     bool is_tl = false;
     e_guid_t provider_id;
     uint16_t event_id;
+    uint64_t event_keywords;
     nstime_t timestamp;
     uint64_t ts;
-    int offset = 0;
+    unsigned offset = 0;
     static int* const etw_header_flags[] = {
         &hf_etw_header_flag_extended_info,
         &hf_etw_header_flag_private_session,
@@ -523,7 +527,7 @@ dissect_etw(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree _U_, void* data 
     offset += 1;
     proto_tree_add_item(etw_descriptor, hf_etw_descriptor_task, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     offset += 2;
-    proto_tree_add_item(etw_descriptor, hf_etw_descriptor_keywords, tvb, offset, 8, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint64(etw_descriptor, hf_etw_descriptor_keywords, tvb, offset, 8, ENC_LITTLE_ENDIAN, &event_keywords);
     offset += 8;
 
     proto_tree_add_item(etw_header, hf_etw_processor_time, tvb, offset, 8, ENC_LITTLE_ENDIAN);
@@ -728,6 +732,15 @@ dissect_etw(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree _U_, void* data 
         // TODO: figure out how to make reassembly work :(
         subproto_tvb = tvb_new_subset_length(tvb, user_data_offset, user_data_length);
         call_dissector_only(ldap_dissector, subproto_tvb, pinfo, tree, NULL);
+    }
+    else if (user_data_length &&
+        memcmp(&bthbthport_providerid, &provider_id, sizeof(e_guid_t)) == 0 &&
+        (event_keywords & 0x8000000000000000L) != 0)
+    {
+        // Bluetooth events
+
+        subproto_tvb = tvb_new_subset_length(tvb, user_data_offset, user_data_length);
+        call_dissector_only(blth_dissector, subproto_tvb, pinfo, tree, NULL);
     }
     else
     {
@@ -1010,7 +1023,7 @@ proto_register_etw(void)
         },
         { &hf_etw_edata_schematl_reserved1,
             { "Unknown", "etw.edata.schematl.reserved1",
-                FT_UINT8, BASE_DEC, NULL, 0,
+                FT_UINT16, BASE_DEC, NULL, 0,
                 NULL, HFILL }
         },
         { &hf_etw_edata_schematl_name,
@@ -1189,6 +1202,11 @@ proto_reg_handoff_etw(void)
     nbss_dissector = find_dissector("nbss");
     http_dissector = find_dissector("http-over-tcp");
     ldap_dissector = find_dissector("ldap");
+    blth_dissector = find_dissector("bluetooth");
+
+    // Bluetooth coming from ETW will be using H4 encapsulation
+    dissector_handle_t hci_h4_handle = find_dissector("hci_h4");
+    dissector_add_uint("bluetooth.encap", WTAP_ENCAP_ETW, hci_h4_handle);
 }
 
 /*

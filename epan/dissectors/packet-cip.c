@@ -5276,7 +5276,7 @@ static int dissect_pdd_get_attributes_all_class(packet_info *pinfo _U_, proto_tr
    if (request)
    {
       // no parameters for that service request
-      parsed_len = tvb_reported_length_remaining(tvb, offset);;
+      parsed_len = tvb_reported_length_remaining(tvb, offset);
    }
    else
    {
@@ -5344,7 +5344,7 @@ static int dissect_pdd_get_attributes_all_class(packet_info *pinfo _U_, proto_tr
       proto_tree_add_item_ret_uint16(tree, hf_pdd_size_of_vendor_diagnostics, tvb, offset+parsed_len, 2, ENC_LITTLE_ENDIAN, &size_of_vendor_diagnostics);
       parsed_len += 2;
 
-      // remaining attributes may be ommitted if not implemented, as per GetAttributesAll rules
+      // remaining attributes may be omitted if not implemented, as per GetAttributesAll rules
       int remaining = tvb_reported_length_remaining(tvb, offset+parsed_len);
       if (remaining >= (int)size_of_vendor_diagnostics)
       {
@@ -5391,7 +5391,7 @@ static int dissect_pdd_get_attributes_all_instance(packet_info *pinfo _U_, proto
       parsed_len += 4;
 
       // attributes after Sequence Number are optional and as per definition of Get_Attributes_All,
-      // these may be ommitted from the response
+      // these may be omitted from the response
       int remaining = tvb_reported_length_remaining(tvb, offset+parsed_len);
       if (remaining >= 8)
       {
@@ -9461,7 +9461,7 @@ static void display_previous_route_connection_path(cip_req_info_t *preq_info, pr
 {
    if (preq_info && preq_info->RouteConnectionPathLen && preq_info->pRouteConnectionPath)
    {
-      tvbuff_t* tvbIOI = tvb_new_real_data((const uint8_t *)preq_info->pRouteConnectionPath, preq_info->RouteConnectionPathLen * 2, preq_info->RouteConnectionPathLen * 2);
+      tvbuff_t* tvbIOI = tvb_new_child_real_data(tvb, (const uint8_t *)preq_info->pRouteConnectionPath, preq_info->RouteConnectionPathLen * 2, preq_info->RouteConnectionPathLen * 2);
       if (!tvbIOI)
       {
          return;
@@ -9475,7 +9475,6 @@ static void display_previous_route_connection_path(cip_req_info_t *preq_info, pr
 
       cip_simple_request_info_t route_conn_path;
       dissect_epath(tvbIOI, pinfo, epath_tree, pi, 0, preq_info->RouteConnectionPathLen * 2, true, false, &route_conn_path, NULL, display_type, NULL, false);
-      tvb_free(tvbIOI);
 
       if (preq_info->connInfo && preq_info->connInfo->IsNullFwdOpen)
       {
@@ -9761,7 +9760,7 @@ static void display_previous_request_path(cip_req_info_t *preq_info, proto_tree 
       proto_tree *epath_tree;
       tvbuff_t* tvbIOI;
 
-      tvbIOI = tvb_new_real_data((const uint8_t *)preq_info->pIOI, preq_info->IOILen * 2, preq_info->IOILen * 2);
+      tvbIOI = tvb_new_child_real_data(tvb, (const uint8_t *)preq_info->pIOI, preq_info->IOILen * 2, preq_info->IOILen * 2);
       if (tvbIOI)
       {
          pi = proto_tree_add_uint(item_tree, hf_cip_request_path_size, tvb, 0, 0, preq_info->IOILen);
@@ -9777,7 +9776,6 @@ static void display_previous_request_path(cip_req_info_t *preq_info, proto_tree 
          }
 
          dissect_epath(tvbIOI, pinfo, epath_tree, pi, 0, preq_info->IOILen * 2, true, false, preq_info->ciaData, NULL, DISPLAY_REQUEST_PATH, msp_item, is_msp_item);
-         tvb_free(tvbIOI);
       }
    }
 }

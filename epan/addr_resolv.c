@@ -1221,10 +1221,21 @@ fill_dummy_ip4(const unsigned addr, hashipv4_t* volatile tp)
             }
         }
 
-        /* There are more efficient ways to do this, but this is safe if we
-         * trust snprintf and MAXDNSNAMELEN
+        /* XXX - the subnet entry name could be up to MAXDNSNAMELEN, and
+         * buffer is WS_INET_ADDRSTRLEN chars, so the total length of
+         * this string could be up to MAXDNSNAMELEN+WS_INET_ADDRSTRLEN,
+         * which won't fit in the name field of a hashipv4_t, which is only
+         * MAXDNSNAMELEN chars.
+         *
+         * For now, we do it this way, to suppress compiler warnings.
+         * g_strlcpy() returns the length of the string being copied, which
+         * should be < MAXDNSNAMELEN as it does not include the trailing NUL,
+         * but let's be cautious.
          */
-        snprintf(tp->name, MAXDNSNAMELEN, "%s%s", subnet_entry.name, paddr);
+        size_t subnet_entry_name_len;
+        subnet_entry_name_len = g_strlcpy(tp->name, subnet_entry.name, MAXDNSNAMELEN);
+        if (subnet_entry_name_len < MAXDNSNAMELEN)
+                g_strlcpy(tp->name + subnet_entry_name_len, paddr, MAXDNSNAMELEN - subnet_entry_name_len);
 
         /* Evaluate the subnet in CIDR notation
          * Reuse buffers built above
@@ -1816,6 +1827,7 @@ manuf_hash_new_entry(const uint8_t *addr, const char* name, const char* longname
     unsigned manuf_key;
     hashmanuf_t *manuf_value;
     char *endp;
+    size_t attempted_size;
 
     /* manuf needs only the 3 most significant octets of the ethernet address */
     manuf_key = (addr[0] << 16) + (addr[1] << 8) + addr[2];
@@ -1826,7 +1838,10 @@ manuf_hash_new_entry(const uint8_t *addr, const char* name, const char* longname
         (void) g_strlcpy(manuf_value->resolved_name, name, MAXNAMELEN);
         manuf_value->flags = NAME_RESOLVED;
         if (longname != NULL) {
-            (void) g_strlcpy(manuf_value->resolved_longname, longname, MAXNAMELEN);
+            attempted_size = g_strlcpy(manuf_value->resolved_longname, longname, MAXNAMELEN);
+            if (attempted_size >= MAXNAMELEN) {
+                ws_utf8_truncate(manuf_value->resolved_longname, MAXNAMELEN - 1);
+            }
         }
         else {
             (void) g_strlcpy(manuf_value->resolved_longname, name, MAXNAMELEN);
@@ -3211,12 +3226,16 @@ subnet_entry_set(uint32_t subnet_addr, const uint8_t mask_length, const char* na
     if (NULL != (tp = entry->subnet_addresses[hash_idx])) {
         sub_net_hashipv4_t * new_tp;
 
-        while (tp->next) {
+        while (tp) {
             if (tp->addr == subnet_addr) {
-                return; /* XXX provide warning that an address was repeated? */
-            } else {
-                tp = tp->next;
+                /* Entry already exists; last one loaded wins. */
+                (void) g_strlcpy(tp->name, name, MAXNAMELEN); /* This is longer than subnet names can actually be */
+                return;
             }
+            if (tp->next == NULL) {
+                break;
+            }
+            tp = tp->next;
         }
 
         new_tp = wmem_new(addr_resolv_scope, sub_net_hashipv4_t);
@@ -3246,25 +3265,34 @@ subnet_name_lookup_init(const char* app_env_var_prefix)
         subnet_length_entries[i].mask = g_htonl(ws_ipv4_get_subnet_mask(length));
     }
 
-    /* Check profile directory before personal configuration */
-    subnetspath = get_persconffile_path(ENAME_SUBNETS, true, app_env_var_prefix);
-    if (!read_subnets_file(subnetspath)) {
-        if (errno != ENOENT) {
-            report_open_failure(subnetspath, errno, false);
-        }
-
-        g_free(subnetspath);
-        subnetspath = get_persconffile_path(ENAME_SUBNETS, false, app_env_var_prefix);
-        if (!read_subnets_file(subnetspath) && errno != ENOENT) {
-            report_open_failure(subnetspath, errno, false);
-        }
-    }
-    g_free(subnetspath);
-
     /*
      * Load the global subnets file, if we have one.
      */
     subnetspath = get_datafile_path(ENAME_SUBNETS, app_env_var_prefix);
+    if (!read_subnets_file(subnetspath) && errno != ENOENT) {
+        report_open_failure(subnetspath, errno, false);
+    }
+    g_free(subnetspath);
+
+    /*
+     * Load the base personal subnets file, if we have one.  This is in the
+     * root of the personal configuration directory, not in a profile
+     * subdirectory, so it survives upgrades and applies across all
+     * profiles.  It is loaded after the global file so that personal
+     * entries take precedence over global ones.
+     */
+    subnetspath = get_persconffile_path(ENAME_SUBNETS, false, app_env_var_prefix);
+    if (!read_subnets_file(subnetspath) && errno != ENOENT) {
+        report_open_failure(subnetspath, errno, false);
+    }
+    g_free(subnetspath);
+
+    /*
+     * Load the profile subnets file, if we have one.  This is loaded last
+     * so that profile entries take precedence over both the global and
+     * base personal subnets files.
+     */
+    subnetspath = get_persconffile_path(ENAME_SUBNETS, true, app_env_var_prefix);
     if (!read_subnets_file(subnetspath) && errno != ENOENT) {
         report_open_failure(subnetspath, errno, false);
     }
@@ -3309,13 +3337,17 @@ subnet6_entry_set(const ws_in6_addr *subnet_addr, const uint32_t mask_length,
 
     if ((tp = entry->subnet_addresses[hash_idx]) != NULL) {
         sub_net_hashipv6_t *new_tp;
-        while (tp->next) {
-            if (memcmp(tp->addr, masked, 16) == 0)
-                return; /* duplicate */
+        while (tp) {
+            if (memcmp(tp->addr, masked, 16) == 0) {
+                /* Entry already exists; last one loaded wins. */
+                (void)g_strlcpy(tp->name, name, MAXNAMELEN);
+                return;
+            }
+            if (tp->next == NULL) {
+                break;
+            }
             tp = tp->next;
         }
-        if (memcmp(tp->addr, masked, 16) == 0)
-            return; /* duplicate at tail */
         new_tp = wmem_new(addr_resolv_scope, sub_net_hashipv6_t);
         tp->next = new_tp;
         tp = new_tp;
@@ -3424,22 +3456,32 @@ subnet6_name_lookup_init(const char *app_env_var_prefix)
         ipv6_get_subnet_mask((uint32_t)(i + 1), subnet_length_entries_v6[i].mask);
     }
 
-    /* Check profile directory before personal configuration */
-    subnetspath = get_persconffile_path(ENAME_SUBNETS_V6, true, app_env_var_prefix);
-    if (!read_subnets_ipv6_file(subnetspath)) {
-        if (errno != ENOENT)
-            report_open_failure(subnetspath, errno, false);
-        g_free(subnetspath);
-        subnetspath = get_persconffile_path(ENAME_SUBNETS_V6, false, app_env_var_prefix);
-        if (!read_subnets_ipv6_file(subnetspath) && errno != ENOENT)
-            report_open_failure(subnetspath, errno, false);
-    }
-    g_free(subnetspath);
-
     /*
      * Load the global IPv6 subnets file, if we have one.
      */
     subnetspath = get_datafile_path(ENAME_SUBNETS_V6, app_env_var_prefix);
+    if (!read_subnets_ipv6_file(subnetspath) && errno != ENOENT)
+        report_open_failure(subnetspath, errno, false);
+    g_free(subnetspath);
+
+    /*
+     * Load the base personal IPv6 subnets file, if we have one.  This is in
+     * the root of the personal configuration directory, not in a profile
+     * subdirectory, so it survives upgrades and applies across all
+     * profiles.  It is loaded after the global file so that personal
+     * entries take precedence over global ones.
+     */
+    subnetspath = get_persconffile_path(ENAME_SUBNETS_V6, false, app_env_var_prefix);
+    if (!read_subnets_ipv6_file(subnetspath) && errno != ENOENT)
+        report_open_failure(subnetspath, errno, false);
+    g_free(subnetspath);
+
+    /*
+     * Load the profile IPv6 subnets file, if we have one.  This is loaded
+     * last so that profile entries take precedence over both the global
+     * and base personal IPv6 subnets files.
+     */
+    subnetspath = get_persconffile_path(ENAME_SUBNETS_V6, true, app_env_var_prefix);
     if (!read_subnets_ipv6_file(subnetspath) && errno != ENOENT)
         report_open_failure(subnetspath, errno, false);
     g_free(subnetspath);
@@ -4028,7 +4070,21 @@ host_name_lookup_init(const char* app_env_var_prefix)
     }
     g_free(hostspath);
     /*
-     * Load the user's hosts file no matter what, if they have one.
+     * Load the base personal hosts file, if we have one.  This is in the
+     * root of the personal configuration directory (e.g. %APPDATA%\Wireshark\hosts
+     * on Windows), not in a profile subdirectory, so it survives upgrades and
+     * applies across all profiles.  It is loaded after the global file so that
+     * personal entries take precedence over global ones.
+     */
+    hostspath = get_persconffile_path(ENAME_HOSTS, false, app_env_var_prefix);
+    if (!read_hosts_file(hostspath, true) && errno != ENOENT) {
+        report_open_failure(hostspath, errno, false);
+    }
+    g_free(hostspath);
+    /*
+     * Load the profile hosts file, if we have one.  This is loaded last so
+     * that profile entries take precedence over both the global and base
+     * personal hosts files.
      */
     hostspath = get_persconffile_path(ENAME_HOSTS, true, app_env_var_prefix);
     if (!read_hosts_file(hostspath, true) && errno != ENOENT) {

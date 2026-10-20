@@ -86,7 +86,6 @@
 #include <wiretap/libpcap.h>
 #include <wiretap/pcap-encap.h>
 
-#include <cli_main.h>
 #include <wsutil/version_info.h>
 
 #include "capture/capture-pcap-util.h"
@@ -1446,6 +1445,13 @@ raw_epan_new(capture_file *cf)
         cap_file_provider_get_end_ts,
         cap_file_provider_get_interface_name,
         cap_file_provider_get_interface_description,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
         NULL,
         NULL,
         NULL,

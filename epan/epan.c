@@ -393,7 +393,7 @@ epan_init(register_cb cb, void *client_data, bool load_plugins, epan_app_data_t*
 		stat_tap_init();
 		g_slist_foreach(epan_plugins, epan_plugin_init, NULL);
 		proto_init(epan_plugin_register_all_procotols, epan_plugin_register_all_handoffs,
-			(app_data != NULL) ? app_data->register_func : NULL, (app_data != NULL) ? app_data->handoff_func : NULL, cb, client_data);
+			app_data->register_func, app_data->handoff_func, cb, client_data);
 		g_slist_foreach(epan_plugins, epan_plugin_register_all_tap_listeners, NULL);
 		packet_cache_proto_handles();
 		dfilter_init(epan_env_prefix_cache);
@@ -643,6 +643,69 @@ epan_get_process_uuid(const epan_t *session, uint32_t process_info_id, unsigned 
 	return NULL;
 }
 
+const char *
+epan_get_process_path(const epan_t *session, uint32_t process_info_id, unsigned section_number)
+{
+	if (session->funcs.get_process_path)
+		return session->funcs.get_process_path(session->prov, process_info_id, section_number);
+
+	return NULL;
+}
+
+const uint8_t *
+epan_get_process_cmdline(const epan_t *session, uint32_t process_info_id, unsigned section_number, size_t *cmdline_size)
+{
+	if (session->funcs.get_process_cmdline)
+		return session->funcs.get_process_cmdline(session->prov, process_info_id, section_number, cmdline_size);
+
+	return NULL;
+}
+
+bool
+epan_get_process_parent_id(const epan_t *session, uint32_t process_info_id, unsigned section_number, uint32_t *parent_process_id)
+{
+	if (session->funcs.get_process_parent_id)
+		return session->funcs.get_process_parent_id(session->prov, process_info_id, section_number, parent_process_id);
+
+	return false;
+}
+
+bool
+epan_get_process_user_id(const epan_t *session, uint32_t process_info_id, unsigned section_number, uint32_t *user_id)
+{
+	if (session->funcs.get_process_user_id)
+		return session->funcs.get_process_user_id(session->prov, process_info_id, section_number, user_id);
+
+	return false;
+}
+
+const char *
+epan_get_process_user_name(const epan_t *session, uint32_t process_info_id, unsigned section_number)
+{
+	if (session->funcs.get_process_user_name)
+		return session->funcs.get_process_user_name(session->prov, process_info_id, section_number);
+
+	return NULL;
+}
+
+bool
+epan_get_process_start_time(const epan_t *session, uint32_t process_info_id, unsigned section_number, nstime_t *start_time)
+{
+	if (session->funcs.get_process_start_time)
+		return session->funcs.get_process_start_time(session->prov, process_info_id, section_number, start_time);
+
+	return false;
+}
+
+bool
+epan_find_process_info(const epan_t *session, uint32_t process_id, unsigned section_number, const nstime_t *ts, int64_t file_off, uint32_t *process_info_id)
+{
+	if (session->funcs.find_process_info)
+		return session->funcs.find_process_info(session->prov, process_id, section_number, ts, file_off, process_info_id);
+
+	return false;
+}
+
 void
 epan_free(epan_t *session)
 {
@@ -713,8 +776,6 @@ epan_dissect_reset(epan_dissect_t *edt)
 	ws_assert(edt);
 
 	wtap_block_unref(edt->pi.rec->block);
-
-	g_slist_free(edt->pi.proto_data);
 
 	/* Free the data sources list. */
 	free_data_sources(&edt->pi);
@@ -817,8 +878,6 @@ epan_dissect_cleanup(epan_dissect_t* edt)
 
 	g_slist_foreach(epan_plugins, epan_plugin_dissect_cleanup, edt);
 
-	g_slist_free(edt->pi.proto_data);
-
 	/* Free the data sources list. */
 	free_data_sources(&edt->pi);
 
@@ -888,10 +947,10 @@ epan_custom_set(epan_dissect_t *edt, GSList *field_ids,
 }
 
 void
-epan_dissect_fill_in_columns(epan_dissect_t *edt, const bool fill_col_exprs, const bool fill_fd_colums)
+epan_dissect_fill_in_columns(epan_dissect_t *edt, const bool fill_col_exprs, const bool fill_fd_columns)
 {
 	col_custom_set_edt(edt, edt->pi.cinfo);
-	col_fill_in(&edt->pi, fill_col_exprs, fill_fd_colums);
+	col_fill_in(&edt->pi, fill_col_exprs, fill_fd_columns);
 }
 
 bool

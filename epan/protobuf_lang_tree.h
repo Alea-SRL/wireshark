@@ -23,73 +23,97 @@ extern "C" {
 
 typedef void(*pbl_report_error_cb_t)(const char *msg_format, ...);
 
-/* Node types of protocol buffers language */
+/**
+ * @brief Node types in the Protocol Buffers language (proto2/proto3) parse tree.
+ */
 typedef enum {
-    PBL_UNKNOWN = 0,
-    PBL_PACKAGE,
-    PBL_MESSAGE,
-    PBL_FIELD,
-    PBL_ONEOF,
-    PBL_MAP_FIELD,
-    PBL_ENUM,
-    PBL_ENUM_VALUE,
-    PBL_SERVICE,
-    PBL_METHOD, /* contains the rpc and stream node of service */
-    PBL_OPTIONS,
-    PBL_OPTION
+    PBL_UNKNOWN   = 0, /**< Unknown or uninitialized node type */
+    PBL_PACKAGE,       /**< Package declaration node */
+    PBL_MESSAGE,       /**< Message type definition node */
+    PBL_FIELD,         /**< Message field definition node */
+    PBL_ONEOF,         /**< oneof group definition node */
+    PBL_MAP_FIELD,     /**< map<K,V> field definition node */
+    PBL_ENUM,          /**< Enum type definition node */
+    PBL_ENUM_VALUE,    /**< Individual enum value node */
+    PBL_SERVICE,       /**< Service definition node */
+    PBL_METHOD,        /**< RPC or stream method node within a service */
+    PBL_OPTIONS,       /**< Options block node */
+    PBL_OPTION         /**< Single option key/value node */
 } pbl_node_type_t;
 
-/* like google::protobuf::descriptor_pool of protobuf cpp library */
+
+/**
+ * @brief Central descriptor pool for all parsed .proto files; analogous to
+ *        google::protobuf::DescriptorPool in the protobuf C++ library.
+ */
 typedef struct {
-    GQueue* source_paths; /* the directories in which to search for proto file */
-    pbl_report_error_cb_t error_cb; /* error call back function */
-    GHashTable* packages; /* all packages parsed from proto files */
-    GHashTable* proto_files; /* all proto files that are parsed or to be parsed */
-    GQueue* proto_files_to_be_parsed; /* files is to be parsed */
-    struct _protobuf_lang_state_t *parser_state; /* current parser state */
+    GQueue      *source_paths;             /**< Ordered list of directory paths searched for imported .proto files */
+    pbl_report_error_cb_t error_cb;        /**< Callback invoked to report parse or resolution errors */
+    GHashTable  *packages;                 /**< Hash table of all packages encountered across parsed files, keyed by package name */
+    GHashTable  *proto_files;              /**< Hash table of all known .proto files (parsed or pending), keyed by filename */
+    GQueue      *proto_files_to_be_parsed; /**< Queue of .proto filenames that have been discovered but not yet parsed */
+    struct _protobuf_lang_state_t *parser_state; /**< Active parser state during incremental parsing; NULL when idle */
 } pbl_descriptor_pool_t;
 
-/* file descriptor */
+
+/**
+ * @brief Descriptor for a single parsed .proto source file.
+ */
 typedef struct {
-    const char* filename;
-    int syntax_version;
-    const char* package_name;
-    int package_name_lineno;
-    pbl_descriptor_pool_t* pool;
+    const char            *filename;             /**< Path to the .proto file as provided to the descriptor pool */
+    int                    syntax_version;        /**< Proto syntax version declared in the file (2 or 3) */
+    const char            *package_name;          /**< Package name declared in the file, or NULL if absent */
+    int                    package_name_lineno;   /**< Line number of the package declaration within the file */
+    pbl_descriptor_pool_t *pool;                  /**< Descriptor pool that owns this file descriptor */
 } pbl_file_descriptor_t;
 
-/* Basic information of node */
-typedef struct pbl_node_t{
-    pbl_node_type_t nodetype;
-    char* name;
-    char* full_name; /* constructed during first access */
-    struct pbl_node_t* parent;
-    GQueue* children; /* child is a pbl_node_t */
-    GHashTable* children_by_name; /* take children names as keys */
-    pbl_file_descriptor_t* file;
-    int lineno;
+
+/**
+ * @brief Base node carrying identity and tree linkage for every parse tree element.
+ */
+typedef struct pbl_node_t {
+    pbl_node_type_t    nodetype;          /**< Discriminator identifying the concrete node type */
+    char              *name;              /**< Unqualified name of this node as it appears in the source */
+    char              *full_name;         /**< Fully-qualified name (e.g., ".package.Message.field"); lazily constructed on first access */
+    struct pbl_node_t *parent;            /**< Parent node in the parse tree, or NULL for top-level nodes */
+    GQueue            *children;          /**< Ordered list of child pbl_node_t pointers */
+    GHashTable        *children_by_name;  /**< Hash table of child nodes keyed by unqualified name for fast lookup */
+    pbl_file_descriptor_t *file;          /**< Source file in which this node was declared */
+    int                lineno;            /**< Line number of this node's declaration within @ref file */
 } pbl_node_t;
 
-/* like google::protobuf::MethodDescriptor of protobuf cpp library */
+
+/**
+ * @brief Descriptor for a single RPC or stream method within a service definition;
+ *        analogous to google::protobuf::MethodDescriptor in the protobuf C++ library.
+ */
 typedef struct {
-    pbl_node_t basic_info;
-    char* in_msg_type;
-    bool in_is_stream;
-    char* out_msg_type;
-    bool out_is_stream;
+    pbl_node_t basic_info;    /**< Inherited base node fields (name, parent, file location, etc.) */
+    char      *in_msg_type;   /**< Fully-qualified type name of the request message */
+    bool       in_is_stream;  /**< True if the request is a streaming input (client-streaming RPC) */
+    char      *out_msg_type;  /**< Fully-qualified type name of the response message */
+    bool       out_is_stream; /**< True if the response is a streaming output (server-streaming RPC) */
 } pbl_method_descriptor_t;
 
-/* like google::protobuf::Descriptor of protobuf cpp library */
+
+/**
+ * @brief Descriptor for a message type definition; analogous to
+ *        google::protobuf::Descriptor in the protobuf C++ library.
+ */
 typedef struct {
-    pbl_node_t basic_info;
-    GQueue* fields;
-    GHashTable* fields_by_number;
+    pbl_node_t  basic_info;        /**< Inherited base node fields */
+    GQueue     *fields;            /**< Ordered list of field descriptor nodes (pbl_node_t*) */
+    GHashTable *fields_by_number;  /**< Hash table of field descriptors keyed by field number for fast lookup */
 } pbl_message_descriptor_t;
 
-/* like google::protobuf::EnumValueDescriptor of protobuf cpp library */
+
+/**
+ * @brief Descriptor for a single enum value; analogous to
+ *        google::protobuf::EnumValueDescriptor in the protobuf C++ library.
+ */
 typedef struct {
-    pbl_node_t basic_info;
-    int number;
+    pbl_node_t basic_info; /**< Inherited base node fields */
+    int        number;     /**< Integer value assigned to this enum constant */
 } pbl_enum_value_descriptor_t;
 
 /**
@@ -129,36 +153,45 @@ typedef struct {
     } default_value;
 } pbl_field_descriptor_t;
 
-/* like google::protobuf::EnumDescriptor of protobuf cpp library */
+/**
+ * @brief Describes a protobuf enum type, analogous to google::protobuf::EnumDescriptor in the C++ protobuf library.
+ */
 typedef struct {
-    pbl_node_t basic_info;
-    GQueue* values;
-    GHashTable* values_by_number;
+    pbl_node_t   basic_info;        /**< Base node info containing the enum's name and source location. */
+    GQueue*      values;            /**< Ordered list of pbl_enum_value_descriptor_t entries defined in this enum. */
+    GHashTable*  values_by_number;  /**< Hash table mapping integer enum values to their descriptor entries for fast lookup. */
 } pbl_enum_descriptor_t;
 
-/* Option node. The name of basic_info is optionName.
-   Now, we only care about fieldOption. */
+/**
+ * @brief Describes a single protobuf option; the name of the option is stored in basic_info.
+ *
+ * Currently only field options are handled; other option types are ignored.
+ */
 typedef struct {
-    pbl_node_t basic_info;
-    char* value;
+    pbl_node_t  basic_info; /**< Base node info containing the option name and source location. */
+    char*       value;      /**< The option's value as a raw string. */
 } pbl_option_descriptor_t;
 
-/* the struct of token used by the parser */
+/**
+ * @brief Represents a single lexer token produced while parsing a .proto file.
+ */
 typedef struct _protobuf_lang_token_t {
-    char* v; /* token string value */
-    int ln; /* line number of this token in the .proto file */
+    char* v;  /**< The string value of the token as it appears in the .proto source. */
+    int   ln; /**< Line number within the .proto file where this token was found. */
 } protobuf_lang_token_t;
 
-/* parser state */
+/**
+ * @brief Holds the full mutable state of the protobuf language parser across a single parse run.
+ */
 typedef struct _protobuf_lang_state_t {
-    pbl_descriptor_pool_t* pool; /* pool will keep the parsing result */
-    pbl_file_descriptor_t* file; /* info of current parsing file */
-    GSList* lex_string_tokens;
-    GSList* lex_struct_tokens;
-    void* scanner;
-    void* pParser;
-    bool grammar_error;
-    protobuf_lang_token_t* tmp_token; /* just for passing token value from protobuf_lang_lex() to ProtobufLangParser() */
+    pbl_descriptor_pool_t* pool;             /**< Descriptor pool that accumulates all results from the parse. */
+    pbl_file_descriptor_t* file;             /**< Descriptor for the .proto file currently being parsed. */
+    GSList*                lex_string_tokens; /**< List of string tokens allocated by the lexer, tracked for cleanup. */
+    GSList*                lex_struct_tokens; /**< List of struct tokens allocated by the lexer, tracked for cleanup. */
+    void*                  scanner;          /**< Opaque handle to the reentrant lexer (scanner) instance. */
+    void*                  pParser;          /**< Opaque handle to the Lemon parser instance. */
+    bool                   grammar_error;    /**< Set to true if a grammar error was encountered during parsing. */
+    protobuf_lang_token_t* tmp_token;        /**< Temporary token used to pass values from protobuf_lang_lex() to ProtobufLangParser(). */
 } protobuf_lang_state_t;
 
 /* Store chars created by strdup or g_strconcat into protobuf_lang_state_t temporarily,

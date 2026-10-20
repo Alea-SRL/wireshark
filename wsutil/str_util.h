@@ -230,6 +230,17 @@ const char *ws_ascii_strcasestr(const char *haystack, const char *needle);
 WS_DLL_PUBLIC
 const uint8_t *ws_memrchr(const void *haystack, int ch, size_t n);
 
+/** Like the strchr() function, except if the character is not found
+ * returns a pointer to the terminating '\0' byte.
+ *
+ * @param str Pointer to the null-terminated string to search
+ * @param ch The character to search
+ * @return A pointer to the first occurrence of "ch" in "str";
+ * if "ch" isn't found, returns a pointer to "str"'s null terminator.
+ */
+WS_DLL_PUBLIC
+char *ws_strchrnul(const char *str, int ch);
+
 /**
  * @brief Escape a null-terminated string for safe display or output.
  *
@@ -301,6 +312,43 @@ char *ws_escape_null(wmem_allocator_t *alloc, const char *string, size_t len, bo
  */
 WS_DLL_PUBLIC
 char *ws_escape_csv(wmem_allocator_t *alloc, const char *string, bool add_quotes, char quote_char, bool double_quote, bool escape_whitespace);
+
+/**
+ * @brief Unescape C-style escape sequences from a mostly ASCII/UTF-8 string
+ *
+ * @param alloc  The wmem scope to use to allocate the returned string
+ * @param string  The input string to unescape
+ * @param len  The length of the input string (-1 for null terminated)
+ * @param err  A GError set in the case of failed conversation; may be NULL.
+ * @return  The unescaped string
+ *
+ * @note The returned string will be valid UTF-8. The input string is expected
+ * to be mostly UTF-8 (or the ASCII subset of UTF-8) with C/C++/JSON/Python
+ * style backslash escape sequences. This does not work for strings where
+ * \xNN style byte sequences are used to represent characters in some other
+ * encoding.
+ */
+WS_DLL_PUBLIC
+wmem_strbuf_t *ws_unescape_string_len(wmem_allocator_t *alloc, const uint8_t *string, ssize_t len, GError **err);
+
+/**
+ * @brief Check whether a CSV value would be taken as a spreadsheet formula.
+ *
+ * Spreadsheet applications evaluate an imported cell as a formula if its
+ * first character is one of '=', '+', '-' or '@', and they do so whether or
+ * not the CSV field was quoted. CSV syntax escaping therefore does not make
+ * a value inert; the only reliable neutralization is to change the value,
+ * for example by prefixing it with an apostrophe.
+ *
+ * @param string  The value that would be written to the CSV cell
+ * @return  true if the value needs to be neutralized before being exported
+ *
+ * @note Leading spaces are skipped, and a leading tab or carriage return is
+ * reported as a formula as well, since applications may strip those on
+ * import and evaluate whatever follows.
+ */
+WS_DLL_PUBLIC
+bool ws_csv_value_is_formula(const char *string);
 
 /**
  * @brief Convert a hexadecimal character to its numeric value.

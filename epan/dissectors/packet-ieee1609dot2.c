@@ -29,6 +29,7 @@
 #include <epan/asn1.h>
 #include <epan/proto_data.h>
 #include <wsutil/array.h>
+#include <wsutil/time_util.h>
 
 #include "packet-oer.h"
 #include "packet-ieee1609dot2.h"
@@ -1328,6 +1329,7 @@ const val64_string ieee1609dot2_Psid_vals[] = {
   { psid_den_basic_services, "psid-den-basic-services" },
   { psid_misbehavior_reporting_for_common_applications, "psid-misbehavior-reporting-for-common-applications" },
   { psid_vulnerable_road_users_safety_applications, "psid-vulnerable-road-users-safety-applications" },
+  { psid_avm_service, "psid-avm-service" },
   { psid_testings, "psid-testings" },
   { psid_differential_gps_corrections_uncompressed, "psid-differential-gps-corrections-uncompressed" },
   { psid_differential_gps_corrections_compressed, "psid-differential-gps-corrections-compressed" },
@@ -1349,7 +1351,11 @@ const val64_string ieee1609dot2_Psid_vals[] = {
   { psid_maneuver_coordination_service, "psid-maneuver-coordination-service" },
   { psid_certificate_revocation_list_application, "psid-certificate-revocation-list-application" },
   { psid_traffic_light_control_status_service, "psid-traffic-light-control-status-service" },
+  { psid_vru_awareness_basic_service, "psid-vru-awareness-basic-service" },
   { psid_collective_perception_service, "psid-collective-perception-service" },
+  { psid_imz_basic_service, "psid-imz-basic-service" },
+  { psid_mr_service, "psid-mr-service" },
+  { psid_poi_service, "psid-poi-service" },
   { psid_vehicle_initiated_distress_notivication, "psid-vehicle-initiated-distress-notivication" },
   { psid_fast_service_advertisement_protocol, "psid-fast-service-advertisement-protocol" },
   { psid_its_station_internal_management_communications_protocol, "psid-its-station-internal-management-communications-protocol" },
@@ -3145,7 +3151,11 @@ static void
 ieee1609dot2_Time32_fmt(char *s, uint32_t v)
 {
   time_t secs = v + 1072915200 - 5;
-  struct tm *tm = gmtime(&secs);
+  struct tm tm_buf, *tm = ws_gmtime_r(&secs, &tm_buf);
+  if (tm == NULL) {
+    snprintf(s, ITEM_LABEL_LENGTH, "Not representable (%u)", v);
+    return;
+  }
   snprintf(s, ITEM_LABEL_LENGTH, "%u-%02u-%02u %02u:%02u:%02u (%u)",
     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec, v
   );
@@ -3156,7 +3166,11 @@ ieee1609dot2_Time64_fmt(char *s, uint64_t v)
 {
   time_t secs = v / 1000000 + 1072915200 - 5;
   uint32_t usecs = v % 1000000;
-  struct tm *tm = gmtime(&secs);
+  struct tm tm_buf, *tm = ws_gmtime_r(&secs, &tm_buf);
+  if (tm == NULL) {
+    snprintf(s, ITEM_LABEL_LENGTH, "Not representable (%" PRIu64 ")", v);
+    return;
+  }
   snprintf(s, ITEM_LABEL_LENGTH, "%u-%02u-%02u %02u:%02u:%02u.%06u (%" PRIu64 ")",
     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec, usecs, v
   );

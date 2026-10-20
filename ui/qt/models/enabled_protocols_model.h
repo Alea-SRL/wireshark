@@ -153,21 +153,21 @@ public:
      * @return The corresponding model index.
      */
     QModelIndex index(int row, int column,
-                      const QModelIndex &parent = QModelIndex()) const;
+                      const QModelIndex &parent = QModelIndex()) const override;
 
     /**
      * @brief Retrieves the parent of a given index.
      * @param index The child model index.
      * @return The parent model index.
      */
-    QModelIndex parent(const QModelIndex &index) const;
+    QModelIndex parent(const QModelIndex &index) const override;
 
     /**
      * @brief Retrieves the item flags for a given index.
      * @param index The model index.
      * @return The item flags.
      */
-    Qt::ItemFlags flags(const QModelIndex &index) const;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
 
     /**
      * @brief Retrieves data from the model for a given index and role.
@@ -175,7 +175,7 @@ public:
      * @param role The data role requested.
      * @return The data associated with the index and role.
      */
-    QVariant data(const QModelIndex &index, int role) const;
+    QVariant data(const QModelIndex &index, int role) const override;
 
     /**
      * @brief Sets data in the model for a given index and role.
@@ -184,7 +184,7 @@ public:
      * @param role The role being edited (defaults to Qt::EditRole).
      * @return True if successful, false otherwise.
      */
-    bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole);
+    bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
 
     /**
      * @brief Retrieves the header data for a specific section and role.
@@ -194,21 +194,21 @@ public:
      * @return The header data.
      */
     QVariant headerData(int section, Qt::Orientation orientation,
-                        int role = Qt::DisplayRole) const;
+                        int role = Qt::DisplayRole) const override;
 
     /**
      * @brief Returns the number of rows under a given parent.
      * @param parent The parent model index (defaults to an invalid QModelIndex).
      * @return The number of rows.
      */
-    int rowCount(const QModelIndex &parent = QModelIndex()) const;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
 
     /**
      * @brief Returns the number of columns under a given parent.
      * @param parent The parent model index (defaults to an invalid QModelIndex).
      * @return The number of columns.
      */
-    int columnCount(const QModelIndex &parent = QModelIndex()) const;
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
 
     /**
      * @brief Populates the model with protocols from the core engine.
@@ -252,13 +252,14 @@ public:
      */
     enum SearchType
     {
-        EveryWhere,       /**< Search all text fields. */
-        OnlyProtocol,     /**< Search only protocol names. */
-        OnlyDescription,  /**< Search only protocol descriptions. */
-        EnabledItems,     /**< Show only enabled items. */
-        DisabledItems     /**< Show only disabled items. */
+        EveryWhere = 0x0,       /**< Search all text fields. */
+        OnlyProtocol = 0x1,     /**< Search only protocol names. */
+        OnlyDescription = 0x2,  /**< Search only protocol descriptions. */
+        EnabledItems = 0x4,     /**< Show only enabled items. */
+        DisabledItems = 0x8,    /**< Show only disabled items. */
     };
     Q_ENUM(SearchType)
+    Q_DECLARE_FLAGS(SearchTypes, SearchType)
 
     /**
      * @brief Defines the action type when batch enabling/disabling items.
@@ -297,7 +298,7 @@ public:
      * @param type The search scope for the text.
      * @param protocolType The specific protocol type (e.g., Any, Standard) to filter by.
      */
-    void setFilter(const QString& filter, EnabledProtocolsProxyModel::SearchType type,
+    void setFilter(const QString& filter, EnabledProtocolsProxyModel::SearchTypes type,
         EnabledProtocolItem::EnableProtocolType protocolType);
 
     /**
@@ -318,7 +319,7 @@ protected:
 
 private:
     /** The active search filtering scope. */
-    EnabledProtocolsProxyModel::SearchType type_;
+    EnabledProtocolsProxyModel::SearchTypes type_;
 
     /** The active protocol type filter. */
     EnabledProtocolItem::EnableProtocolType protocolType_;
@@ -342,5 +343,7 @@ private:
      */
     bool filterAcceptsChild(int sourceRow, const QModelIndex &sourceParent) const;
 };
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(EnabledProtocolsProxyModel::SearchTypes)
 
 #endif // ENABLED_PROTOCOLS_MODEL_H

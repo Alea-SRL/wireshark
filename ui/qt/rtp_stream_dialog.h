@@ -140,20 +140,22 @@ public slots:
      */
     void rtpPlayerRemove();
 
+#ifdef QT_MULTIMEDIA_LIB
     /**
      * @brief Slot to trigger replacing streams in analysis.
      */
-    void rtpAnalysisReplace();
+    void rtpAnalysisReplace() override;
 
     /**
      * @brief Slot to trigger adding streams to analysis.
      */
-    void rtpAnalysisAdd();
+    void rtpAnalysisAdd() override;
 
     /**
      * @brief Slot to trigger removing streams from analysis.
      */
-    void rtpAnalysisRemove();
+    void rtpAnalysisRemove() override;
+#endif // QT_MULTIMEDIA_LIB
 
 protected:
     /**
@@ -174,17 +176,17 @@ protected:
      * @param event The intercepted event.
      * @return True if the event was handled, false otherwise.
      */
-    bool eventFilter(QObject *obj, QEvent *event);
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
     /**
      * @brief Handles operations before the capture file finishes closing.
      */
-    void captureFileClosing();
+    void captureFileClosing() override;
 
     /**
      * @brief Handles cleanup after the capture file is fully closed.
      */
-    void captureFileClosed();
+    void captureFileClosed() override;
 
 private:
     /** @brief The singleton instance pointer. */
@@ -253,7 +255,7 @@ private:
     /**
      * @brief Updates the enabled/disabled state of UI widgets.
      */
-    void updateWidgets();
+    void updateWidgets() override;
 
     /**
      * @brief Shows or raises the RTP player dialog.

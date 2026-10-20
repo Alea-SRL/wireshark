@@ -215,6 +215,8 @@ id-CUDUMobilityInitiationRequest            ProcedureCode
 id-CLI-Indication                           ProcedureCode
 id-DUCUCSIRSCoordination                    ProcedureCode
 id-CUDUCSIRSCoordination                    ProcedureCode
+# Bug in 38.473 v19.4.0: it id-FutureCoverageModificationCause should be defined as ProtocolIE-ID
+id-FutureCoverageModificationCause          ProcedureCode
 
 # ProtocolIE-ID
 id-Cause                                             ProtocolIE-ID
@@ -1121,6 +1123,14 @@ id-NodeAssociatedInfoResult                          ProtocolIE-ID
 id-NeighbourFutureCoverageModNotification            ProtocolIE-ID
 id-AreaSpecificSemiPersistentSRSPosInfo              ProtocolIE-ID
 id-SBFD-AcrossSymbolType                             ProtocolIE-ID
+id-LTMConfig-to-Modify-List                          ProtocolIE-ID
+id-InterSNLTMMCGInformation                          ProtocolIE-ID
+id-LPWUSSupportedBandInfo                            ProtocolIE-ID
+id-DeliveryStatusReq                                 ProtocolIE-ID
+id-EarlySyncInformationRelease                       ProtocolIE-ID
+id-CSI-RSResourceSetToReleaseList                    ProtocolIE-ID
+id-CSI-IMResourceToReleaseList                       ProtocolIE-ID
+id-CSI-IMResourceSetToReleaseList                    ProtocolIE-ID
 
 #.END
 
@@ -1754,6 +1764,8 @@ Predicted-CCO-Assistance-Information                N f1ap.ies id-Predicted-CCO-
 NodeAssociatedInfoResult                            N f1ap.ies id-NodeAssociatedInfoResult
 Neighbour-Future-Coverage-Modification-Notification N f1ap.ies id-NeighbourFutureCoverageModNotification
 AreaSpecificSemiPersistentSRSPosInfo                N f1ap.ies id-AreaSpecificSemiPersistentSRSPosInfo
+LTMConfig-to-Modify-List                            N f1ap.ies id-LTMConfig-to-Modify-List
+InterSNLTMMCGInformation                            N f1ap.ies id-InterSNLTMMCGInformation
 
 #F1AP-PROTOCOL-EXTENSION
 GNB-CUSystemInformation                           N f1ap.extension id-gNB-CUSystemInformation
@@ -1789,6 +1801,7 @@ RequestedFeatureSetEntryIndex                     N f1ap.extension id-RequestedF
 RequestedP-MaxFR2                                 N f1ap.extension id-RequestedP-MaxFR2
 DRX-Config                                        N f1ap.extension id-DRX-Config
 UEAssistanceInformation                           N f1ap.extension id-UEAssistanceInformation
+NotificationInformation                           N f1ap.extension id-NotificationInformation
 BPLMN-ID-Info-List                                N f1ap.extension id-BPLMN-ID-Info-List
 CP-TransportLayerAddress                          N f1ap.extension id-TNLAssociationTransportLayerAddressgNBDU
 PortNumber                                        N f1ap.extension id-portNumber
@@ -2029,6 +2042,12 @@ LTMResidualTAInfoList                             N f1ap.extension id-LTMResidua
 ChannelResponseInformation                        N f1ap.extension id-ChannelResponseInformation
 UEPerformanceDelayMonitoring                      N f1ap.extension id-UEPerformanceDelayMonitoring
 SBFD-AcrossSymbolType                             N f1ap.extension id-SBFD-AcrossSymbolType
+LPWUSSupportedBandInfo                            N f1ap.extension id-LPWUSSupportedBandInfo
+DeliveryStatusReq                                 N f1ap.extension id-DeliveryStatusReq
+EarlySyncInformationRelease                       N f1ap.extension id-EarlySyncInformationRelease
+CSI-RSResourceSetToReleaseList                    N f1ap.extension id-CSI-RSResourceSetToReleaseList
+CSI-IMResourceToReleaseList                       N f1ap.extension id-CSI-IMResourceToReleaseList
+CSI-IMResourceSetToReleaseList                    N f1ap.extension id-CSI-IMResourceSetToReleaseList
 
 #F1AP-ELEMENTARY-PROCEDURE
 Reset                                    N f1ap.proc.imsg id-Reset
@@ -2410,7 +2429,6 @@ CUDUCSIRSCoordinationResponse            N f1ap.proc.sout id-CUDUCSIRSCoordinati
         }
         break;
       case id_DLRRCMessageTransfer:
-      case id_UEContextRelease:
         switch (f1ap_data->srb_id) {
         case 0:
           col_append_str(actx->pinfo->cinfo, COL_PROTOCOL, "/");
@@ -2430,6 +2448,12 @@ CUDUCSIRSCoordinationResponse            N f1ap.proc.sout id-CUDUCSIRSCoordinati
         default:
           break;
         }
+        break;
+      case id_UEContextRelease:
+        /* In the UEContextReleaseCommand, the id_SRBID IE is present if the
+         * RRC container IE is present, but follows it. */
+        f1ap_data->rrc_tree = subtree;
+        f1ap_data->rrc_tvb = param_tvb;
         break;
       case id_UEContextSetup:
       case id_UEContextModification:
@@ -2463,7 +2487,41 @@ CUDUCSIRSCoordinationResponse            N f1ap.proc.sout id-CUDUCSIRSCoordinati
 
 #.FN_BODY SRBID VAL_PTR=&f1ap_data->srb_id
   f1ap_private_data_t *f1ap_data = f1ap_get_private_data(actx->pinfo);
+  proto_tree *subtree = f1ap_data->rrc_tree;
+  tvbuff_t *param_tvb = f1ap_data->rrc_tvb;
 %(DEFAULT_BODY)s
+  if (param_tvb) {
+    switch (f1ap_data->message_type) {
+    case INITIATING_MESSAGE:
+      switch (f1ap_data->procedure_code) {
+      case id_UEContextRelease:
+        switch (f1ap_data->srb_id) {
+        case 0:
+          col_append_str(actx->pinfo->cinfo, COL_PROTOCOL, "/");
+          col_set_fence(actx->pinfo->cinfo, COL_PROTOCOL);
+          col_set_fence(actx->pinfo->cinfo, COL_INFO);
+          call_dissector(nr_rrc_dl_ccch_handle, param_tvb, actx->pinfo, subtree);
+          break;
+        case 1:
+        case 2:
+        case 3:
+          col_append_str(actx->pinfo->cinfo, COL_PROTOCOL, "/");
+          col_set_fence(actx->pinfo->cinfo, COL_PROTOCOL);
+          col_set_fence(actx->pinfo->cinfo, COL_INFO);
+          add_nr_pdcp_meta_data(actx->pinfo, PDCP_NR_DIRECTION_DOWNLINK, f1ap_data->srb_id);
+          call_dissector(nr_pdcp_handle, param_tvb, actx->pinfo, subtree);
+          break;
+        default:
+          break;
+        }
+        break;
+      default:
+        break;
+      }
+    default:
+      break;
+    }
+  }
 
 #.FN_BODY RRCContainer-RRCSetupComplete VAL_PTR=&param_tvb
   tvbuff_t *param_tvb = NULL;
@@ -3700,6 +3758,14 @@ N6JitterInformation/n6JitterUpperBound DISPLAY=BASE_CUSTOM STRINGS=CF_FUNC(f1ap_
     dissect_nr_rrc_LTM_NZP_CSI_RS_ResourceSetToAddModList_r19_PDU(param_tvb, actx->pinfo, subtree, NULL);
   }
 
+#.FN_BODY CSI-RSResourceSetToReleaseList VAL_PTR = &param_tvb
+  tvbuff_t *param_tvb = NULL;
+%(DEFAULT_BODY)s
+  if (param_tvb) {
+    proto_tree *subtree = proto_item_add_subtree(actx->created_item, ett_f1ap_CSI_RSResourceSetToReleaseList);
+    dissect_nr_rrc_LTM_NZP_CSI_RS_ResourceSetToReleaseList_r19_PDU(param_tvb, actx->pinfo, subtree, NULL);
+  }
+
 #.FN_BODY CSI-IM-ResourceConfiguration/cSI-IMResourceToAddModList VAL_PTR = &param_tvb
   tvbuff_t *param_tvb = NULL;
 %(DEFAULT_BODY)s
@@ -3708,12 +3774,28 @@ N6JitterInformation/n6JitterUpperBound DISPLAY=BASE_CUSTOM STRINGS=CF_FUNC(f1ap_
     dissect_nr_rrc_LTM_CSI_IM_ResourceToAddModList_r19_PDU(param_tvb, actx->pinfo, subtree, NULL);
   }
 
+#.FN_BODY CSI-IMResourceToReleaseList VAL_PTR = &param_tvb
+  tvbuff_t *param_tvb = NULL;
+%(DEFAULT_BODY)s
+  if (param_tvb) {
+    proto_tree *subtree = proto_item_add_subtree(actx->created_item, ett_f1ap_CSI_IMResourceToReleaseList);
+    dissect_nr_rrc_LTM_CSI_IM_ResourceToReleaseList_r19_PDU(param_tvb, actx->pinfo, subtree, NULL);
+  }
+
 #.FN_BODY CSI-IM-ResourceConfiguration/cSI-IMResourceSetToAddModList VAL_PTR = &param_tvb
   tvbuff_t *param_tvb = NULL;
 %(DEFAULT_BODY)s
   if (param_tvb) {
     proto_tree *subtree = proto_item_add_subtree(actx->created_item, ett_f1ap_cSI_IMResourceSetToAddModList);
     dissect_nr_rrc_LTM_CSI_IM_ResourceSetToAddModList_r19_PDU(param_tvb, actx->pinfo, subtree, NULL);
+  }
+
+#.FN_BODY CSI-IMResourceSetToReleaseList VAL_PTR = &param_tvb
+  tvbuff_t *param_tvb = NULL;
+%(DEFAULT_BODY)s
+  if (param_tvb) {
+    proto_tree *subtree = proto_item_add_subtree(actx->created_item, ett_f1ap_CSI_IMResourceSetToReleaseList);
+    dissect_nr_rrc_LTM_CSI_IM_ResourceSetToReleaseList_r19_PDU(param_tvb, actx->pinfo, subtree, NULL);
   }
 
 #.FN_BODY OndemandSIB1Config VAL_PTR = &param_tvb

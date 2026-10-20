@@ -7,26 +7,15 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#ifndef STOCK_ICON_H
-#define STOCK_ICON_H
+#pragma once
 
 #include <QIcon>
+#include <QColor>
 
 /** @file
  *  Goal: Beautiful icons appropriate for each of our supported platforms.
  */
 
-// Supported standard names:
-// document-open
-
-// Supported custom names (see images/toolbar):
-// x-capture-file-close
-// x-capture-file-save
-// x-lua-debug-continue
-// x-lua-debug-step-in
-// x-lua-debug-step-out
-// x-lua-debug-step-over
-// x-lua-debug-run-to-line
 
 /**
  * @brief QIcon subclass that loads a named application icon from theme
@@ -41,7 +30,7 @@ public:
      *        application's icon theme and resource paths.
      * @param icon_name Canonical icon name (e.g. "x-capture-file-close").
      */
-    explicit StockIcon(const QString icon_name);
+    explicit StockIcon(const char *icon_name);
 
     /**
      * @brief Creates a square icon filled with @p bg_color, optionally
@@ -52,7 +41,7 @@ public:
      * @return Generated QIcon.
      */
     static QIcon colorIcon(const QRgb bg_color, const QRgb fg_color, const QString glyph = QString());
-
+    static QIcon colorIcon(const QColor bg_color, const QRgb fg_color, const QString glyph = QString());
     /**
      * @brief Creates a square icon containing a filled triangle in @p fg_color
      *        on a @p bg_color background.
@@ -87,5 +76,3 @@ private:
      */
     void fillIconNameMap();
 };
-
-#endif // STOCK_ICON_H

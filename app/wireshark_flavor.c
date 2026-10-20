@@ -87,6 +87,7 @@ void application_file_extensions(const struct file_extension_info** file_extensi
             { "Savvius *Peek", true, "pkt;tpc;apc;wpz" },
             { "Catapult DCT2000 trace (.out format)", true, "out" },
             { "Micropross mplog", true, "mplog" },
+            { "DekTec SDI", true, "dtsdi" },
             { "TamoSoft CommView NCF", true, "ncf" },
             { "TamoSoft CommView NCFX", true, "ncfx" },
             { "Symbian OS btsnoop", true, "log" },
@@ -122,13 +123,14 @@ void application_file_extensions(const struct file_extension_info** file_extensi
 const char** application_columns(void)
 {
     static const char* col_fmt_packets[] = {
-        "No.",         "%m",
-        "Time",        "%t",
-        "Source",      "%s",
-        "Destination", "%d",
-        "Protocol",    "%p",
-        "Length",      "%L",
-        "Info",        "%i"
+        "No.",          "%m",
+        "Time",         "%t",
+        "Delta",        "%Gt",
+        "Source",       "%s",
+        "Destination",  "%d",
+        "Protocol",     "%p",
+        "Length",       "%L",
+        "Info",         "%i"
     };
 
     return col_fmt_packets;
@@ -136,7 +138,7 @@ const char** application_columns(void)
 
 unsigned application_num_columns(void)
 {
-    return 7;
+    return 8;
 }
 
 const char *application_flavor_release_notes_url(void)

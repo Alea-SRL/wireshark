@@ -14,20 +14,23 @@
 #include <stdint.h>
 #include "ws_symbol_export.h"
 
+/**
+ * @brief Represents the decoded fields of an MPEG Audio (MP1/MP2/MP3) frame header, laid out as a packed bitfield.
+ */
 struct mpa {
-	unsigned int emphasis   :2;
-	unsigned int original   :1;
-	unsigned int copyright  :1;
-	unsigned int modeext    :2;
-	unsigned int mode       :2;
-	unsigned int priv       :1;
-	unsigned int padding    :1;
-	unsigned int frequency  :2;
-	unsigned int bitrate    :4;
-	unsigned int protection :1;
-	unsigned int layer      :2;
-	unsigned int version    :2;
-	unsigned int sync       :11;
+    unsigned int emphasis   :2;  /**< De-emphasis type applied during encoding (0=none, 1=50/15ms, 3=CCIT J.17). */
+    unsigned int original   :1;  /**< Set to 1 if this is an original media file; 0 if it is a copy. */
+    unsigned int copyright  :1;  /**< Set to 1 if the audio content is copyright-protected. */
+    unsigned int modeext    :2;  /**< Mode extension for Joint Stereo mode; defines which bands use intensity/MS stereo. */
+    unsigned int mode       :2;  /**< Channel mode (0=Stereo, 1=Joint Stereo, 2=Dual Channel, 3=Mono). */
+    unsigned int priv       :1;  /**< Private bit; application-defined, no standardized meaning. */
+    unsigned int padding    :1;  /**< Set to 1 if a padding slot is inserted to adjust the frame's bitrate alignment. */
+    unsigned int frequency  :2;  /**< Sampling frequency index; value interpretation depends on @ref version. */
+    unsigned int bitrate    :4;  /**< Bitrate index into the MPEG bitrate table; value interpretation depends on @ref version and @ref layer. */
+    unsigned int protection :1;  /**< Set to 0 if a 16-bit CRC checksum follows the header; 1 if no CRC is present. */
+    unsigned int layer      :2;  /**< MPEG audio layer (1=Layer III, 2=Layer II, 3=Layer I; 0=reserved). */
+    unsigned int version    :2;  /**< MPEG version (0=MPEG 2.5, 2=MPEG 2, 3=MPEG 1; 1=reserved). */
+    unsigned int sync       :11; /**< Frame sync word; all 11 bits must be set to 1 to identify a valid MPEG frame boundary. */
 };
 
 #define MPA_UNMARSHAL_SYNC(n)       ((n) >> 21 & 0x7ff)
@@ -167,15 +170,53 @@ WS_DLL_PUBLIC uint32_t decode_synchsafe_int(uint32_t val);
 #define MPA_DURATION_NS(mpa) \
 	(1000000000 / mpa_frequency(mpa) * mpa_samples(mpa))
 
-enum { MPA_SYNC = 0x7ff };
+/** @brief Required sync word value in the MPEG Audio frame header (all 11 sync bits set). */
+enum {
+	MPA_SYNC = 0x7ff /**< sync word value */
+};
 
+/**
+ * @brief True if the sync field of an MPEG Audio frame header contains the required 0x7FF sync word.
+ * @param mpa Pointer to the MPEG Audio frame header struct.
+ */
 #define MPA_SYNC_VALID(mpa)      ((mpa)->sync == MPA_SYNC)
+
+/**
+ * @brief True if the MPEG Audio version field encodes a recognised version (i.e. mpa_version() >= 0).
+ * @param mpa Pointer to the MPEG Audio frame header struct.
+ */
 #define MPA_VERSION_VALID(mpa)   (mpa_version(mpa) >= 0)
+
+/**
+ * @brief True if the MPEG Audio layer field encodes a recognised layer (i.e. mpa_layer() >= 0).
+ * @param mpa Pointer to the MPEG Audio frame header struct.
+ */
 #define MPA_LAYER_VALID(mpa)     (mpa_layer(mpa) >= 0)
+
+/**
+ * @brief True if the bitrate index encodes a non-zero, valid bitrate (i.e. mpa_bitrate() > 0).
+ * @param mpa Pointer to the MPEG Audio frame header struct.
+ */
 #define MPA_BITRATE_VALID(mpa)   (mpa_bitrate(mpa) > 0)
+
+/**
+ * @brief True if the sampling frequency index encodes a valid, non-zero frequency (i.e. mpa_frequency() > 0).
+ * @param mpa Pointer to the MPEG Audio frame header struct.
+ */
 #define MPA_FREQUENCY_VALID(mpa) (mpa_frequency(mpa) > 0)
-#define MPA_VALID(mpa) (MPA_SYNC_VALID(mpa) \
-		&& MPA_VERSION_VALID(mpa) && MPA_LAYER_VALID(mpa) \
-		&& MPA_BITRATE_VALID(mpa) && MPA_FREQUENCY_VALID(mpa))
+
+/**
+ * @brief True if all fields of an MPEG Audio frame header are simultaneously valid.
+ *
+ * Evaluates to true only when the sync word, version, layer, bitrate, and
+ * sampling frequency fields all pass their individual validity checks.
+ *
+ * @param mpa Pointer to the MPEG Audio frame header struct.
+ */
+#define MPA_VALID(mpa) (MPA_SYNC_VALID(mpa)  \
+        && MPA_VERSION_VALID(mpa)            \
+        && MPA_LAYER_VALID(mpa)              \
+        && MPA_BITRATE_VALID(mpa)            \
+        && MPA_FREQUENCY_VALID(mpa))
 
 #endif

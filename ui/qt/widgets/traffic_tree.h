@@ -16,6 +16,7 @@
 
 #include <ui/qt/models/atap_data_model.h>
 #include <ui/qt/filter_action.h>
+#include <ui/qt/widgets/adaptive_header_view.h>
 
 #include <QTreeView>
 #include <QMenu>
@@ -53,7 +54,7 @@ protected:
      * @param parent The parent widget.
      * @return A pointer to the created QWidget.
      */
-    virtual QWidget * createWidget(QWidget *parent);
+    virtual QWidget * createWidget(QWidget *parent) override;
 
 private:
     /** Placeholder hint text. */
@@ -76,7 +77,7 @@ private slots:
 /**
  * @brief Header view for the traffic tree providing column customization and filtering.
  */
-class TrafficTreeHeaderView : public QHeaderView
+class TrafficTreeHeaderView : public AdaptiveHeaderView
 {
     Q_OBJECT
 public:
@@ -157,6 +158,7 @@ class TrafficDataFilterProxy : public QSortFilterProxyModel
     Q_OBJECT
 public:
 
+    /** @brief Types of filtering operations available for traffic data. */
     enum {
         /** @brief Filter for values strictly less than the target. */
         TRAFFIC_DATA_LESS,
@@ -202,7 +204,7 @@ protected:
      * @param source_parent The source parent index.
      * @return True if the row is accepted, false otherwise.
      */
-    virtual bool filterAcceptsRow(int source_row, const QModelIndex &source_parent) const;
+    virtual bool filterAcceptsRow(int source_row, const QModelIndex &source_parent) const override;
 
     /**
      * @brief Determines if a column from the source model should be included.
@@ -210,7 +212,7 @@ protected:
      * @param source_parent The source parent index.
      * @return True if the column is accepted, false otherwise.
      */
-    virtual bool filterAcceptsColumn(int source_column, const QModelIndex &source_parent) const;
+    virtual bool filterAcceptsColumn(int source_column, const QModelIndex &source_parent) const override;
 
     /**
      * @brief Compares two items for sorting.
@@ -218,7 +220,7 @@ protected:
      * @param source_right The right model index.
      * @return True if the left item is less than the right item, false otherwise.
      */
-    virtual bool lessThan(const QModelIndex &source_left, const QModelIndex &source_right) const;
+    virtual bool lessThan(const QModelIndex &source_left, const QModelIndex &source_right) const override;
 
 private:
     /** List of column indices that are hidden. */
@@ -410,13 +412,7 @@ private slots:
      * @param topLeft Top left index of changed data.
      * @param bottomRight Bottom right index of changed data.
      */
-    void handleDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-        const QVector<int>
-#else
-        const QList<int>
-#endif
-        );
+    void handleDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QList<int>);
 
     /**
      * @brief Handles updates when the model layout changes.

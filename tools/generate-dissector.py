@@ -17,9 +17,8 @@
 #
 
 import argparse
-from datetime import datetime
 import os
-
+from datetime import datetime
 
 parser = argparse.ArgumentParser(description='The Wireshark Dissector Generator')
 parser.add_argument("--name", help="The author of the dissector", required=True)
@@ -128,7 +127,7 @@ def write_plugin_makefile(args):
 
 
 def print_header():
-    print("")
+    print()
     print("**************************************************")
     print("*   Wireshark skeleton dissector generator       *")
     print("*                                                *")
@@ -138,14 +137,14 @@ def print_header():
     print("*                                                *")
     print("*   Copyright 2019 Dario Lombardo                *")
     print("**************************************************")
-    print("")
+    print()
 
 
 def print_trailer(args):
-    print("")
+    print()
     print("The skeleton for the dissector of the " + args.protoshortname + " protocol has been generated.")
     print("Please review/extend it to match your specific criteria.")
-    print("")
+    print()
 
 
 if __name__ == '__main__':

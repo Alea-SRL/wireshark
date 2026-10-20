@@ -14,9 +14,13 @@ set_module_info(opcua 1 0 0 0)
 
 set(DISSECTOR_SRC
 	opcua.c
+	packet-opcua-pubsub.c
 )
 
 set(DISSECTOR_SUPPORT_SRC
+	infomodel_elements.c
+	infomodel_parser.c
+	opcua_infomodel.c
 	opcua_transport_layer.c
 	opcua_security_layer.c
 	opcua_application_layer.c

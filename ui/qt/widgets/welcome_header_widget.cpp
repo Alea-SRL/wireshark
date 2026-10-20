@@ -14,8 +14,8 @@
 #include <epan/prefs.h>
 
 #include <ui/qt/main_application.h>
-#include <ui/qt/utils/color_utils.h>
 #include <ui/qt/utils/software_update.h>
+#include <ui/qt/utils/theme_manager.h>
 
 #include <QWidget>
 #include <QLabel>
@@ -24,11 +24,8 @@
 #include <QHBoxLayout>
 #include <QDesktopServices>
 #include <QUrl>
-#include <QFile>
 #include <QGraphicsOpacityEffect>
 #include <QPropertyAnimation>
-
-#include "ui_welcome_header_widget.h"
 
 WelcomeHeaderWidget::WelcomeHeaderWidget(QWidget *parent) :
     QWidget(parent),
@@ -37,7 +34,20 @@ WelcomeHeaderWidget::WelcomeHeaderWidget(QWidget *parent) :
     header_ui_->setupUi(this);
     updateStyleSheet();
 
-    // Setting the application name in the header
+    // Rebuild the stylesheet whenever the theme (or its light/dark
+    // selection) changes.  QEvent::ApplicationPaletteChange alone isn't
+    // reliable here — it only fires when the QPalette actually differs,
+    // and a light/dark flip on a theme with no palette overrides may not
+    // change any palette roles this widget's colors depend on.
+    // Rebuilt on themeChanged, which the ThemeManager also emits on a zoom
+    // change — so the header (whose text sizes live in the stylesheet) reloads
+    // its zoom-scaled stylesheet automatically, no font handling needed here.
+    connect(ThemeManager::instance(), &ThemeManager::themeChanged,
+            this, &WelcomeHeaderWidget::updateStyleSheet);
+
+    // Setting the application name in the header.  The labels inherit the
+    // application (regular) font for their family; their sizes come from the
+    // stylesheet applied in updateStyleSheet().
     header_ui_->headerTitle->setText(mainApp->applicationName());
 
     // Setting the version information
@@ -61,7 +71,7 @@ WelcomeHeaderWidget::WelcomeHeaderWidget(QWidget *parent) :
     if (SoftwareUpdate::plattformSupported()) {
         connect(SoftwareUpdate::instance(), &SoftwareUpdate::updateAvailable, this, &WelcomeHeaderWidget::setAvailableUpdateVersion);
         connect(SoftwareUpdate::instance(), &SoftwareUpdate::updateEngaged, this, &WelcomeHeaderWidget::clearAvailableUpdateVersion);
-        connect(mainApp, &MainApplication::appInitialized, this, &WelcomeHeaderWidget::updateSoftwareUpdateInfo);
+        mainApp->whenInitialized(this, [this]() { updateSoftwareUpdateInfo(); });
 
         // Add the update button
         connect(header_ui_->updateDownload, &QPushButton::clicked, this, []() {
@@ -182,12 +192,7 @@ bool WelcomeHeaderWidget::event(QEvent *event)
 
 void WelcomeHeaderWidget::updateStyleSheet()
 {
-    QString path = ColorUtils::themeIsDark()
-        ? ":/stylesheets/widgets/welcome-header-dark.qss"
-        : ":/stylesheets/widgets/welcome-header-light.qss";
-
-    QFile f(path);
-    if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        setStyleSheet(f.readAll());
-    }
+    // ThemeManager::styleSheet() already resolves theme tokens and scales font
+    // sizes for the current zoom level, so just apply it.
+    setStyleSheet(ThemeManager::styleSheet(QStringLiteral("widgets/welcome-header")));
 }

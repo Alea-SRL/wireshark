@@ -18,6 +18,7 @@ import sys
 
 # A list of update tools to run
 # - name: The name of the tool; it will be printed in the commit message if it fails.
+# - master_only: True if this should only be run from the master branch (optional).
 # - path: Path to the tool relative to the repository root.
 # - args: List of arguments to pass to the tool (optional).
 # - python_modules: List of required Python modules (optional).
@@ -50,8 +51,8 @@ UPDATE_TOOLS = (
         "name": "USB",
         "path": "tools/dissector_generators/generate-usb-data.py",
         "updated_files": [
-            "epan/dissectors/data-usb.c"
-            "epan/dissectors/data-usb.h"
+            "epan/dissectors/data-usb.c",
+            "epan/dissectors/data-usb.h",
         ],
     },
     {
@@ -90,8 +91,8 @@ UPDATE_TOOLS = (
         "python_modules": ["beautifulsoup4"],
         "path": "tools/dissector_generators/generate-bacnet-data.py",
         "updated_files": [
-            "epan/dissectors/data-bacnet.c"
-            "epan/dissectors/data-bacnet.h"
+            "epan/dissectors/data-bacnet.c",
+            "epan/dissectors/data-bacnet.h",
             ],
     },
     {
@@ -104,6 +105,7 @@ UPDATE_TOOLS = (
     },
     {
         "name": "Asterix",
+        "master_only": True,
         "path": "tools/asterix/update-specs.py",
         "args": ["--update", "epan/dissectors/packet-asterix-generated.h"],
         "updated_files": [ "epan/dissectors/packet-asterix-generated.h"]
@@ -122,6 +124,13 @@ UPDATE_TOOLS = (
         "path": "tools/update-appdata.py",
         "updated_files": ["resources/freedesktop/org.wireshark.Wireshark.metainfo.xml"],
     },
+    {
+        "name": "Update VMware ESXi Releases",
+        "python_modules": ["requests"],
+        "path": "tools/dissector_generators/generate-vmware-hb.py",
+        "args": ["--quiet", "epan/dissectors/packet-vmware-hb.c"],
+        "updated_files": [ "epan/dissectors/packet-vmware-hb.c"]
+    },
 )
 
 
@@ -136,6 +145,11 @@ def main():
         "--list-python-modules",
         action="store_true",
         help="Print required Python modules, suitable for passing to `pip install` and exit",
+    )
+    # XXX Should we try to figure this out automatically?
+    parser.add_argument(
+        "--target-branch",
+        help="The target git branch, e.g. \"master\"",
     )
     parser.add_argument(
         "--tool-output",
@@ -157,7 +171,7 @@ def main():
                 modules.extend(tool["python_modules"])
             except KeyError:
                 pass
-        print(f"{' '.join(modules)}")
+        print(f"{' '.join(sorted(set(modules), key=str.lower))}")
         sys.exit(0)
 
     # Update everything by default
@@ -165,8 +179,13 @@ def main():
     with open(args.tool_output, "w") as tool_output_f:
         # XXX Should we build after each update as well?
         for tool in UPDATE_TOOLS:
+            try:
+                if args.target_branch != "master" and tool["master_only"]:
+                    continue
+            except KeyError:
+                pass
             print(f"Running {tool['path']}.\n")
-            res = subprocess.run([sys.executable, tool["path"]] + tool.get("args", []), capture_output=True, encoding="UTF-8")
+            res = subprocess.run([sys.executable, tool["path"]] + tool.get("args", []), capture_output=True, encoding="UTF-8", check=False)
             print(res.stdout, end="")
             print(res.stderr, end="")
             if res.returncode == 0:

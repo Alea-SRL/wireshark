@@ -571,7 +571,7 @@ dissect_zbee_zcl_power_config(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_t
 static void
 decode_power_conf_voltage(char *s, uint32_t value)
 {
-    snprintf(s, ITEM_LABEL_LENGTH, "%d.%d [V]", value/10, value%10);
+    snprintf(s, ITEM_LABEL_LENGTH, "%u.%u [V]", value/10, value%10);
     return;
 } /*decode_power_conf_voltage*/
 
@@ -616,7 +616,7 @@ decode_power_conf_frequency(char *s, uint32_t value)
     else if (value == 0xff)
         snprintf(s, ITEM_LABEL_LENGTH, "Frequency could not be measured");
     else
-        snprintf(s, ITEM_LABEL_LENGTH, "%d [Hz]", value*2);
+        snprintf(s, ITEM_LABEL_LENGTH, "%u [Hz]", value*2);
     return;
 } /*decode_power_conf_frequency*/
 
@@ -635,7 +635,7 @@ decode_power_conf_frequency(char *s, uint32_t value)
 static void
 decode_power_conf_batt_AHr(char *s, uint32_t value)
 {
-    snprintf(s, ITEM_LABEL_LENGTH, "%d [mAHr]", value*10);
+    snprintf(s, ITEM_LABEL_LENGTH, "%u [mAHr]", value*10);
     return;
 } /*decode_power_conf_batt_AHr*/
 
@@ -7969,7 +7969,7 @@ static int ett_zbee_zcl_multistate_output_basic_priority_array;
 static int ett_zbee_zcl_multistate_output_basic_priority_array_structure;
 
 /* Attributes */
-static const value_string zbee_zcl_multistate_output_basic_attr_names[] = {
+static const value_string zbee_zcl_multistate_basic_attr_names[] = {
     { ZBEE_ZCL_ATTR_ID_MULTISTATE_OUTPUT_BASIC_STATE_TEXT,           "State Text" },
     { ZBEE_ZCL_ATTR_ID_MULTISTATE_OUTPUT_BASIC_DESCRIPTION,          "Description" },
     { ZBEE_ZCL_ATTR_ID_MULTISTATE_OUTPUT_BASIC_NUMBER_OF_STATES,     "Number of States" },
@@ -8107,7 +8107,7 @@ proto_register_zbee_zcl_multistate_output_basic(void)
     static hf_register_info hf[] = {
 
         { &hf_zbee_zcl_multistate_output_basic_attr_id,
-            { "Attribute", "zbee_zcl_general.multistate_output_basic.attr_id", FT_UINT16, BASE_HEX, VALS(zbee_zcl_multistate_output_basic_attr_names),
+            { "Attribute", "zbee_zcl_general.multistate_output_basic.attr_id", FT_UINT16, BASE_HEX, VALS(zbee_zcl_multistate_basic_attr_names),
             0x00, NULL, HFILL } },
 
         { &hf_zbee_zcl_multistate_output_basic_reliability,
@@ -8255,20 +8255,6 @@ static int ett_zbee_zcl_multistate_value_basic_status_flags;
 static int ett_zbee_zcl_multistate_value_basic_priority_array;
 static int ett_zbee_zcl_multistate_value_basic_priority_array_structure;
 
-/* Attributes */
-static const value_string zbee_zcl_multistate_value_basic_attr_names[] = {
-    { ZBEE_ZCL_ATTR_ID_MULTISTATE_VALUE_BASIC_STATE_TEXT,           "State Text" },
-    { ZBEE_ZCL_ATTR_ID_MULTISTATE_VALUE_BASIC_DESCRIPTION,          "Description" },
-    { ZBEE_ZCL_ATTR_ID_MULTISTATE_VALUE_BASIC_NUMBER_OF_STATES,     "Number of States" },
-    { ZBEE_ZCL_ATTR_ID_MULTISTATE_VALUE_BASIC_OUT_OF_SERVICE,       "Out of Service" },
-    { ZBEE_ZCL_ATTR_ID_MULTISTATE_VALUE_BASIC_PRESENT_VALUE,        "Present Value" },
-    { ZBEE_ZCL_ATTR_ID_MULTISTATE_VALUE_BASIC_PRIORITY_ARRAY,       "Priority Array" },
-    { ZBEE_ZCL_ATTR_ID_MULTISTATE_VALUE_BASIC_RELIABILITY,          "Reliability" },
-    { ZBEE_ZCL_ATTR_ID_MULTISTATE_VALUE_BASIC_RELINQUISH_DEFAULT,   "Relinquish Default" },
-    { ZBEE_ZCL_ATTR_ID_MULTISTATE_VALUE_BASIC_STATUS_FLAGS,         "Status Flags" },
-    { ZBEE_ZCL_ATTR_ID_MULTISTATE_VALUE_BASIC_APPLICATION_TYPE,     "Application Type" },
-    { 0, NULL }
-};
 
 static const value_string zbee_zcl_multistate_value_basic_priority_array_bool_values[] = {
     { 0x01, "Valid" },
@@ -8394,7 +8380,7 @@ proto_register_zbee_zcl_multistate_value_basic(void)
     static hf_register_info hf[] = {
 
         { &hf_zbee_zcl_multistate_value_basic_attr_id,
-            { "Attribute", "zbee_zcl_general.multistate_value_basic.attr_id", FT_UINT16, BASE_HEX, VALS(zbee_zcl_multistate_value_basic_attr_names),
+            { "Attribute", "zbee_zcl_general.multistate_value_basic.attr_id", FT_UINT16, BASE_HEX, VALS(zbee_zcl_multistate_basic_attr_names),
             0x00, NULL, HFILL } },
 
         { &hf_zbee_zcl_multistate_value_basic_reliability,
@@ -9327,7 +9313,7 @@ static void dissect_zcl_part_trasfpartframe(tvbuff_t *tvb, proto_tree *tree, uns
 {
 
     uint8_t   options;
-    int       frame_len;
+    unsigned  frame_len;
 
     static int * const part_opt[] = {
         &hf_zbee_zcl_part_opt_first_block,
@@ -9955,7 +9941,7 @@ decode_zcl_ota_upgr_time(char *s, uint32_t value)
 static void
 decode_zcl_ota_size_in_bytes(char *s, uint32_t value)
 {
-    snprintf(s, ITEM_LABEL_LENGTH, "%d [Bytes]", value);
+    snprintf(s, ITEM_LABEL_LENGTH, "%u [Bytes]", value);
 } /*decode_zcl_ota_size_in_bytes*/
 
 /*FUNCTION:------------------------------------------------------
@@ -10318,8 +10304,7 @@ dissect_zcl_ota_imageblockrsp(tvbuff_t *tvb, proto_tree *tree, unsigned *offset)
         *offset += 4;
 
         /* Retrieve 'Data Size' field */
-        data_size = tvb_get_uint8(tvb, *offset);
-        proto_tree_add_item(tree, hf_zbee_zcl_ota_data_size, tvb, *offset, 1, ENC_NA);
+        proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_ota_data_size, tvb, *offset, 1, ENC_NA, &data_size);
         *offset += 1;
 
         /* Retrieve 'Image Data' field */
@@ -11419,8 +11404,7 @@ dissect_zcl_pwr_prof_enphsschednotif(tvbuff_t *tvb, proto_tree *tree, unsigned *
     *offset += 1;
 
     /* Retrieve "Number of Scheduled Phases" field */
-    num_of_sched_phases = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_pwr_prof_num_of_sched_phases, tvb, *offset, 1, ENC_NA);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_pwr_prof_num_of_sched_phases, tvb, *offset, 1, ENC_NA, &num_of_sched_phases);
     *offset += 1;
 
     /* Scheduled Energy Phases decoding */
@@ -11750,10 +11734,10 @@ static void
 decode_power_profile_id(char *s, uint8_t id)
 {
     if (id == 0) {
-        snprintf(s, ITEM_LABEL_LENGTH, "%d (All)", id);
+        snprintf(s, ITEM_LABEL_LENGTH, "%u (All)", id);
     }
     else {
-        snprintf(s, ITEM_LABEL_LENGTH, "%d", id);
+        snprintf(s, ITEM_LABEL_LENGTH, "%u", id);
     }
 } /*decode_power_profile_id*/
 
@@ -11773,7 +11757,7 @@ decode_power_profile_id(char *s, uint8_t id)
 static void
 decode_price_in_cents(char *s, uint32_t value)
 {
-    snprintf(s, ITEM_LABEL_LENGTH, "%d cents", value);
+    snprintf(s, ITEM_LABEL_LENGTH, "%u cents", value);
 } /* decode_price_in_cents */
 
 
@@ -13681,8 +13665,7 @@ dissect_zbee_zcl_gp_payload(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     proto_tree_add_item(tree, hf_zbee_gp_gpd_command_id, tvb, offset, 1, ENC_NA);
     offset += 1;
 
-    payload_size = tvb_get_uint8(tvb, offset);
-    proto_tree_add_item(tree, hf_zbee_gp_gpd_payload_size, tvb, offset, 1, ENC_NA);
+    proto_tree_add_item_ret_uint(tree, hf_zbee_gp_gpd_payload_size, tvb, offset, 1, ENC_NA, &payload_size);
     offset += 1;
 
     if (payload_size != 0 && payload_size != 0xff) {
@@ -16259,6 +16242,20 @@ dissect_zcl_touchlink_network_update_request(tvbuff_t *tvb, proto_tree *tree, un
 
 
 /**
+ *This function decodes the Device Information Request payload.
+ *
+ *@param  tvb the tv buffer of the current data_type
+ *@param  tree the tree to append this item to
+ *@param  offset offset of data in tvb
+*/
+static void
+dissect_zcl_touchlink_device_info_request(tvbuff_t *tvb, proto_tree *tree, guint *offset)
+{
+    proto_tree_add_item(tree, hf_zbee_zcl_touchlink_start_index, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
+    *offset += 1;
+} /* dissect_zcl_touchlink_device_info_request */
+
+/**
  *This function decodes the Scan Response payload.
  *
  *@param  tvb the tv buffer of the current data_type
@@ -16310,8 +16307,7 @@ dissect_zcl_touchlink_scan_response(tvbuff_t *tvb, proto_tree *tree, unsigned *o
     *offset += 2;
     proto_tree_add_item(tree, hf_zbee_zcl_touchlink_nwk_addr, tvb, *offset, 2, ENC_LITTLE_ENDIAN);
     *offset += 2;
-    subdev = tvb_get_uint8(tvb, *offset);
-    proto_tree_add_item(tree, hf_zbee_zcl_touchlink_sub_devices, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_zbee_zcl_touchlink_sub_devices, tvb, *offset, 1, ENC_LITTLE_ENDIAN, &subdev);
     *offset += 1;
     proto_tree_add_item(tree, hf_zbee_zcl_touchlink_total_groups, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
     *offset += 1;
@@ -16352,6 +16348,20 @@ dissect_zcl_touchlink_network_start_response(tvbuff_t *tvb, proto_tree *tree, un
     proto_tree_add_item(tree, hf_zbee_zcl_touchlink_panid, tvb, *offset, 2, ENC_LITTLE_ENDIAN);
     *offset += 2;
 } /* dissect_zcl_touchlink_network_start_response */
+
+/**
+ *This function decodes the Network Join Router/EndDevice Response payloads.
+ *
+ *@param  tvb the tv buffer of the current data_type
+ *@param  tree the tree to append this item to
+ *@param  offset offset of data in tvb
+*/
+static void
+dissect_zcl_touchlink_network_join_response(tvbuff_t *tvb, proto_tree *tree, guint *offset)
+{
+    proto_tree_add_item(tree, hf_zbee_zcl_touchlink_status, tvb, *offset, 1, ENC_LITTLE_ENDIAN);
+    *offset += 1;
+} /*dissect_zcl_touchlink_network_join_response*/
 
 /**
  *This function decodes the Device Information Response payload.
@@ -16588,6 +16598,9 @@ dissect_zbee_zcl_touchlink(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
                 break;
 
             case ZBEE_ZCL_CMD_ID_DEVICE_INFO_REQUEST:
+                dissect_zcl_touchlink_device_info_request(tvb, tree, &offset);
+                break;
+
             case ZBEE_ZCL_CMD_ID_GET_GROUP_IDENTIFIERS_REQUEST:
             case ZBEE_ZCL_CMD_ID_GET_ENDPOINT_LIST_REQUEST:
                 proto_tree_add_item(tree, hf_zbee_zcl_touchlink_start_index, tvb, offset, 1, ENC_LITTLE_ENDIAN);
@@ -16611,8 +16624,7 @@ dissect_zbee_zcl_touchlink(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 
             case ZBEE_ZCL_CMD_ID_NETWORK_JOIN_ROUTER_RESPONSE:
             case ZBEE_ZCL_CMD_ID_NETWORK_JOIN_ENDDEV_RESPONSE:
-                proto_tree_add_item(tree, hf_zbee_zcl_touchlink_status, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-                offset++;
+                dissect_zcl_touchlink_network_join_response(tvb, tree, &offset);
                 break;
 
             case ZBEE_ZCL_CMD_ID_DEVICE_INFO_RESPONSE:
@@ -16643,6 +16655,17 @@ dissect_zbee_zcl_touchlink(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
     }
     return offset;
 } /*dissect_zbee_zcl_touchlink*/
+
+static void
+zbee_zcl_touchlink_init(void)
+{
+    /* Empty the commissioning map, as a new dissection pass is
+       going to be done, so all of the entries in that map,
+       which were allocated with file scope, have been freed. */
+    if (zcl_touchlink_commissioning_map != NULL) {
+        g_hash_table_remove_all(zcl_touchlink_commissioning_map);
+    }
+}
 
 /**
  *ZigBee ZCL Touchlink Commissioning cluster protocol registration routine.
@@ -16885,6 +16908,8 @@ proto_register_zbee_zcl_touchlink(void)
 
     /* Register the ZigBee ZCL Touchlink Commissioning dissector. */
     register_dissector(ZBEE_PROTOABBREV_ZCL_TOUCHLINK, dissect_zbee_zcl_touchlink, proto_zbee_zcl_touchlink);
+
+    register_init_routine(zbee_zcl_touchlink_init);
 } /*proto_register_zbee_zcl_touchlink*/
 
 /**

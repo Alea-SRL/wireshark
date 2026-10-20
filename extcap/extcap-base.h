@@ -43,9 +43,13 @@ extern "C" {
     EXTCAP_OPT_CAPTURE, \
     EXTCAP_OPT_CAPTURE_FILTER, \
     EXTCAP_OPT_FIFO, \
+    EXTCAP_OPT_CONTROL_OUT, \
+    EXTCAP_OPT_CONTROL_IN, \
     EXTCAP_OPT_LOG_LEVEL, \
     EXTCAP_OPT_LOG_FILE
 
+/* These should match what is defined in extcap.h in root.
+ * XXX - Restructure the code so that they *are* the same. */
 
 #define EXTCAP_BASE_OPTIONS \
     { "extcap-interfaces", ws_no_argument, NULL, EXTCAP_OPT_LIST_INTERFACES}, \
@@ -59,41 +63,61 @@ extern "C" {
     { "capture", ws_no_argument, NULL, EXTCAP_OPT_CAPTURE}, \
     { "extcap-capture-filter", ws_required_argument,    NULL, EXTCAP_OPT_CAPTURE_FILTER}, \
     { "fifo", ws_required_argument, NULL, EXTCAP_OPT_FIFO}, \
+    { "extcap-control-out", ws_required_argument, NULL, EXTCAP_OPT_CONTROL_OUT}, \
+    { "extcap-control-in", ws_required_argument, NULL, EXTCAP_OPT_CONTROL_IN}, \
     { "log-level", ws_required_argument, NULL, EXTCAP_OPT_LOG_LEVEL}, \
     { "log-file", ws_required_argument, NULL, EXTCAP_OPT_LOG_FILE}
 
+/* Extcap control pipe messages supported.
+ * TOOLBAR messages are bidirectional,
+ * QUIT messages are unidirectional (from the main application).
+ */
+#define EXTCAP_CONTROL_NONE 0
+#define EXTCAP_CONTROL_TOOLBAR 1
+#define EXTCAP_CONTROL_QUIT 2
+
+typedef void (*extcap_toolbar_control_cb_t)(int, int, GBytes*);
+
+/**
+ * @brief Holds all runtime parameters and state for an extcap plugin, parsed from command-line arguments and used to drive capture and configuration operations.
+ */
 typedef struct _extcap_parameters
 {
-    char * exename;
-    char * fifo;
-    char * interface;
-    char * capture_filter;
+    char*    exename;              /**< Path or name of the extcap executable. */
+    char*    fifo;                 /**< Path to the FIFO or pipe through which captured packets are written to Wireshark. */
+    char*    control_in;           /**< Path to the FIFO or pipe through which control messages are received from Wireshark. */
+    char*    control_out;          /**< Path to the FIFO or pipe through which control messages are written to Wireshark. */
+    char*    interface;            /**< Name of the extcap interface selected for this operation. */
+    char*    capture_filter;       /**< BPF or display filter string to apply during capture, or NULL if unfiltered. */
 
-    char * version;
-    char * compiled_with;
-    char * running_with;
-    char * helppage;
-    uint8_t capture;
-    uint8_t show_config;
-    uint8_t show_config_option;
-    char * config_option_name;
-    char * config_option_value;
+    char*    version;              /**< Version string of the extcap plugin itself. */
+    char*    compiled_with;        /**< Description of libraries and versions the extcap was compiled against. */
+    char*    running_with;         /**< Description of libraries and versions the extcap is running with at runtime. */
+    char*    helppage;             /**< URL or path to the extcap plugin's help documentation. */
+    uint8_t  capture;              /**< Non-zero if the extcap was invoked to perform a live capture. */
+    uint8_t  show_config;          /**< Non-zero if the extcap was invoked to display its configuration dialog. */
+    uint8_t  show_config_option;   /**< Non-zero if the extcap was invoked to display a specific configuration option. */
+    char*    config_option_name;   /**< Name of the specific configuration option to display when show_config_option is set. */
+    char*    config_option_value;  /**< Current value of the specific configuration option to display. */
 
-    char * ws_version;
+    char*    ws_version;           /**< Wireshark version string passed by the Wireshark process that launched this extcap. */
 
     /* private content */
-    GList * interfaces;
-    uint8_t do_version;
-    uint8_t do_list_dlts;
-    uint8_t do_list_interfaces;
-    uint8_t do_cleanup_postkill;
+    GList*   interfaces;           /**< List of extcap_interface entries describing the interfaces provided by this extcap. */
+    uint8_t  do_version;           /**< Non-zero if the extcap was invoked with --extcap-version to report its version. */
+    uint8_t  do_list_dlts;         /**< Non-zero if the extcap was invoked with --extcap-dlts to list supported link-layer types. */
+    uint8_t  do_list_interfaces;   /**< Non-zero if the extcap was invoked with --extcap-interfaces to enumerate available interfaces. */
+    uint8_t  do_cleanup_postkill;  /**< Non-zero if the extcap should invoke cleanup_postkill_cb after the capture process is terminated. */
 
-    char * help_header;
-    GList * help_options;
+    int      control_in_fd;        /**< If control_in is non-NULL, the file descriptor of the control in pipe */
+    int      control_out_fd;       /**< If control_out is non-NULL, the file descriptor of the control out pipe */
 
-    enum ws_log_level debug;
+    char*    help_header;          /**< Header text displayed at the top of the extcap's help output. */
+    GList*   help_options;         /**< List of help text entries describing the extcap's command-line options. */
 
-    void (*cleanup_postkill_cb)(void);
+    enum ws_log_level debug;       /**< Log verbosity level controlling the detail of diagnostic messages emitted by the extcap. */
+
+    void (*cleanup_postkill_cb)(void); /**< Optional callback invoked after the capture process is killed, for resource cleanup; NULL if unused. */
 } extcap_parameters;
 
 /**
@@ -124,8 +148,11 @@ void extcap_base_register_interface(extcap_parameters * extcap, const char * int
  * @param dlt Data Link Type (DLT) for the interface.
  * @param dltname Name of the DLT.
  * @param dltdescription Description of the DLT.
+ * @param control Bitmask indicating control pipe messages types supported.
+ * Possible options: EXTCAP_CONTROL_NONE, EXTCAP_CONTROL_TOOLBAR, EXTCAP_CONTROL_QUIT
+ *
  */
-void extcap_base_register_interface_ext(extcap_parameters * extcap, const char * interface, const char * ifdescription, uint16_t dlt, const char * dltname, const char * dltdescription );
+void extcap_base_register_interface_ext(extcap_parameters * extcap, const char * interface, const char * ifdescription, uint16_t dlt, const char * dltname, const char * dltdescription, unsigned control);
 
 /**
  * @brief Registers a callback function for graceful shutdown in the extcap framework.
@@ -150,6 +177,19 @@ bool extcap_base_register_graceful_shutdown_cb(extcap_parameters * extcap, void 
  * @return true if the callback was successfully registered, false otherwise.
  */
 bool extcap_base_register_cleanup_postkill_cb(extcap_parameters* extcap, void (*callback)(void));
+
+/**
+ * @brief Registers a callback function for toolbar control messages in the extcap framework.
+ *
+ * This function allows an extcap application to register a callback that will be called
+ * when a toolbar control packet is sent over the control pipe. The callback function is
+ * responsible for calling g_bytes_unref on the GBytes payload.
+ *
+ * @param extcap Pointer to the extcap parameters structure.
+ * @param callback Function pointer to the callback function.
+ * @return true if the callback was successfully registered, false otherwise.
+ */
+bool extcap_base_register_toolbar_control_cb(extcap_parameters * extcap, extcap_toolbar_control_cb_t callback);
 
 /**
  * @brief Set the version and help page information for an extcap utility.
@@ -271,10 +311,14 @@ void extcap_base_help(void);
 /**
  * @brief Initialize logging for extcap.
  *
- * Initializes the logging system for extcap, setting up a console writer to use stdout and
- * logging an initialization message.
+ * Initializes the logging system for extcap. Sets up a logging writer that
+ * will use the control out pipe (with the sync pipe protocol) if available,
+ * and write to the console stderr otherwise.
+ *
+ * @param extcap_conf A pointer to an extcap_parameters object, which will be
+ * checked when logging to see if a control out pipe is available.
  */
-void extcap_log_init(void);
+void extcap_log_init(extcap_parameters *extcap_conf);
 
 /**
  * @brief Logs a command argument error message.

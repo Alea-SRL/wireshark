@@ -68,6 +68,26 @@ static const struct ws_option longopts[] = {
 #define ENTRY_BUF_LENGTH WTAP_MAX_PACKET_SIZE_STANDARD
 #define MAX_EXPORT_ENTRY_LENGTH (ENTRY_BUF_LENGTH - 4 - 4 - 4) // Block type - total length - total length
 
+/*
+ * journalctl -o export uses the binary-safe format unless a field is
+ * valid UTF-8 without control characters, which systemd defines as C0
+ * other than TAB, plus DEL and C1 (U+007F to U+009F).
+ */
+static bool sdj_field_is_binary(const uint8_t *str, size_t len)
+{
+	if (!g_utf8_validate((const char *) str, (ssize_t) len, NULL))
+		return true;
+
+	for (size_t i = 0; i < len; i++) {
+		if ((str[i] < 0x20 && str[i] != '\t') || str[i] == 0x7f)
+			return true;
+		/* U+0080 to U+009F. The UTF-8 is valid, so 0xc2 is a lead byte. */
+		if (str[i] == 0xc2 && str[i + 1] <= 0x9f)
+			return true;
+	}
+	return false;
+}
+
 static int sdj_dump_entries(sd_journal *jnl, ws_cwstream* fp)
 {
 	int ret = EXIT_SUCCESS;
@@ -132,7 +152,7 @@ static int sdj_dump_entries(sd_journal *jnl, ws_cwstream* fp)
 				ws_warning("Invalid field.");
 				goto end;
 			}
-			if (g_utf8_validate((const char *) fld_data, (ssize_t) fld_len, NULL)) {
+			if (!sdj_field_is_binary((const uint8_t *) fld_data, fld_len)) {
 				// Allow for two trailing newlines, one here and one
 				// at the end of the buffer.
 				if (fld_len > MAX_EXPORT_ENTRY_LENGTH-data_end-2) {
@@ -150,16 +170,19 @@ static int sdj_dump_entries(sd_journal *jnl, ws_cwstream* fp)
 					break;
 				}
 				ptrdiff_t name_len = eq_ptr - (const uint8_t *) fld_data;
+				size_t value_len = fld_len - name_len - 1;
 				uint64_t le_data_len;
-				le_data_len = htole64(fld_len - name_len - 1);
+				le_data_len = htole64(value_len);
 				memcpy(entry_buff+data_end, fld_data, name_len);
 				data_end+= name_len;
 				entry_buff[data_end] = '\n';
 				data_end++;
 				memcpy(entry_buff+data_end, &le_data_len, 8);
 				data_end += 8;
-				memcpy(entry_buff+data_end, (const uint8_t *) fld_data + name_len + 1, fld_len - name_len);
-				data_end += fld_len - name_len;
+				memcpy(entry_buff+data_end, (const uint8_t *) fld_data + name_len + 1, value_len);
+				data_end += (uint32_t) value_len;
+				entry_buff[data_end] = '\n';
+				data_end++;
 			}
 		}
 
@@ -197,7 +220,6 @@ static int sdj_start_export(const int start_from_entries, const bool start_from_
 	sd_id128_t boot_id;
 	char boot_id_str[FLD_BOOT_ID_LEN] = FLD_BOOT_ID;
 	int ret = EXIT_FAILURE;
-	char* err_info = NULL;
 	char *appname;
 	bool success;
 	int jr = 0;
@@ -215,8 +237,7 @@ static int sdj_start_export(const int start_from_entries, const bool start_from_
 			ws_warning("Error opening standard out: %s", g_strerror(errno));
 			return EXIT_FAILURE;
 		}
-        }
-
+	}
 
 	appname = ws_strdup_printf(SDJOURNAL_EXTCAP_INTERFACE " (Wireshark) %s.%s.%s",
 		SDJOURNAL_VERSION_MAJOR, SDJOURNAL_VERSION_MINOR, SDJOURNAL_VERSION_RELEASE);
@@ -300,14 +321,8 @@ cleanup:
 		sd_journal_close(jnl);
 	}
 
-	if (err_info) {
-		ws_warning("%s", err_info);
-	}
-
-	g_free(err_info);
-
 	/* clean up and exit */
-        ws_cwstream_close(fp, NULL);
+	ws_cwstream_close(fp, NULL);
 	return ret;
 }
 
@@ -351,7 +366,7 @@ int main(int argc, char **argv)
 	g_set_prgname("sdjournal");
 
 	/* Initialize log handler early so we can have proper logging during startup. */
-	extcap_log_init();
+	extcap_log_init(extcap_conf);
 
 	/*
 	 * Get credential information for later use.

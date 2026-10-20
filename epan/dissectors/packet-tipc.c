@@ -390,7 +390,7 @@ static const value_string tipcv2_error_code_short_strings[] = {
 	{ 0, NULL}
 };
 
-static const value_string tipcv2_lookup_scope_strings[] = {
+static const value_string tipcv2_lookup_or_dist_scope_strings[] = {
 	{ 0, "Zone Scope"},
 	{ 1, "Cluster Scope"},
 	{ 2, "Node Scope"},
@@ -518,13 +518,6 @@ static const value_string tipcv2_dist_dist_strings[] = {
 	{ 0, NULL}
 };
 
-static const value_string tipcv2_dist_scope_strings[] = {
-	{ 0, "Zone Scope"},
-	{ 1, "Cluster Scope"},
-	{ 2, "Node Scope"},
-	{ 0, NULL}
-};
-
 /* TIPCv2_CHANGEOVER_PROTOCOL - Link Changeover Protocol */
 static const value_string tipcv2_changeover_mtype_strings[] = {
 	{ 0, "Duplicate"},
@@ -637,7 +630,7 @@ tipc_addr_str_len(const address* addr _U_)
 static void
 dissect_tipc_name_dist_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, uint8_t item_size)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	uint32_t dword;
 	char *addr_str_ptr;
 
@@ -865,7 +858,7 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 	unsigned msg_no = 0;
 	uint32_t msg_in_bundle_size;
 	uint8_t msg_in_bundle_user;
-	int b_inst_strlen;
+	unsigned b_inst_strlen;
 	unsigned padlen;
 
 	/* for fragmented messages */
@@ -1842,8 +1835,7 @@ dissect_tipc_v2(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_info *pinfo, i
 			/* W8 name type / transport sequence number */
 			/* Transport Level Sequence Number: 32 bits */
 			/* Port Name Type: 32 bits */
-			proto_tree_add_item(tipc_tree, hf_tipcv2_port_name_type, tipc_tvb, offset, 4, ENC_BIG_ENDIAN);
-			name_type = tvb_get_ntohl(tipc_tvb, offset);
+			proto_tree_add_item_ret_uint(tipc_tree, hf_tipcv2_port_name_type, tipc_tvb, offset, 4, ENC_BIG_ENDIAN, &name_type);
 			name_type_p = &name_type;
 			offset = offset + 4;
 
@@ -2156,7 +2148,7 @@ dissect_tipc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 {
 	proto_item *ti, *item;
 	proto_tree *tipc_tree, *tipc_data_tree;
-	int offset = 0;
+	unsigned offset = 0;
 	uint32_t srcport, destport = 0, dword;
 	uint8_t version;
 	uint32_t msg_size;
@@ -2782,7 +2774,7 @@ proto_register_tipc(void)
 		},
 		{ &hf_tipcv2_lookup_scope,
 			{ "Lookup Scope", "tipcv2.lookup_scope",
-				FT_UINT32, BASE_DEC, VALS(tipcv2_lookup_scope_strings), 0x00180000,
+				FT_UINT32, BASE_DEC, VALS(tipcv2_lookup_or_dist_scope_strings), 0x00180000,
 				NULL, HFILL }
 		},
 		{ &hf_tipcv2_opt_p,
@@ -3054,7 +3046,7 @@ proto_register_tipc(void)
 		},
 		{ &hf_tipcv2_dist_scope,
 			{ "Route Distributor Scope", "tipcv2.dist_scope",
-				FT_UINT32, BASE_DEC, VALS(tipcv2_dist_scope_strings), 0x0000000f,
+				FT_UINT32, BASE_DEC, VALS(tipcv2_lookup_or_dist_scope_strings), 0x0000000f,
 				NULL, HFILL }
 		},
 		{ &hf_tipcv2_name_dist_port_id_node,

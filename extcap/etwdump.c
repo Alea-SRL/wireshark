@@ -23,7 +23,6 @@
 #include <wsutil/wslog.h>
 #include <app/application_flavor.h>
 
-#include <cli_main.h>
 #include <wsutil/cmdarg_err.h>
 #include "etl.h"
 
@@ -122,8 +121,8 @@ static DWORD list_providers(unsigned inc)
     // Retrieve the required buffer size.
     status = TdhEnumerateProviders(penum, &BufferSize);
 
-    // Allocate the required buffer and call TdhEnumerateProviders. The list of 
-    // providers can change between the time you retrieved the required buffer 
+    // Allocate the required buffer and call TdhEnumerateProviders. The list of
+    // providers can change between the time you retrieved the required buffer
     // size and the time you enumerated the providers, so call TdhEnumerateProviders
     // in a loop until the function does not return ERROR_INSUFFICIENT_BUFFER.
 
@@ -165,8 +164,7 @@ static DWORD list_providers(unsigned inc)
         printf("value {arg=%u}{value=Scenario-SMBClient-Capture}{display=SMB Client Payloads (Microsoft-Windows-SMBClient)}{parent=SCENARIO}\n", inc);
         printf("value {arg=%u}{value=Scenario-SMBServer-Capture}{display=SMB Server Payloads (Microsoft-Windows-SMBServer)}{parent=SCENARIO}\n", inc);
         printf("value {arg=%u}{value=Microsoft-Windows-RPC}{display=RPC (Microsoft-Windows-RPC)}{parent=SCENARIO}\n", inc);
-        // printf("value {arg=%u}{value=BLUETOOTH}{display=Bluetooth}{parent=SCENARIO}{enabled=false}\n", inc);
-        // printf("value {arg=%u}{value=Microsoft-Windows-BTH-BTHPORT}{display=Bluetooth Host Radio (Microsoft-Windows-BTH-BTHPORT)}{parent=BLUETOOTH}\n", inc);
+        printf("value {arg=%u}{value=Scenario-BTH-BTHPORT}{display=Bluetooth Host Radio (Microsoft-Windows-BTH-BTHPORT)}{parent=SCENARIO}\n", inc);
         // printf("value {arg=%u}{value=Microsoft-Windows-BTH-BTHUSB}{display=Bluetooth USB (Microsoft-Windows-BTH-BTHUSB)}{parent=BLUETOOTH}\n", inc);
         // printf("value {arg=%u}{value=Microsoft-Windows-Bluetooth-Bthmini}{display=Bluetooth HCI (Microsoft-Windows-Bluetooth-Bthmini)}{parent=BLUETOOTH}\n", inc);
 
@@ -425,7 +423,7 @@ int main(int argc, char* argv[])
     g_set_prgname("etwdump");
 
     /* Initialize log handler early so we can have proper logging during startup. */
-    extcap_log_init();
+    extcap_log_init(extcap_conf);
 
     /*
      * Get credential information for later use.
@@ -447,17 +445,9 @@ int main(int argc, char* argv[])
     extcap_base_set_util_info(extcap_conf, argv[0], ETWDUMP_VERSION_MAJOR, ETWDUMP_VERSION_MINOR,
         ETWDUMP_VERSION_RELEASE, help_url);
     g_free(help_url);
-    extcap_base_register_interface(extcap_conf, ETW_EXTCAP_INTERFACE, "Event Tracing for Windows (ETW) reader", 290, "DLT_ETW");
+    extcap_base_register_interface_ext(extcap_conf, ETW_EXTCAP_INTERFACE, "Event Tracing for Windows (ETW) reader", 290, NULL, "DLT_ETW", EXTCAP_CONTROL_QUIT);
 
     if (!extcap_base_register_graceful_shutdown_cb(extcap_conf, graceful_shutdown_cb))
-    {
-        ret = EXIT_FAILURE;
-        goto end;
-    }
-
-    /* etwdump will be killed and the capture won't be properly closed. We need to add a postkill
-     * cleanup hook. */
-    if (!extcap_base_register_cleanup_postkill_cb(extcap_conf, graceful_shutdown_cb))
     {
         ret = EXIT_FAILURE;
         goto end;

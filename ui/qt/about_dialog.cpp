@@ -36,15 +36,15 @@
 #include "wsutil/version_info.h"
 #include "wsutil/path_config.h"
 
-#include "ui/capture_globals.h"
-
 #include "extcap.h"
 
 #include <ui/qt/main_window.h>
 
 #include <ui/qt/utils/color_utils.h>
 #include <ui/qt/utils/qt_ui_utils.h>
+#include <ui/qt/utils/theme_manager.h>
 #include <ui/qt/utils/variant_pointer.h>
+#include <ui/qt/utils/workspace_state.h>
 
 #include <ui/qt/models/astringlist_list_model.h>
 #include <ui/qt/models/url_link_delegate.h>
@@ -75,11 +75,7 @@ AStringListListModel(parent)
         return;
     }
     QTextStream ReadFile_authors(&f_authors);
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     ReadFile_authors.setEncoding(QStringConverter::Utf8);
-#else
-    ReadFile_authors.setCodec("UTF-8");
-#endif
 
     while (!ReadFile_authors.atEnd()) {
         QString line = ReadFile_authors.readLine();
@@ -181,7 +177,7 @@ FolderListModel::FolderListModel(QObject * parent):
     appendRow(QStringList() << tr("\"File\" dialog location") << get_open_dialog_initial_dir() << tr("Capture files"));
 
     /* temp */
-    appendRow(QStringList() << tr("Temp") << (global_capture_opts.temp_dir && global_capture_opts.temp_dir[0] ? global_capture_opts.temp_dir : g_get_tmp_dir())
+    appendRow(QStringList() << tr("Temp") << tempPath()
                             << tr("Untitled capture files"));
 
     /* pers conf */
@@ -222,6 +218,9 @@ FolderListModel::FolderListModel(QObject * parent):
     appendRow(QStringList() << tr("Personal Extcap path") << QString(get_extcap_pers_dir(env_prefix)) << tr("External capture (extcap) plugins"));
     appendRow(QStringList() << tr("Global Extcap path") << QString(get_extcap_dir(env_prefix, extcap_dir)) << tr("External capture (extcap) plugins"));
 
+    /* Personal themes */
+    appendRow(QStringList() << tr("Personal Themes") << WorkspaceState::instance()->personalThemesPath() << tr("User-installed theme files (*.jsonc)"));
+
 #ifdef HAVE_MAXMINDDB
     /* MaxMind DB */
     QStringList maxMindDbPaths = gchar_free_to_qstring(maxmind_db_get_paths()).split(G_SEARCHPATH_SEPARATOR_S);
@@ -238,7 +237,7 @@ FolderListModel::FolderListModel(QObject * parent):
         appendRow(QStringList() << tr("MIB/PIB path") << path.trimmed() << tr("SMI MIB/PIB search path"));
 #endif
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     /* Mac Extras */
     QString extras_path = QStringLiteral("%1/../Resources/Extras").arg(mainApp->applicationDirPath());
     appendRow(QStringList() << tr("macOS Extras") << QDir::cleanPath(extras_path) << tr("Extra macOS packages"));
@@ -265,6 +264,8 @@ AboutDialog::AboutDialog(QWidget *parent) :
 
     /* Wireshark tab */
     updateWiresharkText();
+    connect(ThemeManager::instance(), &ThemeManager::themeChanged,
+            this, &AboutDialog::updateWiresharkText);
 
     /* Authors */
     AuthorListModel * authorModel = new AuthorListModel(this);
@@ -538,7 +539,7 @@ void AboutDialog::handleCopyMenu(QPoint pos)
 
     if (ui->tabWidget->currentWidget() == ui->tab_plugins)
     {
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
         QString show_in_str = tr("Show in Finder");
 #else
         QString show_in_str = tr("Show in Folder");

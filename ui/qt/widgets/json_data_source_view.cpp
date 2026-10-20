@@ -20,11 +20,11 @@
 
 #include <wsutil/wsjson.h>
 
-#include "main_application.h"
+#include <ui/qt/utils/font_manager.h>
 
 #include "ui/qt/main_window.h"
-#include "ui/qt/utils/color_utils.h"
-#include "ui/qt/utils/tango_colors.h"
+#include "ui/qt/utils/themes/color_math.h"
+#include "ui/qt/utils/theme_manager.h"
 
 #include <QPainter>
 #include <QScrollBar>
@@ -47,11 +47,13 @@ JsonDataSourceView::JsonDataSourceView(const QByteArray &data, proto_node *root_
 
     layout_->setCacheEnabled(true);
 
-    connect(mainApp, &MainApplication::zoomMonospaceFont, this, &JsonDataSourceView::setMonospaceFont);
+    // Own the font: seed it now and follow the FontManager for later changes.
+    connect(FontManager::instance(), &FontManager::monospaceFontChanged, this, &JsonDataSourceView::setMonospaceFont);
+    setMonospaceFont(FontManager::zoomedMonospaceFont());
 
     setMouseTracking(true);
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     setAttribute(Qt::WA_MacShowFocusRect, true);
 #endif
 
@@ -150,18 +152,51 @@ void JsonDataSourceView::paintEvent(QPaintEvent *)
             layout_->clearLayout();
             layout_->clearFormats();
             layout_->setText(text_line.line);
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
             QList<QTextLayout::FormatRange> fmt_list(text_line.fmt_list);
-#else
-            QVector<QTextLayout::FormatRange> fmt_list(text_line.fmt_list);
-#endif
             if (selected_line_ == &text_line || hovered_line_ == &text_line) {
+                const int hl_start = text_line.highlight_start;
+                const int hl_end = hl_start + text_line.highlight_length;
+                const QColor highlight = palette().color(QPalette::Highlight);
                 QTextLayout::FormatRange format_range;
-                format_range.start = text_line.highlight_start;
+                format_range.start = hl_start;
                 format_range.length = text_line.highlight_length;
-                format_range.format.setBackground(
-                            hovered_line_ == &text_line ? ColorUtils::hoverBackground() : palette().highlight());
-                fmt_list.append(format_range);
+                // Ranges appended after the line's own syntax formats win
+                // where they overlap: QTextLayout merges them in list order.
+                if (hovered_line_ == &text_line) {
+                    // Hover: a tint of the selection color.  Keep the
+                    // syntax colors, each lifted to body-text contrast on
+                    // the tint; unclamped, some vanish on it.
+                    const QColor hover_bg = ColorMath::selectionHoverFill(
+                                palette().color(QPalette::Base), highlight);
+                    format_range.format.setBackground(hover_bg);
+                    format_range.format.setForeground(
+                                ColorMath::readableText(palette().color(QPalette::Text), hover_bg));
+                    fmt_list.append(format_range);
+                    for (const QTextLayout::FormatRange &syntax : text_line.fmt_list) {
+                        if (!syntax.format.hasProperty(QTextFormat::ForegroundBrush)) {
+                            continue;
+                        }
+                        const int start = qMax(syntax.start, hl_start);
+                        const int end = qMin(syntax.start + syntax.length, hl_end);
+                        if (start >= end) {
+                            continue;
+                        }
+                        QTextLayout::FormatRange clamped;
+                        clamped.start = start;
+                        clamped.length = end - start;
+                        clamped.format.setForeground(
+                                    ColorMath::readableText(syntax.format.foreground().color(), hover_bg));
+                        fmt_list.append(clamped);
+                    }
+                } else {
+                    // Selection: the palette's selection text replaces the
+                    // syntax colors, which can disappear on a saturated
+                    // selection color.  The palette builder keeps it
+                    // readable on the highlight.
+                    format_range.format.setBackground(highlight);
+                    format_range.format.setForeground(palette().color(QPalette::HighlightedText));
+                    fmt_list.append(format_range);
+                }
             }
             layout_->setFormats(fmt_list);
             layout_->beginLayout();
@@ -311,11 +346,7 @@ void JsonDataSourceView::updateLayoutMetrics()
 
 int JsonDataSourceView::stringWidth(const QString &line)
 {
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
     return viewport()->fontMetrics().horizontalAdvance(line);
-#else
-    return viewport()->fontMetrics().boundingRect(line).width();
-#endif
 }
 
 void JsonDataSourceView::updateScrollbars()
@@ -376,11 +407,7 @@ bool JsonDataSourceView::addJsonObject()
         break;
     }
 
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
     QList<jsmntok_t> tokens;
-#else
-    QVector<jsmntok_t> tokens;
-#endif
     QList<jsmntok_t *> parents;
     bool new_line = false;
     QString indent;
@@ -397,9 +424,10 @@ bool JsonDataSourceView::addJsonObject()
     text_line.kv_start = 0;
     text_line.kv_length = 0;
 
-    QColor key_color = QColor(ColorUtils::themeIsDark() ? tango_aluminium_3 : tango_aluminium_5);
-    QColor str_val_color = QColor(ColorUtils::themeIsDark() ? tango_chameleon_3 : tango_chameleon_5);
-    QColor prim_val_color = QColor(ColorUtils::themeIsDark() ? tango_sky_blue_3 : tango_sky_blue_5);
+    ThemeManager *theme = ThemeManager::instance();
+    QColor key_color      = theme->color(ThemeManager::SyntaxKey);
+    QColor str_val_color  = theme->color(ThemeManager::SyntaxString);
+    QColor prim_val_color = theme->color(ThemeManager::SyntaxNumber);
 
     for (int idx = 0; idx < num_tokens; idx++) {
         jsmntok_t *tok = &tokens[idx];

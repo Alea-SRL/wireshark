@@ -16,6 +16,7 @@
 #endif
 
 #include "stratoshark_main_window.h"
+#include <ui/qt/manager/interface_list_manager.h>
 #include <ui/qt/widgets/capture_card_widget.h>
 
 /*
@@ -92,6 +93,7 @@ DIAG_ON(frame-larger-than=)
 #endif
 #include <ui/qt/utils/color_utils.h>
 #include "coloring_rules_dialog.h"
+#include "tagging_rules_dialog.h"
 #include "conversation_dialog.h"
 #include "conversation_colorize_action.h"
 #include "conversation_hash_tables_dialog.h"
@@ -114,6 +116,7 @@ DIAG_ON(frame-larger-than=)
 #include "stratoshark_plot_dialog.h"
 #include <ui/qt/widgets/additional_toolbar.h>
 #include "main_application.h"
+#include <ui/qt/utils/font_manager.h>
 #include "packet_comment_dialog.h"
 #include "packet_dialog.h"
 #include "packet_list.h"
@@ -126,8 +129,10 @@ DIAG_ON(frame-larger-than=)
 #include "show_packet_bytes_dialog.h"
 #include "stats_tree_dialog.h"
 #include <ui/qt/utils/stock_icon.h>
+#include <ui/qt/utils/themes/themed_icon.h>
 #include "keyboard_shortcuts_dialog.h"
 #include "supported_protocols_dialog.h"
+#include "theme_debug_dialog.h"
 #include "tap_parameter_dialog.h"
 #include "time_shift_dialog.h"
 #include "uat_dialog.h"
@@ -265,26 +270,13 @@ finish:
     return ret;
 }
 
-void StratosharkMainWindow::filterPackets(QString new_filter, bool force)
+void StratosharkMainWindow::applyFilter(QString new_filter, bool force)
 {
     cf_status_t cf_status;
 
     cf_status = cf_filter_packets(CaptureFile::globalCapFile(), new_filter.toUtf8().data(), force);
 
     if (cf_status == CF_OK) {
-        if (new_filter.length() > 0) {
-            int index = df_combo_box_->findText(new_filter);
-            if (index == -1) {
-                df_combo_box_->insertItem(0, new_filter);
-                df_combo_box_->setCurrentIndex(0);
-            } else {
-                df_combo_box_->setCurrentIndex(index);
-            }
-        } else {
-            df_combo_box_->lineEdit()->clear();
-        }
-        // Only after the display filter has been updated,
-        // disable the arrow button
         emit displayFilterSuccess(true);
     } else {
         emit displayFilterSuccess(false);
@@ -334,12 +326,12 @@ void StratosharkMainWindow::layoutToolbars()
 
 static const char* layout_icons[] = {
     NULL,
-    "x-reset-layout_5",
-    "x-reset-layout_2",
-    "x-reset-layout_1",
-    "x-reset-layout_4",
-    "x-reset-layout_3",
-    "x-reset-layout_6"
+    "layout-reset-5",
+    "layout-reset-2",
+    "layout-reset-1",
+    "layout-reset-4",
+    "layout-reset-3",
+    "layout-reset-6"
 };
 
 void StratosharkMainWindow::updatePreferenceActions()
@@ -353,7 +345,7 @@ void StratosharkMainWindow::updatePreferenceActions()
     main_ui_->actionViewNameResolutionTransport->setChecked(gbl_resolv_flags.transport_name);
 
     if (prefs.gui_layout_type > 0)
-        main_ui_->actionViewResetLayout->setIcon(StockIcon(layout_icons[prefs.gui_layout_type]));
+        main_ui_->actionViewResetLayout->setIcon(ThemedIcon(layout_icons[prefs.gui_layout_type]));
 }
 
 void StratosharkMainWindow::updateRecentActions()
@@ -406,7 +398,7 @@ void StratosharkMainWindow::queuedFilterAction(QString action_filter, FilterActi
     QString cur_filter, new_filter;
 
     if (!df_combo_box_) return;
-    cur_filter = df_combo_box_->lineEdit()->text();
+    cur_filter = df_combo_box_->text();
 
     switch (type) {
     case FilterAction::ActionTypePlain:
@@ -451,7 +443,7 @@ void StratosharkMainWindow::queuedFilterAction(QString action_filter, FilterActi
 
     switch (action) {
     case FilterAction::ActionApply:
-        df_combo_box_->lineEdit()->setText(new_filter);
+        df_combo_box_->setText(new_filter);
         df_combo_box_->applyDisplayFilter();
         break;
     case FilterAction::ActionColorize:
@@ -464,8 +456,8 @@ void StratosharkMainWindow::queuedFilterAction(QString action_filter, FilterActi
         main_ui_->searchFrame->findFrameWithFilter(new_filter);
         break;
     case FilterAction::ActionPrepare:
-        df_combo_box_->lineEdit()->setText(new_filter);
-        df_combo_box_->lineEdit()->setFocus();
+        df_combo_box_->setText(new_filter);
+        df_combo_box_->setFocus();
         break;
     case FilterAction::ActionWebLookup:
     {
@@ -991,9 +983,9 @@ void StratosharkMainWindow::setEditCommentsMenu()
     QAction *action = main_ui_->menuPacketComment->addAction(tr("Add New Comment…"));
     connect(action, &QAction::triggered, this, &StratosharkMainWindow::addPacketComment);
     action->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_C));
-    if (selectedRows().count() == 1) {
-        const int thisRow = selectedRows().first();
-        frame_data * current_frame = frameDataForRow(thisRow);
+    QList<frame_data *> frames = selectedFrames();
+    if (frames.count() == 1) {
+        frame_data * current_frame = frames.first();
         wtap_block_t pkt_block = cf_get_packet_block(capture_file_.capFile(), current_frame);
         unsigned nComments = wtap_block_count_option(pkt_block, OPT_COMMENT);
         if (nComments > 0) {
@@ -1020,9 +1012,9 @@ void StratosharkMainWindow::setEditCommentsMenu()
         }
         wtap_block_unref(pkt_block);
     }
-    if (selectedRows().count() > 1) {
+    if (frames.count() > 1) {
         main_ui_->menuPacketComment->addSeparator();
-        action = main_ui_->menuPacketComment->addAction(tr("Delete comments from %Ln event(s)", "", static_cast<int>(selectedRows().count())));
+        action = main_ui_->menuPacketComment->addAction(tr("Delete comments from %Ln event(s)", "", static_cast<int>(frames.count())));
         connect(action, &QAction::triggered, this, &StratosharkMainWindow::deleteCommentsFromPackets);
     }
 }
@@ -1068,12 +1060,12 @@ void StratosharkMainWindow::setMenusForSelectedPacket()
             << main_ui_->actionViewColorizeConversation9 << main_ui_->actionViewColorizeConversation10;
 
     if (capture_file_.capFile()) {
-        QList<int> rows = selectedRows();
+        QList<frame_data *> frames = selectedFrames();
         frame_data * current_frame = 0;
-        if (rows.count() > 0)
-            current_frame = frameDataForRow(rows.at(0));
+        if (frames.count() > 0)
+            current_frame = frames.at(0);
 
-        frame_selected = rows.count() == 1;
+        frame_selected = frames.count() == 1;
         if (packet_list_->multiSelectActive())
         {
             frame_selected = false;
@@ -1083,13 +1075,13 @@ void StratosharkMainWindow::setMenusForSelectedPacket()
         previous_selection_history = packet_list_->havePreviousHistory();
         have_frames = capture_file_.capFile()->count > 0;
         have_marked = capture_file_.capFile()->marked_count > 0;
-        another_is_marked = have_marked && rows.count() <= 1 &&
+        another_is_marked = have_marked && frames.count() <= 1 &&
                 !(capture_file_.capFile()->marked_count == 1 && frame_selected &&
                 current_frame && current_frame->marked);
         have_filtered = capture_file_.capFile()->displayed_count > 0 && capture_file_.capFile()->displayed_count != capture_file_.capFile()->count;
         have_ignored = capture_file_.capFile()->ignored_count > 0;
         have_time_ref = capture_file_.capFile()->ref_time_count > 0;
-        another_is_time_ref = have_time_ref && rows.count() <= 1 &&
+        another_is_time_ref = have_time_ref && frames.count() <= 1 &&
                 !(capture_file_.capFile()->ref_time_count == 1 && frame_selected &&
                 current_frame && current_frame->ref_time);
 
@@ -1106,11 +1098,17 @@ void StratosharkMainWindow::setMenusForSelectedPacket()
         }
     }
 
-    main_ui_->actionCopyListAsText->setEnabled(selectedRows().count() > 0);
-    main_ui_->actionCopyListAsCSV->setEnabled(selectedRows().count() > 0);
-    main_ui_->actionCopyListAsYAML->setEnabled(selectedRows().count() > 0);
+    QList<int> rows = selectedRows(true);
+    if (main_ui_->searchFrame) {
+        main_ui_->searchFrame->setSelectedFrames(rows, frame_selected);
+    }
+
+    main_ui_->actionCopyListAsText->setEnabled(rows.count() > 0);
+    main_ui_->actionCopyListAsCSV->setEnabled(rows.count() > 0);
+    main_ui_->actionCopyListAsYAML->setEnabled(rows.count() > 0);
 
     main_ui_->actionEditMarkSelected->setEnabled(frame_selected || multi_selection);
+    packet_list_->updatePinActions(main_ui_->actionViewPinSelectedRows, main_ui_->actionViewUnpinAllRows);
     main_ui_->actionEditMarkAllDisplayed->setEnabled(have_frames);
     /* Unlike un-ignore, do not allow unmark of all frames when no frames are displayed  */
     main_ui_->actionEditUnmarkAllDisplayed->setEnabled(have_marked);
@@ -1122,7 +1120,7 @@ void StratosharkMainWindow::setMenusForSelectedPacket()
         linkTypes = capture_file_.capFile()->linktypes;
 
     bool enableEditComments = linkTypes && wtap_dump_can_write(capture_file_.capFile()->linktypes, WTAP_COMMENT_PER_PACKET);
-    main_ui_->menuPacketComment->setEnabled(enableEditComments && selectedRows().count() > 0);
+    main_ui_->menuPacketComment->setEnabled(enableEditComments && rows.count() > 0);
     main_ui_->actionDeleteAllPacketComments->setEnabled(enableEditComments);
 
     main_ui_->actionEditIgnoreSelected->setEnabled(frame_selected || multi_selection);
@@ -1300,6 +1298,21 @@ void StratosharkMainWindow::startInterfaceCapture(bool valid, const QString capt
         // so no need to do anything here.
         startCapture();
     }
+}
+
+void StratosharkMainWindow::onAppInitialized()
+{
+    // Post-initialization setup, run once the application is ready. Ordered: a
+    // few of these steps populate menus that later ones extend.
+    setFeaturesEnabled();
+    applyGlobalCommandLineOptions();
+    initViewColorizeMenu();
+    addStatsPluginsToMenu();
+    addDynamicMenus();
+    addPluginIFStructures();
+    initConversationMenus();
+    initFollowStreamMenus();
+    addDisplayFilterTranslationActions(main_ui_->menuEditCopy);
 }
 
 void StratosharkMainWindow::applyGlobalCommandLineOptions()
@@ -1501,7 +1514,7 @@ void StratosharkMainWindow::initViewColorizeMenu()
         color_num++;
     }
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     // Spotlight uses Cmd+Space
     main_ui_->actionViewColorizeResetColorization->setShortcut(QKeySequence("Meta+Space"));
 #endif
@@ -1570,7 +1583,7 @@ void StratosharkMainWindow::setFeaturesEnabled(bool enabled)
 
 void StratosharkMainWindow::on_actionNewDisplayFilterExpression_triggered()
 {
-    main_ui_->filterExpressionFrame->addExpression(df_combo_box_->lineEdit()->text());
+    main_ui_->filterExpressionFrame->addExpression(df_combo_box_->text());
 }
 
 void StratosharkMainWindow::onFilterSelected(QString filterText, bool prepare)
@@ -1606,7 +1619,7 @@ void StratosharkMainWindow::openTapParameterDialog(const QString cfg_str, const 
     if (!tp_dialog) return;
 
     connect(tp_dialog, &TapParameterDialog::filterAction, this, &StratosharkMainWindow::filterAction);
-    connect(tp_dialog, &TapParameterDialog::updateFilter, df_combo_box_->lineEdit(), &QLineEdit::setText);
+    connect(tp_dialog, &TapParameterDialog::updateFilter, df_combo_box_, &QLineEdit::setText);
     tp_dialog->show();
 }
 
@@ -1883,9 +1896,9 @@ void StratosharkMainWindow::copySelectedItems(StratosharkMainWindow::CopySelecte
     case CopyListAsYAML:
     case CopyListAsHTML:
 
-        if (packet_list_->selectedRows().count() > 0)
+        if (packet_list_->selectedRows(true).count() > 0)
         {
-            QList<int> rows = packet_list_->selectedRows();
+            QList<int> frame_nums = packet_list_->selectedRows(true);
             QStringList content, htmlContent;
 
             PacketList::SummaryCopyType copyType = PacketList::CopyAsText;
@@ -1903,7 +1916,7 @@ void StratosharkMainWindow::copySelectedItems(StratosharkMainWindow::CopySelecte
                 if (prefs.gui_packet_list_copy_text_with_aligned_columns) {
                     hdr_parts = packet_list_->createHeaderPartsForAligned();
                     align_parts = packet_list_->createAlignmentPartsForAligned();
-                    size_parts = packet_list_->createSizePartsForAligned(true, hdr_parts, rows);
+                    size_parts = packet_list_->createSizePartsForAligned(true, hdr_parts, frame_nums);
                     content << packet_list_->createHeaderSummaryForAligned(hdr_parts, align_parts, size_parts);
                 }
                 else {
@@ -1919,22 +1932,18 @@ void StratosharkMainWindow::copySelectedItems(StratosharkMainWindow::CopySelecte
                 content << packet_list_->createHeaderSummaryText(copyType);
             }
 
-            foreach (int row, rows)
+            foreach (int frame_num, frame_nums)
             {
-                QModelIndex idx = packet_list_->model()->index(row, 0);
-                if (! idx.isValid())
-                    continue;
-
                 if (copyType == PacketList::CopyAsText || copyType == PacketList::CopyAsHTML) {
                     if (prefs.gui_packet_list_copy_text_with_aligned_columns)
-                        content << packet_list_->createSummaryForAligned(idx, align_parts, size_parts);
+                        content << packet_list_->createSummaryForAligned(frame_num, align_parts, size_parts);
                     else
-                        content << packet_list_->createSummaryText(idx, PacketList::CopyAsText);
+                        content << packet_list_->createSummaryText(frame_num, PacketList::CopyAsText);
                     if (copyType == PacketList::CopyAsHTML)
-                        htmlContent << packet_list_->createSummaryForHtml(idx);
+                        htmlContent << packet_list_->createSummaryForHtml(frame_num);
                 }
                 else {
-                    content << packet_list_->createSummaryText(idx, copyType);
+                    content << packet_list_->createSummaryText(frame_num, copyType);
                 }
             }
 
@@ -1999,12 +2008,14 @@ void StratosharkMainWindow::findPacket()
         return;
     }
     setPreviousFocus();
-    if (!main_ui_->searchFrame->isVisible()) {
-        showAccordionFrame(main_ui_->searchFrame, true);
+    SearchFrame *sf = main_ui_->searchFrame;
+    if (!sf->isVisible()) {
+        sf->setInPacketMode(false);
+        showAccordionFrame(sf, true);
     } else {
-        main_ui_->searchFrame->animatedHide();
+        sf->cancelSearch();
     }
-    main_ui_->searchFrame->setFocus();
+    sf->setFocus();
 }
 
 void StratosharkMainWindow::editTimeShift()
@@ -2029,11 +2040,11 @@ void StratosharkMainWindow::editTimeShiftFinished(int)
 
 void StratosharkMainWindow::addPacketComment()
 {
-    QList<int> rows = selectedRows();
-    if (rows.count() == 0)
+    QList<frame_data *> frames = selectedFrames();
+    if (frames.count() == 0)
         return;
 
-    frame_data * fdata = frameDataForRow(rows.at(0));
+    frame_data * fdata = frames.at(0);
     if (! fdata)
         return;
 
@@ -2055,8 +2066,7 @@ void StratosharkMainWindow::addPacketCommentFinished(PacketCommentDialog* pc_dia
 
 void StratosharkMainWindow::editPacketComment()
 {
-    QList<int> rows = selectedRows();
-    if (rows.count() != 1)
+    if (selectedFrames().count() != 1)
         return;
 
     QAction *ra = qobject_cast<QAction*>(sender());
@@ -2170,19 +2180,16 @@ void StratosharkMainWindow::connectViewMenuActions()
     connect(main_ui_->actionViewNameResolutionTransport, &QAction::triggered, this,
             [this]() { setNameResolution(); });
 
-    connect(main_ui_->actionViewZoomIn, &QAction::triggered, this, [this]() {
-        recent.gui_zoom_level++;
-        zoomText();
+    connect(main_ui_->actionViewZoomIn, &QAction::triggered, this, []() {
+        FontManager::instance()->zoomIn();
     });
 
-    connect(main_ui_->actionViewZoomOut, &QAction::triggered, this, [this]() {
-        recent.gui_zoom_level--;
-        zoomText();
+    connect(main_ui_->actionViewZoomOut, &QAction::triggered, this, []() {
+        FontManager::instance()->zoomOut();
     });
 
-    connect(main_ui_->actionViewNormalSize, &QAction::triggered, this, [this]() {
-        recent.gui_zoom_level = 0;
-        zoomText();
+    connect(main_ui_->actionViewNormalSize, &QAction::triggered, this, []() {
+        FontManager::instance()->resetZoom();
     });
 
     connect(main_ui_->actionViewExpandSubtrees, &QAction::triggered,
@@ -2204,6 +2211,9 @@ void StratosharkMainWindow::connectViewMenuActions()
 
     connect(main_ui_->actionViewColoringRules, &QAction::triggered, this,
             [this]() { showColoringRulesDialog(); });
+
+    connect(main_ui_->actionViewTaggingRules, &QAction::triggered, this,
+            [this]() { showTaggingRulesDialog(); });
 
     connect(main_ui_->actionViewColorizeResetColorization, &QAction::triggered, this, [this]() {
         char *err_msg = NULL;
@@ -2237,6 +2247,11 @@ void StratosharkMainWindow::connectViewMenuActions()
         }
     });
 
+    connect(main_ui_->actionViewPinSelectedRows, &QAction::triggered,
+            packet_list_, &PacketList::togglePinSelectedRows);
+    connect(main_ui_->actionViewUnpinAllRows, &QAction::triggered,
+            packet_list_, &PacketList::unpinAllRows);
+
     connect(main_ui_->actionViewInternalsConversationHashTables, &QAction::triggered, this, [this]() {
         ConversationHashTablesDialog *conversation_hash_tables_dlg = new ConversationHashTablesDialog(this);
         conversation_hash_tables_dlg->show();
@@ -2255,6 +2270,11 @@ void StratosharkMainWindow::connectViewMenuActions()
     connect(main_ui_->actionViewInternalsKeyboardShortcuts, &QAction::triggered, this, [this]() {
         KeyboardShortcutsDialog *keyboard_shortcuts_dlg = new KeyboardShortcutsDialog(this);
         keyboard_shortcuts_dlg->show();
+    });
+
+    connect(main_ui_->actionViewInternalsThemeDebug, &QAction::triggered, this, [this]() {
+        ThemeDebugDialog *theme_debug_dlg = new ThemeDebugDialog(this);
+        theme_debug_dlg->show();
     });
 
     connect(main_ui_->actionViewShowPacketInNewWindow, &QAction::triggered, this,
@@ -2417,11 +2437,6 @@ void StratosharkMainWindow::setNameResolution()
     mainApp->emitAppSignal(WiresharkApplication::NameResolutionChanged);
 }
 
-void StratosharkMainWindow::zoomText()
-{
-    mainApp->zoomTextFont(recent.gui_zoom_level);
-}
-
 void StratosharkMainWindow::showColoringRulesDialog()
 {
     ColoringRulesDialog *coloring_rules_dialog = new ColoringRulesDialog(this);
@@ -2435,13 +2450,24 @@ void StratosharkMainWindow::showColoringRulesDialog()
     coloring_rules_dialog->show();
 }
 
+void StratosharkMainWindow::showTaggingRulesDialog()
+{
+    TaggingRulesDialog *tagging_rules_dialog = new TaggingRulesDialog(this);
+    PacketList *pl = packet_list_;
+    tagging_rules_dialog->setColoringAcceptedCallback([pl]() { pl->recolorPackets(); });
+
+    tagging_rules_dialog->setWindowModality(Qt::ApplicationModal);
+    tagging_rules_dialog->setAttribute(Qt::WA_DeleteOnClose);
+    tagging_rules_dialog->show();
+}
+
 // actionViewColorizeConversation1 - 10
 void StratosharkMainWindow::colorizeConversation(bool create_rule)
 {
     QAction *colorize_action = qobject_cast<QAction *>(sender());
     if (!colorize_action) return;
 
-    if (capture_file_.capFile() && selectedRows().count() > 0) {
+    if (capture_file_.capFile() && selectedFrames().count() > 0) {
         packet_info *pi = capture_file_.packetInfo();
         uint8_t cc_num = colorize_action->data().toUInt();
         char *filter = conversation_filter_from_log(pi);
@@ -2524,10 +2550,13 @@ void StratosharkMainWindow::openPacketDialog(bool from_reference)
             return;
 
         fdata = frame_data_sequence_find(capture_file_.capFile()->provider.frames, framenum);
-    } else if (selectedRows().count() == 1) {
-        fdata = frameDataForRow(selectedRows().at(0));
-    } else if (selectedRows().count() > 1)
-        return;
+    } else {
+        QList<frame_data *> frames = selectedFrames();
+        if (frames.count() > 1)
+            return;
+        if (frames.count() == 1)
+            fdata = frames.at(0);
+    }
 
     /* If we have a frame, pop up the dialog */
     if (fdata) {
@@ -2539,7 +2568,6 @@ void StratosharkMainWindow::openPacketDialog(bool from_reference)
                 main_ui_->preferenceEditorFrame, SLOT(editPreference(pref_t*,module_t*)));
 
         connect(this, &StratosharkMainWindow::closePacketDialogs, packet_dialog, &PacketDialog::close);
-        zoomText(); // Emits mainApp->zoomMonospaceFont(QFont)
 
         packet_dialog->show();
     }
@@ -2704,16 +2732,16 @@ void StratosharkMainWindow::connectCaptureMenuActions()
     connect(main_ui_->actionCaptureStop, &QAction::triggered, this,
             [this]() { stopCapture(); });
 
-    connect(main_ui_->actionCaptureRestart, &QAction::triggered, this, [this]() {
 #ifdef HAVE_LIBPCAP
+    connect(main_ui_->actionCaptureRestart, &QAction::triggered, this, [this]() {
         QString before_what(tr(" before restarting the capture"));
         cap_session_.capture_opts->restart = true;
         if (!tryClosingCaptureFile(before_what, Restart)) {
             return;
         }
         startCapture(QStringList());
-#endif // HAVE_LIBPCAP
     });
+#endif // HAVE_LIBPCAP
 
     connect(main_ui_->actionCaptureCaptureFilters, &QAction::triggered, this, [this]() {
         FilterDialog *capture_filter_dlg = new FilterDialog(window(), FilterDialog::CaptureFilter);
@@ -2725,7 +2753,7 @@ void StratosharkMainWindow::connectCaptureMenuActions()
 #ifdef HAVE_LIBPCAP
     connect(main_ui_->actionCaptureRefreshInterfaces, &QAction::triggered, this, [this]() {
         main_ui_->actionCaptureRefreshInterfaces->setEnabled(false);
-        mainApp->refreshLocalInterfaces();
+        interfaceListManager()->requestRefresh(true);
         main_ui_->actionCaptureRefreshInterfaces->setEnabled(true);
     });
 #endif
@@ -2744,8 +2772,6 @@ void StratosharkMainWindow::showCaptureOptionsDialog()
                 this->welcome_page_, &WelcomePage::interfaceSelected);
         connect(capture_options_dialog_, &CaptureOptionsDialog::interfacesChanged,
                 this->welcome_page_->getInterfaceFrame(), &InterfaceFrame::updateSelectedInterfaces);
-        connect(capture_options_dialog_, &CaptureOptionsDialog::interfaceListChanged,
-                this->welcome_page_->getInterfaceFrame(), &InterfaceFrame::interfaceListChanged);
         connect(capture_options_dialog_, &CaptureOptionsDialog::captureFilterTextEdited,
                 this->welcome_page_, &WelcomePage::setCaptureFilterText);
         // Propagate selection changes from main UI to dialog.
@@ -2835,7 +2861,7 @@ void StratosharkMainWindow::connectAnalyzeMenuActions()
         DisplayFilterExpressionDialog *dfe_dialog = new DisplayFilterExpressionDialog(this);
 
         connect(dfe_dialog, &DisplayFilterExpressionDialog::insertDisplayFilter,
-                qobject_cast<SyntaxLineEdit *>(df_combo_box_->lineEdit()), &SyntaxLineEdit::insertFilter);
+                df_combo_box_, &FilterEdit::insertFilter);
 
         dfe_dialog->show();
     });
@@ -2944,13 +2970,13 @@ void StratosharkMainWindow::applyConversationFilter()
 
     if (conv_action->isFilterValid(pinfo)) {
 
-        df_combo_box_->lineEdit()->setText(conv_filter);
+        df_combo_box_->setText(conv_filter);
         df_combo_box_->applyDisplayFilter();
     }
 }
 
 void StratosharkMainWindow::openFollowStreamDialog(int proto_id, unsigned stream_num, unsigned sub_stream_num, bool use_stream_index) {
-    FollowStreamDialog *fsd = new StratosharkFollowStreamDialog(*this, capture_file_, proto_id);
+    FollowStreamDialog *fsd = new StratosharkFollowStreamDialog(*this, capture_file_, proto_id, getFilter());
     connect(fsd, &FollowStreamDialog::updateFilter, this, &StratosharkMainWindow::filterPackets);
     connect(fsd, &FollowStreamDialog::goToPacket, this, [=](int packet_num) {packet_list_->goToPacket(packet_num);});
     fsd->addCodecs(text_codec_map_);
@@ -2958,9 +2984,9 @@ void StratosharkMainWindow::openFollowStreamDialog(int proto_id, unsigned stream
     if (use_stream_index) {
         // If a specific conversation was requested, then ignore any previous
         // display filters and display all related packets.
-        fsd->follow("", true, stream_num, sub_stream_num);
+        fsd->follow(true, stream_num, sub_stream_num);
     } else {
-        fsd->follow(getFilter());
+        fsd->follow();
     }
 }
 
@@ -2971,8 +2997,7 @@ void StratosharkMainWindow::openFollowStreamDialog(int proto_id) {
 // -z expert
 void StratosharkMainWindow::statCommandExpertInfo(const char *, void *)
 {
-    const DisplayFilterEdit *df_edit = dynamic_cast<DisplayFilterEdit *>(df_combo_box_->lineEdit());
-    ExpertInfoDialog *expert_dialog = new ExpertInfoDialog(*this, capture_file_, df_edit->text());
+    ExpertInfoDialog *expert_dialog = new ExpertInfoDialog(*this, capture_file_, df_combo_box_->text());
 
     connect(expert_dialog->getExpertInfoView(), &ExpertInfoTreeView::goToPacket,
             this, [=](int packet_num) {packet_list_->goToPacket(packet_num);});
@@ -3040,11 +3065,8 @@ void StratosharkMainWindow::statCommandIOGraph(const char *, void *)
 
 void StratosharkMainWindow::showIOGraphDialog(io_graph_item_unit_t value_units, QString yfield)
 {
-    const DisplayFilterEdit *df_edit = qobject_cast<DisplayFilterEdit *>(df_combo_box_->lineEdit());
     StratosharkIOGraphDialog* iog_dialog = nullptr;
-    QString displayFilter;
-    if (df_edit)
-        displayFilter = df_edit->text();
+    QString displayFilter = df_combo_box_->text();
 
     if (!yfield.isEmpty()) {
         QList<StratosharkIOGraphDialog*> iographdialogs = findChildren<StratosharkIOGraphDialog*>();
@@ -3114,8 +3136,7 @@ void StratosharkMainWindow::showPlotDialog(const QString& y_field, bool filtered
         /* Add mew plot with supplied parameters */
         QString d_filter = QString();
         if (filtered) {
-            const DisplayFilterEdit* df_edit = qobject_cast<DisplayFilterEdit*>(df_combo_box_->lineEdit());
-            if (df_edit) d_filter = df_edit->text();
+            d_filter = df_combo_box_->text();
         }
 
         dialog->addPlot(true, d_filter, y_field);

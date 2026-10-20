@@ -535,7 +535,7 @@ dissect_zmtp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 {
     proto_tree *zmtp_tree;
     proto_item *root_ti;
-    int offset = 0;
+    unsigned offset = 0;
     char* str_flags;
 
     /* Protocol column */
@@ -618,7 +618,7 @@ dissect_zmtp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 
             /* mechanism (20 bytes). N.B. *must* must match setting from peer */
             const char *mechanism;
-            int mechanism_len;
+            unsigned mechanism_len;
             proto_tree_add_item_ret_string_and_length(zmtp_tree, hf_zmtp_mechanism, tvb, offset, 20, ENC_ASCII,
                                                       pinfo->pool, (const uint8_t**)&mechanism, &mechanism_len);
             offset += mechanism_len;

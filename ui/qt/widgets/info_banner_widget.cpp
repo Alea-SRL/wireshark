@@ -26,11 +26,12 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QAccessible>
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 #include <QOperatingSystemVersion>
 #endif
 
 #include <ui/recent.h>
+#include <ui/qt/utils/theme_manager.h>
 #include <app/application_flavor.h>
 
 #include <algorithm>
@@ -111,6 +112,8 @@ InfoBannerWidget::InfoBannerWidget(QWidget *parent) :
     setMaximumHeight(kCardHeight);
 
     connect(auto_advance_timer_, &QTimer::timeout, this, &InfoBannerWidget::advanceSlide);
+    connect(ThemeManager::instance(), &ThemeManager::themeChanged, this,
+            [this]() { update(); });
     auto_advance_timer_->stop();
 }
 
@@ -672,7 +675,7 @@ void InfoBannerWidget::paintEvent(QPaintEvent * /* event */)
     if (slides_.isEmpty()) return;
 
     QPainter painter(this);
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     // On macOS < 26.4, setjmp doesn't completely initialize jmp_buf,
     // which can cause problems if we're loading plugins written in Go.
     // https://gitlab.com/wireshark/wireshark/-/work_items/21083
@@ -682,7 +685,7 @@ void InfoBannerWidget::paintEvent(QPaintEvent * /* event */)
 #endif
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setRenderHint(QPainter::TextAntialiasing);
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     }
 #endif
 

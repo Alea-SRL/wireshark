@@ -23,6 +23,9 @@
 #include <QTimer>
 #include <QTranslator>
 
+#include <functional>
+#include <utility>
+
 #include "capture_event.h"
 
 struct _e_prefs;
@@ -57,8 +60,6 @@ public:
     enum AppSignal {
         /** @brief Capture filter list changed. */
         CaptureFilterListChanged,
-        /** @brief Colors configuration changed. */
-        ColorsChanged,
         /** @brief Packet list columns changed. */
         ColumnsChanged,
         /** @brief Display filter list changed. */
@@ -67,16 +68,12 @@ public:
         FieldsChanged,
         /** @brief Filter expressions changed. */
         FilterExpressionsChanged,
-        /** @brief Local interfaces changed. */
-        LocalInterfacesChanged,
         /** @brief Name resolution configuration changed. */
         NameResolutionChanged,
         /** @brief Packet dissection preferences changed. */
         PacketDissectionChanged,
         /** @brief General preferences changed. */
         PreferencesChanged,
-        /** @brief Application profile is currently changing. */
-        ProfileChanging,
         /** @brief Recent preferences have been read. */
         RecentPreferencesRead,
         /** @brief Freeze the packet list updates. */
@@ -222,32 +219,6 @@ public:
     void emitLocalInterfaceEvent(const char *ifname, int added, int up);
 
     /**
-     * @brief Refreshes the local interfaces list.
-     */
-    virtual void refreshLocalInterfaces();
-
-#ifdef HAVE_LIBPCAP
-    /**
-     * @brief Retrieves the cached interface list.
-     *
-     * This returns a deep copy of the cached interface list that must
-     * be freed with free_interface_list.
-     *
-     * @return A deep copy of the interface list.
-     */
-    GList * getInterfaceList() const;
-
-    /**
-     * @brief Sets the cached interface list.
-     *
-     * This sets the cached interface list to a deep copy of if_list.
-     *
-     * @param if_list The interface list to set.
-     */
-    void setInterfaceList(GList *if_list);
-#endif
-
-    /**
      * @brief Reads application configuration files.
      * @param reset Whether to reset preferences to defaults.
      * @return Pointer to the read preferences structure.
@@ -272,25 +243,6 @@ public:
      */
     void helpTopicAction(topic_action_e action);
 
-    /**
-     * @brief Retrieves the monospace font used by the application.
-     * @param zoomed True if the zoomed font is requested.
-     * @return The requested QFont.
-     */
-    const QFont monospaceFont(bool zoomed = false) const;
-
-    /**
-     * @brief Sets the application monospace font.
-     * @param font_string String representation of the font.
-     */
-    void setMonospaceFont(const char *font_string);
-
-    /**
-     * @brief Calculates the horizontal pixel size of a string using the monospace font.
-     * @param str The string to measure.
-     * @return The size in pixels.
-     */
-    int monospaceTextSize(const char *str);
 
     /**
      * @brief Sets the active configuration profile.
@@ -309,6 +261,34 @@ public:
      * @return True if initialized, false otherwise.
      */
     bool isInitialized() { return initialized_; }
+
+    /**
+     * @brief Runs @p fn once the application has finished initialization.
+     *
+     * If initialization has already completed, @p fn is dispatched per the
+     * policy implemented below (see whenInitializedDispatch()). Otherwise it is
+     * connected to appInitialized() with @p context as the connection's
+     * receiver, so the connection is torn down automatically when @p context is
+     * destroyed and the callback runs on @p context's thread.
+     *
+     * This replaces the open-coded
+     *   if (mainApp->isInitialized()) doThing();
+     *   else connect(mainApp, &MainApplication::appInitialized, this, &Cls::doThing);
+     * pattern: late subscribers no longer have to branch by hand, so a slot can
+     * never be silently dropped by connecting after the signal already fired.
+     *
+     * @param context Receiver object governing lifetime/thread of the callback.
+     * @param fn Zero-argument callable to run when initialization is complete.
+     */
+    template <typename Func>
+    void whenInitialized(const QObject *context, Func &&fn)
+    {
+        if (initialized_) {
+            whenInitializedDispatch(context, std::function<void()>(std::forward<Func>(fn)));
+        } else {
+            connect(this, &MainApplication::appInitialized, context, std::forward<Func>(fn));
+        }
+    }
 
     /**
      * @brief Sets the flag indicating if Lua is currently reloading.
@@ -362,6 +342,17 @@ public:
     /**
      * @brief Retrieves the main window instance.
      * @return Pointer to the MainWindow.
+     *
+     * @note This returns nullptr if the MainWindow is not visible, which is
+     * useful for (not) parenting SimpleDialogs that might appear very early,
+     * because a QDialog with a hidden parent can have odd geometry or taskbar
+     * behavior. OTOH, that's not very useful for connecting signals and slots
+     * of the (Wireshark|Stratoshark)MainWindow and its children, grandchildren,
+     * etc. with one another. (Particularly during the constructors, when the
+     * MainWindow is not visible yet, but is when it makes sense to connect
+     * signals.) We end up going through the MainApplication for some signals,
+     * but it could make sense to have an option to return the main window even
+     * if it's visible.
      */
     MainWindow *mainWindow();
 
@@ -378,16 +369,24 @@ public:
     void loadLanguage(const QString language);
 
     /**
+     * @brief Gets a translation in the system (not necessarily current) locale
+     * @param context Typically the class name
+     * @param sourceText The text to translate
+     * @param disambiguation Identifying string, for when the same sourceText
+     * is used in different roles in the same context (nullptr by default)
+     * @param n Used for plural translations as QCoreApplication::translate
+     * @return A translated version of sourceText, optionally based on a
+     * disambiguation string and value of n for strings containing plurals;
+     * otherwise returns QString::fromUtf8(sourceText) if no appropriate
+     * translated string is available.
+     */
+    QString translateSystemLocale(const char *context, const char *sourceText, const char *disambiguation = nullptr, int n = -1) const;
+
+    /**
      * @brief Triggers a specific main menu item.
      * @param menuItem The MainMenuItem to trigger.
      */
     void doTriggerMenuItem(MainMenuItem menuItem);
-
-    /**
-     * @brief Applies text zooming to application fonts.
-     * @param zoomLevel The level to zoom by.
-     */
-    void zoomTextFont(int zoomLevel);
 
     /**
      * @brief Pushes a message to the specified status bar section.
@@ -416,17 +415,21 @@ public:
     int maxMenuDepth(void) { return 5; }
 
 private:
+    /**
+     * @brief Dispatches a whenInitialized() callback that arrived after
+     * initialization already completed. Implements the "already initialized"
+     * timing policy in one place. See main_application.cpp.
+     */
+    void whenInitializedDispatch(const QObject *context, std::function<void()> fn);
+
+    /* @brief Gets the list of paths that might contain translation .ts files */
+    QStringList getTranslationsPaths() const;
+
     /** Indicates if the application initialization has completed. */
     bool initialized_;
 
     /** Indicates if Lua plugins are currently in the process of reloading. */
     bool is_reloading_lua_;
-
-    /** The base monospace font. */
-    QFont mono_font_;
-
-    /** The actively zoomed monospace font. */
-    QFont zoomed_font_;
 
     /** Timer for throttling packet data updates. */
     QTimer packet_data_timer_;
@@ -449,9 +452,6 @@ private:
     /** Count of currently active captures. */
     int active_captures_;
 
-    /** Flag indicating a local interface refresh is pending. */
-    bool refresh_interfaces_pending_;
-
     /**
      * @brief Stores the user's custom colors into the recent configuration.
      */
@@ -468,7 +468,7 @@ protected:
      * @param event The event to process.
      * @return True if handled, false otherwise.
      */
-    bool event(QEvent *event);
+    bool event(QEvent *event) override;
 
     /**
      * @brief Pure virtual method for initializing application icons.
@@ -481,20 +481,17 @@ protected:
     /** Icon for active capture state. */
     QIcon capture_icon_;
 
-#ifdef HAVE_LIBPCAP
-    /** Cached pointer to the GList of interfaces. */
-    GList *cached_if_list_;
-#endif
-
 signals:
     /** @brief Signal emitted when application is fully initialized. */
     void appInitialized();
+    /** @brief Signal emitted when interface list changes (forwarded from
+     * the MainWindow's InterfaceListManager, which is the one true source
+     * of interface list changes, but mainWindow() returns nullptr during
+     * the constructors where siblings and relatives want to connect to
+     * the InterfaceListManager. */
+    void interfaceListChanged();
     /** @brief Signal emitted for local interface events (add/remove/up/down). */
     void localInterfaceEvent(const char *ifname, int added, int up);
-    /** @brief Signal emitted to request a scan of local interfaces. */
-    void scanLocalInterfaces(GList *filter_list = nullptr);
-    /** @brief Signal emitted when the local interface list changes. */
-    void localInterfaceListChanged();
     /** @brief Signal emitted to open a specific capture file. */
     void openCaptureFile(QString cf_path, QString display_filter, unsigned int type);
     /** @brief Signal emitted to open the capture options dialog. */
@@ -521,8 +518,6 @@ signals:
     void filterExpressionsChanged();
     /** @brief Signal emitted when packet dissection settings are changed. */
     void packetDissectionChanged();
-    /** @brief Signal emitted when colors are changed. */
-    void colorsChanged();
     /** @brief Signal emitted when preferences are changed. */
     void preferencesChanged();
     /** @brief Signal emitted when address resolution settings change. */
@@ -545,11 +540,6 @@ signals:
 
     /** @brief Signals activation and stop of a capture. The value provides the number of active captures. */
     void captureActive(int);
-
-    /** @brief Signal emitted to apply a new zoomed regular font. */
-    void zoomRegularFont(const QFont & font);
-    /** @brief Signal emitted to apply a new zoomed monospace font. */
-    void zoomMonospaceFont(const QFont & font);
 
 public slots:
     /**
@@ -592,12 +582,6 @@ private slots:
      */
     void refreshPacketData();
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0) && defined(Q_OS_WIN)
-    /**
-     * @brief Handles system color scheme changes (Windows specific).
-     */
-    void colorSchemeChanged();
-#endif
 };
 
 extern MainApplication *mainApp;

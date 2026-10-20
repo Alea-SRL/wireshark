@@ -253,6 +253,12 @@ public:
      */
     bool noDuplicateKeys();
 
+    /**
+     * @brief Checks if compact JSON output is enabled.
+     * @return True if compact output is enabled, false otherwise.
+     */
+    bool jsonCompact();
+
 private:
     /**
      * @brief Checks if JSON values output is enabled.
@@ -267,6 +273,124 @@ private:
     bool bytesEnabled() const;
 
     Ui::PacketFormatJSONGroupBox *pf_ui_; /**< Pointer to the user interface form elements. */
+};
+
+namespace Ui {
+class PacketFormatCSVGroupBox;
+}
+
+/**
+ * @brief Group box for configuring CSV packet formatting options.
+ */
+class PacketFormatCSVGroupBox : public PacketFormatGroupBox
+{
+    Q_OBJECT
+
+public:
+    /**
+     * @brief Constructs a PacketFormatCSVGroupBox.
+     * @param parent The parent widget.
+     */
+    explicit PacketFormatCSVGroupBox(QWidget *parent = 0);
+
+    /**
+     * @brief Destroys the PacketFormatCSVGroupBox.
+     */
+    ~PacketFormatCSVGroupBox();
+
+    /**
+     * @brief Checks if the CSV format configuration is valid.
+     * @return True if the configuration is valid, false otherwise.
+     */
+    bool isValid() const override;
+
+    /**
+     * @brief Updates the print arguments with the CSV format settings.
+     * @param print_args The print arguments structure to update.
+     */
+    void updatePrintArgs(print_args_t& print_args) override;
+
+protected slots:
+    void utf8Toggled(bool checked);
+
+private:
+    /**
+     * @brief Checked if UTF-8 CSV output is enabled.
+     * @return True if enabled, false otherwise.
+     */
+    bool UTF8Enabled() const;
+
+    /**
+     * @brief Checks if tabs, newlines, and other whitespace should be escaped as in C.
+     * @return True if C-style escapes should be used, false otherwise.
+     */
+    bool escapeWSP() const;
+
+    /**
+     * @brief Checks if the file should begin with a Byte Order Mark, for Windows.
+     * @return True if a BOM should be printed, false otherwise.
+     */
+    bool printBOM() const;
+
+    /**
+     * @brief Checks if values that a spreadsheet would evaluate as a formula
+     * should be neutralized with a leading apostrophe.
+     * @return True if formulas should be escaped, false otherwise.
+     */
+    bool escapeFormulas() const;
+
+    Ui::PacketFormatCSVGroupBox *pf_ui_; /**< Pointer to the user interface form elements. */
+};
+
+namespace Ui {
+class PacketFormatCArraysGroupBox;
+}
+
+/**
+ * @brief Group box for configuring CSV packet formatting options.
+ */
+class PacketFormatCArraysGroupBox : public PacketFormatGroupBox
+{
+    Q_OBJECT
+
+public:
+    /**
+     * @brief Constructs a PacketFormatCArraysGroupBox.
+     * @param parent The parent widget.
+     */
+    explicit PacketFormatCArraysGroupBox(QWidget *parent = 0);
+
+    /**
+     * @brief Destroys the PacketFormatCArraysGroupBox.
+     */
+    ~PacketFormatCArraysGroupBox();
+
+    /**
+     * @brief Checks if the C Arrays format configuration is valid.
+     * @return True if the configuration is valid, false otherwise.
+     */
+    bool isValid() const override;
+
+    /**
+     * @brief Updates the print arguments with the C Arrays format settings.
+     * @param print_args The print arguments structure to update.
+     */
+    void updatePrintArgs(print_args_t& print_args) override;
+
+private:
+    /**
+     * @brief Checks if secondary data sources like reassemblies should be print.
+     * @return True if included, false otherwise.
+     */
+    bool printSecondaryDataSources() const;
+
+    /**
+     * @brief Checks if an index array for the frame arrays should be included.
+     * @return True if the index is included, false otherwise.
+     */
+    bool printIndex() const;
+
+    Ui::PacketFormatCArraysGroupBox *pf_ui_; /**< Pointer to the user interface form elements. */
 };
 
 #endif // PACKET_FORMAT_GROUP_BOX_H

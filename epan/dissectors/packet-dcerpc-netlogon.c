@@ -1448,7 +1448,7 @@ netlogon_dissect_GENERIC_INFO(tvbuff_t *tvb, unsigned offset,
                                                   NULL);
 
     offset = dissect_ndr_counted_string(tvb, offset, pinfo, tree, di, drep,
-                                        hf_netlogon_package_name, 0|CB_STR_SAVE);
+                                        hf_netlogon_package_name, CB_STR_SAVE);
 
     offset = dissect_ndr_uint32(tvb, offset, pinfo, tree, di, drep,
                                 hf_netlogon_data_length, NULL);
@@ -2844,19 +2844,19 @@ netlogon_dissect_CLAIMS_SET_BUFFER(tvbuff_t *tvb, unsigned offset, unsigned leng
         subtvb = tvb_new_subset_length(tvb, offset, length);
         break;
     case 2:
-        subtvb = tvb_uncompress_lznt1(tvb, offset, length);
+        subtvb = tvb_child_uncompress_lznt1(tvb, tvb, offset, length);
         if (subtvb != NULL) {
             add_new_data_source(pinfo, subtvb, "Claims LZNT1 decompressed");
         }
         break;
     case 3:
-        subtvb = tvb_uncompress_lz77(tvb, offset, length);
+        subtvb = tvb_child_uncompress_lz77(tvb, tvb, offset, length);
         if (subtvb != NULL) {
             add_new_data_source(pinfo, subtvb, "Claims XPRESS decompressed");
         }
         break;
     case 4:
-        subtvb = tvb_uncompress_lz77huff(tvb, offset, length);
+        subtvb = tvb_child_uncompress_lz77huff(tvb, tvb, offset, length);
         if (subtvb != NULL) {
             add_new_data_source(pinfo, subtvb, "Claims XPRESS+HUFF decompressed");
         }
@@ -9370,7 +9370,7 @@ netlogon_dissect_NL_GENERIC_RPC_DATA_STRING(tvbuff_t *tvb, unsigned offset,
     }
 // TODO
     offset = dissect_ndr_counted_string(tvb, offset, pinfo, tree, di, drep,
-                                        hf_netlogon_package_name, 0|CB_STR_SAVE);
+                                        hf_netlogon_package_name, CB_STR_SAVE);
 
     return offset;
 }
@@ -9994,7 +9994,7 @@ static const value_string seal_algs[] = {
 
 static int get_seal_key(const uint8_t *session_key,int key_len,uint8_t* seal_key)
 {
-    uint8_t zero_sk[16] = { 0 };
+    const uint8_t zero_sk[16] = { 0 };
 
     memset(seal_key,0,16);
     if(memcmp(session_key,zero_sk,16)) {
@@ -10053,7 +10053,7 @@ static uint64_t uncrypt_sequence_aes(uint8_t* session_key,uint64_t checksum,uint
 
 static uint64_t uncrypt_sequence_md5(uint8_t* session_key,uint64_t checksum,uint64_t enc_seq,unsigned char is_server _U_)
 {
-    uint8_t zeros[4] = { 0 };
+    const uint8_t zeros[4] = { 0 };
     uint8_t buf[HASH_MD5_LENGTH];
     uint8_t key[HASH_MD5_LENGTH];
     gcry_cipher_hd_t rc4_handle;

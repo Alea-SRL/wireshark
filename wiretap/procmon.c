@@ -23,6 +23,8 @@
 // - Figure out module timestamps
 // - Read the ports array? Is there any advantage to doing that vs our built in
 //   port number resolution?
+// - Disable compression and mmap the file? That's probably what Process Monitor
+//   itself does.
 
 #pragma pack(push,1)
 typedef struct procmon_header_s {
@@ -143,12 +145,14 @@ typedef struct {
 } procmon_file_info_t;
 
 #define COMMON_EVENT_STRUCT_SIZE 52
-// Most of these are arbitrary
-#define MAX_PROCMON_EVENTS (500 * 1000 * 1000)
+// Most of these are arbitrary. Care should be taken to ensure that we don't
+// allocate too much memory.
+#define MAX_PROCMON_EVENTS (50 * 1000 * 1000) // * uint32_t = 200 MB
 #define MAX_PROCMON_STRINGS (1000 * 1000)
 #define MAX_PROCMON_STRING_LENGTH 8192
 #define MAX_PROCMON_PROCESSES (500 * 1000)
 #define MAX_PROCMON_MODULES 1000
+#define MAX_PROCMON_EVENT_SIZE WTAP_MAX_PACKET_SIZE_STANDARD
 
 static int procmon_file_type_subtype = -1;
 
@@ -157,7 +161,12 @@ void register_procmon(void);
 static void file_info_cleanup(procmon_file_info_t* file_info)
 {
     g_free(file_info->event_offsets);
-    g_free(file_info->string_array);
+    if (file_info->string_array) {
+        for (size_t idx = 0; idx < file_info->string_array_size; idx++) {
+            g_free((char *)file_info->string_array[idx]);
+        }
+        g_free(file_info->string_array);
+    }
     g_free(file_info->process_index_map);
     if (file_info->process_array) {
         for (size_t idx = 0; idx < file_info->process_array_size; idx++) {
@@ -282,6 +291,14 @@ static void procmon_read_hosts(wtap *wth, int64_t host_port_array_offset, int *e
     g_free(str_buf);
 }
 
+static void procmon_close(wtap* wth) {
+    if (wth && wth->priv) {
+        procmon_file_info_t* file_info = (procmon_file_info_t*)wth->priv;
+        file_info_cleanup(file_info);
+        wth->priv = NULL;
+    }
+}
+
 static bool procmon_read_event(FILE_T fh, wtap_rec* rec, procmon_file_info_t* file_info, int* err, char** err_info)
 {
     wtapng_block_t wblock;
@@ -303,11 +320,26 @@ static bool procmon_read_event(FILE_T fh, wtap_rec* rec, procmon_file_info_t* fi
     /* Append the raw data of the event header */
     ws_buffer_append(&wblock.rec->data, (const uint8_t*)&event_header, sizeof event_header);
 
+    /* The event header is dissection data, so we byte swap local variables here. */
+    uint32_t eh_event_class = GUINT32_FROM_LE(event_header.event_class);
+    uint64_t eh_timestamp = GUINT64_FROM_LE(event_header.timestamp);
+    uint16_t eh_stack_trace_depth = GUINT16_FROM_LE(event_header.stack_trace_depth);
+    uint32_t eh_details_size = GUINT32_FROM_LE(event_header.details_size);
+    uint32_t eh_extra_details_offset = GUINT32_FROM_LE(event_header.extra_details_offset);
+
+
     wblock.rec->presence_flags |= WTAP_HAS_TS;
-    filetime_to_nstime(&wblock.rec->ts, GUINT64_FROM_LE(event_header.timestamp));
+    filetime_to_nstime(&wblock.rec->ts, eh_timestamp);
 
     /* Read stack trace data */
-    uint32_t sizeof_stacktrace = event_header.stack_trace_depth * (file_info->header.system_bitness ? 8 : 4);
+    uint32_t sizeof_stacktrace = eh_stack_trace_depth * (file_info->header.system_bitness ? 8 : 4);
+
+    uint64_t event_size = sizeof(event_header) + sizeof(sizeof_stacktrace) + sizeof_stacktrace + eh_details_size;
+    if (event_size > MAX_PROCMON_EVENT_SIZE) {
+        *err = WTAP_ERR_BAD_FILE;
+        *err_info = ws_strdup_printf("procmon: partial event length is too large: %" PRIu64 " bytes", event_size);
+        return false;
+    }
 
     /* Append the size of the stack trace data so the dissector doesn't need to know about system bitness */
     ws_buffer_append(&wblock.rec->data, (const uint8_t*)&sizeof_stacktrace, sizeof sizeof_stacktrace);
@@ -318,17 +350,17 @@ static bool procmon_read_event(FILE_T fh, wtap_rec* rec, procmon_file_info_t* fi
     }
 
     /* Read detail data */
-    if (!wtap_read_bytes_buffer(fh, &wblock.rec->data, event_header.details_size, err, err_info)) {
+    if (!wtap_read_bytes_buffer(fh, &wblock.rec->data, eh_details_size, err, err_info)) {
         ws_debug("Failed to read procmon detail data");
         return false;
     }
 
-    if (event_header.extra_details_offset > 0)
+    if (eh_extra_details_offset > 0)
     {
         int64_t current_offset = file_tell(fh);
 
         /* The extra details structure surprisingly can be separated from the event structure */
-        int64_t real_details_offset = event_header.extra_details_offset - (COMMON_EVENT_STRUCT_SIZE + event_header.details_size + sizeof_stacktrace);
+        int64_t real_details_offset = eh_extra_details_offset - (COMMON_EVENT_STRUCT_SIZE + eh_details_size + sizeof_stacktrace);
         if (file_seek(fh, real_details_offset, SEEK_CUR, err) == -1) {
             ws_debug("Failed to locate procmon extra details data");
             return false;
@@ -339,6 +371,15 @@ static bool procmon_read_event(FILE_T fh, wtap_rec* rec, procmon_file_info_t* fi
             ws_debug("Failed to read procmon extra details offset");
             return false;
         }
+        extra_details_stream_size = GUINT16_FROM_LE(extra_details_stream_size);
+
+        event_size += sizeof(extra_details_stream_size) + extra_details_stream_size;
+        if (event_size > MAX_PROCMON_EVENT_SIZE) {
+            *err = WTAP_ERR_BAD_FILE;
+            *err_info = ws_strdup_printf("procmon: full event length is too large: %" PRIu64 " bytes", event_size);
+            return false;
+        }
+
         ws_buffer_append(&wblock.rec->data, (const uint8_t*)&extra_details_stream_size, sizeof extra_details_stream_size);
 
         if (!wtap_read_bytes_buffer(fh, &wblock.rec->data, extra_details_stream_size, err, err_info)) {
@@ -359,7 +400,7 @@ static bool procmon_read_event(FILE_T fh, wtap_rec* rec, procmon_file_info_t* fi
     /*
      * We return these to the caller in procmon_read().
      */
-    wtap_setup_ft_specific_event_rec(wblock.rec, procmon_file_type_subtype, event_header.event_class);
+    wtap_setup_ft_specific_event_rec(wblock.rec, procmon_file_type_subtype, eh_event_class);
     wblock.rec->rec_header.ft_specific_header.record_len = (uint32_t)ws_buffer_length(&wblock.rec->data);
     wblock.rec->rec_header.ft_specific_header.pseudo_header.procmon.process_index_map = file_info->process_index_map;
     wblock.rec->rec_header.ft_specific_header.pseudo_header.procmon.process_index_map_size = file_info->process_index_map_size;
@@ -491,8 +532,15 @@ wtap_open_return_val procmon_open(wtap *wth, int *err, char **err_info)
 #endif
 
     if (header->num_events > MAX_PROCMON_EVENTS) {
-        ws_debug("Truncating events from %u to %u", header->num_events, MAX_PROCMON_EVENTS);
-        header->num_events = MAX_PROCMON_EVENTS;
+        // If we need to read more events and the file is uncompressed, we could
+        // use g_mapped_file_new instead.
+        ws_debug("wtap_read_bytes_or_eof() failed, err = %d.", *err);
+        *err = WTAP_ERR_BAD_FILE;
+        *err_info = ws_strdup_printf("Too many events: %u (max %u)", header->num_events, MAX_PROCMON_EVENTS);
+        // This frees up file_info, into which header points, so free it
+        // after using header
+        file_info_cleanup(file_info);
+        return WTAP_OPEN_ERROR;
     }
 
     // Read the event offsets array, which we use in procmon_read(). It's not clear
@@ -608,6 +656,7 @@ wtap_open_return_val procmon_open(wtap *wth, int *err, char **err_info)
 
     if (file_seek(wth->fh, header->process_array_offset, SEEK_SET, err) == -1)
     {
+        file_info_cleanup(file_info);
         ws_debug("Failed to locate procmon process data");
         return WTAP_OPEN_NOT_MINE;
     }
@@ -833,6 +882,8 @@ wtap_open_return_val procmon_open(wtap *wth, int *err, char **err_info)
 
     wth->subtype_read = procmon_read;
     wth->subtype_seek_read = procmon_seek_read;
+
+    wth->subtype_close = procmon_close;
 
     return WTAP_OPEN_MINE;
 }

@@ -15,10 +15,15 @@
 #  SINSP_LINK_LIBRARIES - List of libraries when using libsinsp.
 
 # You must manually set the following variables:
-#  FALCO_PLUGINS        - Paths to plugins built from https://github.com/falcosecurity/plugins/.
-#  FALCO_PLUGIN_DLLS    - Paths to DLLs that plugins depend on.
+#  FALCO_PLUGIN_DIR     - Path to plugins and dependent DLLs.
+#  FALCO_PLUGINS        - Plugins built from https://github.com/falcosecurity/plugins/.
+#  FALCO_PLUGIN_DLLS    - DLLs that plugins depend on.
+#
+# The Rust std library depends on libunwind; FALCO_PLUGIN_DLLS will have to include
+# it if you have any Rust plugins: https://github.com/rust-lang/rust/issues/144533
 
 # To do:
+#  Automatically set FALCO_PLUGIN_DIR, FALCO_PLUGINS, and FALCO_PLUGIN_DLLS.
 #  SINSP_DLL_DIR        - (Windows) Path to the libsinsp and libscap DLLs
 #  SINSP_DLL            - (Windows) Name of the libsinsp and libscap DLLs
 
@@ -94,6 +99,7 @@ endif()
     scap
     scap_engine_nodriver
     scap_engine_noop
+    scap_engine_raw_block
     scap_engine_savefile
     scap_engine_source_plugin
     scap_engine_test_input
@@ -197,11 +203,12 @@ endif()
 
   # This is terrible, but libsinsp/libscap doesn't support dynamic linking on Windows (yet).
   find_path(_zlib_include_dir NO_CACHE
-    NAMES zlib/zlib.h
+    NAMES zlib.h
     HINTS "${SINSP_INCLUDEDIR}" "${SINSP_HINTS}/include"
     PATHS
     /usr/include
     /usr/local/include
+    PATH_SUFFIXES falcosecurity/zlib
   )
   if (_zlib_include_dir)
     list(APPEND _sinsp_include_dirs ${_zlib_include_dir})
@@ -222,14 +229,13 @@ endif()
 
   if(_sinsp_include_dirs AND _sinsp_link_libs)
     list(REMOVE_DUPLICATES _sinsp_include_dirs)
-    set(SINSP_INCLUDE_DIRS ${_sinsp_include_dirs} CACHE PATH "Paths to libsinsp and libscap headers")
+    set(SINSP_INCLUDE_DIRS ${_sinsp_include_dirs} CACHE PATH "Paths to libsinsp and libscap headers" FORCE)
     # The Debug libraries link to MSVCRTD.lib on Windows, and so we need to
     # track them separately there. We don't need to do that elsewhere.
     if(WIN32)
-      set(SINSP_LINK_LIBRARIES $<IF:$<CONFIG:Debug>,${_sinsp_debug_link_libs},${_sinsp_link_libs}> CACHE PATH "Paths to libsinsp, libscap, etc.")
-    else()
-      set(SINSP_LINK_LIBRARIES ${_sinsp_link_libs} CACHE PATH "Paths to libsinsp, libscap, etc.")
+      set(SINSP_DEBUG_LINK_LIBRARIES ${_sinsp_debug_link_libs} CACHE PATH "Paths to libsinsp, libscap, etc. debug libs")
     endif()
+    set(SINSP_LINK_LIBRARIES ${_sinsp_link_libs} CACHE PATH "Paths to libsinsp, libscap, etc.")
     set(SINSP_FOUND 1)
     unset(_sinsp_include_dirs)
     unset(_sinsp_link_libs)
@@ -275,6 +281,26 @@ if(SINSP_FOUND)
 #     )
 #     mark_as_advanced( SINSP_DLL_DIR SINSP_DLL )
 #   endif()
+  if (NOT TARGET sinsp::sinsp)
+    add_library(sinsp::sinsp INTERFACE IMPORTED)
+    set_target_properties(sinsp::sinsp PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${SINSP_INCLUDE_DIRS}"
+    )
+    if (USE_REPOSITORY)
+      target_link_libraries(sinsp::sinsp INTERFACE
+        debug "${SINSP_DEBUG_LINK_LIBRARIES}"
+        optimized "${SINSP_LINK_LIBRARIES}"
+      )
+      # We don't have the PDBs
+      target_link_options(sinsp::sinsp INTERFACE
+        "$<$<BOOL:${MSVC}>:/IGNORE:4099>"
+      )
+    else()
+      target_link_libraries(sinsp::sinsp INTERFACE
+        "${SINSP_LINK_LIBRARIES}"
+      )
+    endif()
+  endif()
 else()
   set(SINSP_INCLUDE_DIRS)
   set(SINSP_LINK_LIBRARIES)
@@ -285,7 +311,7 @@ else()
   set(SINSP_VERSION_MICRO)
 endif()
 
-mark_as_advanced(SINSP_INCLUDE_DIRS SINSP_LINK_LIBRARIES)
+mark_as_advanced(SINSP_INCLUDE_DIRS SINSP_LINK_LIBRARIES SINSP_DEBUG_LINK_LIBRARIES)
 
 # Windows plugins
 

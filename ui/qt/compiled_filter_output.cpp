@@ -18,12 +18,12 @@
 
 #include <wiretap/wtap.h>
 #include <capture/capture_sync.h>
-#include <ui/capture_opts.h>
 #include <ui/capture_globals.h>
 #include <ui/qt/utils/qt_ui_utils.h>
-#include <ui/qt/utils/stock_icon.h>
+#include <ui/qt/utils/themes/themed_icon.h>
 
 #include "main_application.h"
+#include <ui/qt/utils/font_manager.h>
 
 #include <QClipboard>
 #include <QMutexLocker>
@@ -47,7 +47,7 @@ CompiledFilterOutput::CompiledFilterOutput(QWidget *parent, InterfaceList &intLi
 
     loadGeometry();
     setAttribute(Qt::WA_DeleteOnClose, true);
-    ui->filterList->setCurrentFont(mainApp->monospaceFont());
+    ui->filterList->setCurrentFont(FontManager::monospaceFont());
 
     copy_bt_ = ui->buttonBox->addButton(tr("Copy"), QDialogButtonBox::ActionRole);
     copy_bt_->setToolTip(tr("Copy filter text to the clipboard."));
@@ -155,7 +155,7 @@ void CompiledFilterOutput::compileFilters()
             // See if dumpcap can compile the filter. This is more accurate
             // because BPF extensions might need to be used for a particular
             // device.
-            if (sync_if_bpf_filter_open(global_capture_opts.app_name, current->name, current->cfilter, current->active_dlt, current->optimize, &data, &primary_msg, &secondary_msg, NULL)) {
+            if (sync_if_bpf_filter_open(current->name, current->cfilter, current->active_dlt, current->optimize, &data, &primary_msg, &secondary_msg, NULL)) {
                 compile_results.insert(QString(current->display_name), gchar_free_to_qstring(primary_msg));
                 g_free(secondary_msg);
                 success = false;
@@ -168,7 +168,7 @@ void CompiledFilterOutput::compileFilters()
         if (success) {
             newitem = new QListWidgetItem(QString(current->display_name));
         } else {
-            newitem = new QListWidgetItem(StockIcon("x-expert-error"), QString(current->display_name));
+            newitem = new QListWidgetItem(ThemedIcon("expert-error"), QString(current->display_name));
         }
         newitem->setData(Qt::UserRole, QString(current->cfilter));
         ui->interfaceList->addItem(newitem);

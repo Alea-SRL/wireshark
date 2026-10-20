@@ -473,14 +473,11 @@ dissect_xgt_block(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, unsigned 
                 }
 
                 /* Add data value to Info column for responses */
-                if (!is_request) {
-                    uint16_t first_value = tvb_get_letohs(tvb, offset);
-                    col_append_fstr(pinfo->cinfo, COL_INFO, "[%u bytes] = %u...", data_length, first_value);
-                }
+                col_append_fstr(pinfo->cinfo, COL_INFO, "[%u bytes] = %u...", data_length, tvb_get_letohs(tvb, offset));
             } else if (data_length == 8 && data_type == XGT_DTYPE_LWORD) {
                 /* For 64-bit values, show as uint64 using data_value field */
                 uint64_t value = tvb_get_letoh64(tvb, offset);
-                proto_tree_add_uint64_format(block_tree, hf_xgt_data_value_uint64, tvb, offset, data_length, value, "Data: %" G_GUINT64_FORMAT, value);
+                proto_tree_add_uint64_format(block_tree, hf_xgt_data_value_uint64, tvb, offset, data_length, value, "Data: %" PRIu64, value);
             } else if (data_length == 1 && (data_type == XGT_DTYPE_BIT || data_type == XGT_DTYPE_BYTE)) {
                 uint8_t value = tvb_get_uint8(tvb, offset);
                 proto_tree_add_uint_format(block_tree, hf_xgt_data_value_uint8, tvb, offset, data_length, value, "Data: %u", value);
@@ -501,8 +498,8 @@ dissect_xgt_block(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, unsigned 
                     /* For single values, show the value */
                     uint16_t value = tvb_get_letohs(tvb, offset);
                     col_append_fstr(pinfo->cinfo, COL_INFO, "= %u", value);
-                } else if (data_length == 1) {
-                    /* For single byte */
+                } else {
+                    /* For single byte (data_length==1) */
                     uint8_t value = tvb_get_uint8(tvb, offset);
                     col_append_fstr(pinfo->cinfo, COL_INFO, "= %u", value);
                 }
@@ -1067,11 +1064,7 @@ proto_register_xgt(void)
     expert_module_t *expert_xgt;
 
     /* Register protocol */
-    proto_xgt = proto_register_protocol(
-        "XGT FEnet Protocol",    /* name */
-        "XGT",                 /* short name */
-        "xgt"                  /* filter name */
-    );
+    proto_xgt = proto_register_protocol("XGT FEnet Protocol", "XGT", "xgt");
 
     proto_register_field_array(proto_xgt, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));

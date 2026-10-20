@@ -48,8 +48,6 @@
 #include <wsutil/nstime.h>
 #include <app/application_flavor.h>
 
-#include <cli_main.h>
-
 #define PCAP_SNAPLEN 0xffff
 
 #define UDPDUMP_DEFAULT_PORT 5555
@@ -357,7 +355,7 @@ int main(int argc, char *argv[])
 	g_set_prgname("udpdump");
 
 	/* Initialize log handler early so we can have proper logging during startup. */
-	extcap_log_init();
+	extcap_log_init(extcap_conf);
 
 	/*
 	 * Get credential information for later use.
@@ -379,7 +377,7 @@ int main(int argc, char *argv[])
 	extcap_base_set_util_info(extcap_conf, argv[0], UDPDUMP_VERSION_MAJOR, UDPDUMP_VERSION_MINOR, UDPDUMP_VERSION_RELEASE,
 		help_url);
 	g_free(help_url);
-	extcap_base_register_interface(extcap_conf, UDPDUMP_EXTCAP_INTERFACE, "UDP Listener remote capture", 252, "Exported PDUs");
+	extcap_base_register_interface_ext(extcap_conf, UDPDUMP_EXTCAP_INTERFACE, "UDP Listener remote capture", 252, NULL, "Exported PDUs", EXTCAP_CONTROL_QUIT);
 
 	help_header = ws_strdup_printf(
 		" %s --extcap-interfaces\n"

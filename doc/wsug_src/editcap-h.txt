@@ -1,4 +1,4 @@
-Editcap (Wireshark) 4.7.0 (v4.7.0rc0-30-gf34465f0e5b8)
+Editcap (Wireshark) 5.1.0 (v5.1.0rc0-58-g5bd0fb4087a1)
 Edit and/or translate the format of capture files.
 See https://www.wireshark.org for more information.
 
@@ -39,6 +39,7 @@ Duplicate packet removal:
 
 Packet manipulation:
   -s <snaplen>           truncate each packet to max. <snaplen> bytes of data.
+  --sctp-split           split SCTP bundled DATA chunks into individual packets.
   -C [offset:]<choplen>  chop each packet by <choplen> bytes. Positive values
                          chop at the packet beginning, negative values at the
                          packet end. If an optional offset precedes the length,
@@ -115,6 +116,14 @@ Output File(s):
                          when writing the output file.  Does not discard
                          secrets added by "--inject-secrets" in the same
                          command line.
+  --discard-process-info
+                         Discard the process information from the input file
+                         when writing the output file: the blocks describing
+                         processes and the options of the packets that refer
+                         to them.
+  --discard-name-resolution
+                         Discard all name resolution records from the input
+                         file when writing the output file.
   --capture-comment <comment>
                          Add a capture file comment, if supported.
   --discard-capture-comment

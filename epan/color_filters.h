@@ -21,20 +21,24 @@ extern "C" {
 
 struct epan_dissect;
 
-#define COLORFILTERS_FILE_NAME          "colorfilters"
+#define COLORING_RULES_FILE_NAME "coloring_rules.jsonc"
+/* Legacy name */
+#define COLORFILTERS_FILE_NAME "colorfilters"
 
 #define CONVERSATION_COLOR_PREFIX       "___conversation_color_filter___"
 /** @file
  *  Color filters.
  */
 
-/* Data for a color filter. */
+/**
+ * @brief Data for a color filter.
+ */
 typedef struct _color_filter {
     char      *filter_name;         /* name of the filter */
     char      *filter_text;         /* text of the filter expression */
     color_t    bg_color;            /* background color for packets that match */
     color_t    fg_color;            /* foreground color for packets that match */
-    bool       disabled;            /* set if the filter is disabled */
+    bool       enabled;             /* set if the filter is enabled */
 
                                     /* only used inside of color_filters.c */
     struct epan_dfilter *c_colorfilter;  /* compiled filter expression */
@@ -292,12 +296,12 @@ WS_DLL_PUBLIC bool color_filters_export(const char *path, GSList *cfl, bool only
  * @param filter_string the filter string
  * @param bg_color background color
  * @param fg_color foreground color
- * @param disabled bool
+ * @param enabled bool
  * @return the new color filter
  */
 WS_DLL_PUBLIC color_filter_t *color_filter_new(
     const char *name, const char *filter_string,
-    color_t *bg_color, color_t *fg_color, bool disabled);
+    color_t *bg_color, color_t *fg_color, bool enabled);
 
 /**
  * @brief Delete a single color filter (g_free'ed).

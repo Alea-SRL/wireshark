@@ -7,6 +7,8 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
+#define WS_LOG_DOMAIN LOG_DOMAIN_QTUI
+
 #include "main_application.h"
 #include "stratoshark_main_window.h"
 #include <ui/qt/widgets/capture_card_widget.h>
@@ -57,6 +59,7 @@ DIAG_ON(frame-larger-than=)
 #include "import_text_dialog.h"
 #include "interface_toolbar.h"
 #include "packet_list.h"
+#include <ui/qt/widgets/packet_list_pane.h>
 #include "proto_tree.h"
 #include "simple_dialog.h"
 #include "tap_parameter_dialog.h"
@@ -66,9 +69,11 @@ DIAG_ON(frame-larger-than=)
 #include <ui/qt/widgets/filter_expression_toolbar.h>
 
 #include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/font_manager.h>
 #include <ui/qt/utils/profile_switcher.h>
 #include <ui/qt/utils/qt_ui_utils.h>
-#include <ui/qt/utils/stock_icon.h>
+#include <ui/qt/utils/themes/contrast_adapt_icon.h>
+#include <ui/qt/utils/themes/themed_icon.h>
 #include <ui/qt/utils/variant_pointer.h>
 #include <ui/qt/utils/workspace_state.h>
 #include <ui/qt/utils/software_update.h>
@@ -199,10 +204,10 @@ static void plugin_if_mainwindow_get_ws_info(GHashTable * data_set)
     if (cf) {
         ws_info->cf_count = cf->count;
 
-        QList<int> rows = gbl_cur_main_window_->selectedRows();
+        QList<frame_data *> frames = gbl_cur_main_window_->selectedFrames();
         frame_data * fdata = NULL;
-        if (rows.count() > 0)
-            fdata = gbl_cur_main_window_->frameDataForRow(rows.at(0));
+        if (frames.count() > 0)
+            fdata = frames.at(0);
 
         if (cf->state == FILE_READ_DONE && fdata) {
             ws_info->cf_framenr = fdata->num;
@@ -237,12 +242,9 @@ static void plugin_if_mainwindow_get_frame_data(GHashTable* data_set)
         g_hash_table_lookup_extended(data_set, "user_data", NULL, (void**)&user_data) &&
         g_hash_table_lookup_extended(data_set, "ret_value_ptr", NULL, (void**)&ret_value_ptr))
     {
-        QList<int> rows = gbl_cur_main_window_->selectedRows();
-        if (rows.count() > 0) {
-            frame_data* fdata = gbl_cur_main_window_->frameDataForRow(rows.at(0));
-            if (fdata) {
-                *ret_value_ptr = extract_cb(fdata, user_data);
-            }
+        QList<frame_data *> frames = gbl_cur_main_window_->selectedFrames();
+        if (frames.count() > 0) {
+            *ret_value_ptr = extract_cb(frames.at(0), user_data);
         }
     }
 }
@@ -326,7 +328,10 @@ StratosharkMainWindow::StratosharkMainWindow(QWidget *parent) :
     freeze_focus_(NULL),
     was_maximized_(false),
     capture_stopping_(false),
-    capture_filter_valid_(false)
+    // An empty capture filter is valid (capture everything), and the filter box
+    // starts empty, so default to true. The widget reports false only once an
+    // invalid filter is actually typed.
+    capture_filter_valid_(true)
 #ifdef HAVE_LIBPCAP
     , capture_options_dialog_(NULL)
     , info_data_()
@@ -391,38 +396,29 @@ StratosharkMainWindow::StratosharkMainWindow(QWidget *parent) :
     //To prevent users use features before initialization complete
     //Otherwise unexpected problems may occur
     setFeaturesEnabled(false);
-    connect(mainApp, &MainApplication::appInitialized, this, [this]() { setFeaturesEnabled(); });
-    connect(mainApp, &MainApplication::appInitialized, this, &StratosharkMainWindow::applyGlobalCommandLineOptions);
-    connect(mainApp, &MainApplication::appInitialized, this, &StratosharkMainWindow::zoomText);
-    connect(mainApp, &MainApplication::appInitialized, this, &StratosharkMainWindow::initViewColorizeMenu);
-    connect(mainApp, &MainApplication::appInitialized, this, &StratosharkMainWindow::addStatsPluginsToMenu);
-    connect(mainApp, &MainApplication::appInitialized, this, &StratosharkMainWindow::addDynamicMenus);
-    connect(mainApp, &MainApplication::appInitialized, this, &StratosharkMainWindow::addPluginIFStructures);
-    connect(mainApp, &MainApplication::appInitialized, this, &StratosharkMainWindow::initConversationMenus);
-    connect(mainApp, &MainApplication::appInitialized, this, &StratosharkMainWindow::initFollowStreamMenus);
-    connect(mainApp, &MainApplication::appInitialized, this,
-            [=]() { addDisplayFilterTranslationActions(main_ui_->menuEditCopy); });
+    mainApp->whenInitialized(this, [this]() { onAppInitialized(); });
 
     connect(mainApp, &MainApplication::profileChanging, this, &StratosharkMainWindow::saveWindowGeometry);
     connect(mainApp, &MainApplication::preferencesChanged, this, &StratosharkMainWindow::layoutPanes);
     connect(mainApp, &MainApplication::preferencesChanged, this, &StratosharkMainWindow::layoutToolbars);
     connect(mainApp, &MainApplication::preferencesChanged, this, &StratosharkMainWindow::updatePreferenceActions);
-    connect(mainApp, &MainApplication::preferencesChanged, this, &StratosharkMainWindow::zoomText);
     connect(mainApp, &MainApplication::preferencesChanged, this, &StratosharkMainWindow::updateTitlebar);
 
     connect(WorkspaceState::instance(), &WorkspaceState::recentCaptureFilesChanged, this, &StratosharkMainWindow::updateRecentCaptures);
     connect(WorkspaceState::instance(), &WorkspaceState::recentFileStatusChanged, this, &StratosharkMainWindow::updateRecentCaptures);
     connect(mainApp, &MainApplication::preferencesChanged, this, &StratosharkMainWindow::updateRecentCaptures);
     updateRecentCaptures();
-    df_combo_box_ = new DisplayFilterCombo(this);
+    df_combo_box_ = new DisplayFilterEntry(this);
+
+    connect(df_combo_box_, &DisplayFilterEntry::filterPackets, this, &StratosharkMainWindow::applyFilter);
 
     funnel_statistics_ = new FunnelStatistics(this, capture_file_);
-    connect(df_combo_box_, &QComboBox::editTextChanged, funnel_statistics_, &FunnelStatistics::displayFilterTextChanged);
+    connect(df_combo_box_, &QLineEdit::textChanged, funnel_statistics_, &FunnelStatistics::displayFilterTextChanged);
     connect(funnel_statistics_, &FunnelStatistics::setDisplayFilter, this, &StratosharkMainWindow::setDisplayFilter);
     connect(funnel_statistics_, &FunnelStatistics::openCaptureFile, this,
             [=](QString cf_path, QString filter) { openCaptureFile(cf_path, filter); });
 
-    connect(df_combo_box_, &QComboBox::editTextChanged, this, &StratosharkMainWindow::updateDisplayFilterTranslationActions);
+    connect(df_combo_box_, &QLineEdit::textChanged, this, &StratosharkMainWindow::updateDisplayFilterTranslationActions);
 
     file_set_dialog_ = new FileSetDialog(this);
     connect(file_set_dialog_, &FileSetDialog::fileSetOpenCaptureFile, this, [=](QString cf_path) { openCaptureFile(cf_path); });
@@ -465,13 +461,13 @@ StratosharkMainWindow::StratosharkMainWindow(QWidget *parent) :
 #endif
 
     // Set OS specific shortcuts for fullscreen mode
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_MACOS)
     main_ui_->actionViewFullScreen->setShortcut(QKeySequence::FullScreen);
 #else
     main_ui_->actionViewFullScreen->setShortcut(QKeySequence(Qt::Key_F11));
 #endif
 
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_MACOS)
 
     main_ui_->goToPacketLabel->setAttribute(Qt::WA_MacSmallSize, true);
     main_ui_->goToLineEdit->setAttribute(Qt::WA_MacSmallSize, true);
@@ -480,7 +476,7 @@ StratosharkMainWindow::StratosharkMainWindow(QWidget *parent) :
 
     main_ui_->actionEditPreferences->setMenuRole(QAction::PreferencesRole);
 
-#endif // Q_OS_MAC
+#endif // Q_OS_MACOS
 
     connect(main_ui_->goToGo, &QPushButton::pressed, this, &StratosharkMainWindow::goToGoClicked);
     connect(main_ui_->goToCancel, &QPushButton::pressed, this, &StratosharkMainWindow::goToCancelClicked);
@@ -515,8 +511,10 @@ StratosharkMainWindow::StratosharkMainWindow(QWidget *parent) :
     empty_pane_.setObjectName("emptyPane");
     empty_pane_.setVisible(false);
 
-    packet_list_ = new PacketList(&master_split_);
+    packet_list_pane_ = new PacketListPane(&master_split_);
+    packet_list_ = packet_list_pane_->packetList();
     connect(packet_list_, &PacketList::framesSelected, this, &StratosharkMainWindow::setMenusForSelectedPacket);
+    connect(packet_list_, &PacketList::pinnedRowsChanged, this, &StratosharkMainWindow::setMenusForSelectedPacket);
     connect(packet_list_, &PacketList::framesSelected, this, &StratosharkMainWindow::framesSelected);
 
     QAction *action = main_ui_->menuPacketComment->addAction(tr("Add New Comment…"));
@@ -563,8 +561,8 @@ StratosharkMainWindow::StratosharkMainWindow(QWidget *parent) :
     updateRecentActions();
     setForCaptureInProgress(false);
 
-    setTabOrder(main_ui_->mainToolBar, df_combo_box_->lineEdit());
-    setTabOrder(df_combo_box_->lineEdit(), packet_list_);
+    setTabOrder(main_ui_->mainToolBar, df_combo_box_);
+    setTabOrder(df_combo_box_, packet_list_);
     setTabOrder(packet_list_, proto_tree_);
     setTabOrder(proto_tree_, data_source_tab_);
 
@@ -575,7 +573,6 @@ StratosharkMainWindow::StratosharkMainWindow(QWidget *parent) :
 
     connect(mainApp, &MainApplication::freezePacketList, packet_list_, &PacketList::freezePacketList);
     connect(mainApp, &MainApplication::columnsChanged, packet_list_, &PacketList::columnsChanged);
-    connect(mainApp, &MainApplication::colorsChanged, packet_list_, &PacketList::colorsChanged);
     connect(mainApp, &MainApplication::preferencesChanged, packet_list_, &PacketList::preferencesChanged);
     connect(mainApp, &MainApplication::recentPreferencesRead, this, &StratosharkMainWindow::applyRecentPaneGeometry);
     connect(mainApp, &MainApplication::recentPreferencesRead, this, &StratosharkMainWindow::updateRecentActions);
@@ -610,9 +607,6 @@ StratosharkMainWindow::StratosharkMainWindow(QWidget *parent) :
             packet_list_, &PacketList::setCaptureFile);
     connect(this, &StratosharkMainWindow::setCaptureFile,
             proto_tree_, &ProtoTree::setCaptureFile);
-
-    connect(mainApp, &MainApplication::zoomMonospaceFont, packet_list_, &PacketList::setMonospaceFont);
-    connect(mainApp, &MainApplication::zoomMonospaceFont, proto_tree_, &ProtoTree::setMonospaceFont);
 
     connectFileMenuActions();
     connectEditMenuActions();
@@ -713,7 +707,7 @@ StratosharkMainWindow::~StratosharkMainWindow()
         disconnect(previous_focus_, &QWidget::destroyed, this, &StratosharkMainWindow::resetPreviousFocus);
     }
 
-#ifndef Q_OS_MAC
+#ifndef Q_OS_MACOS
     // Below dialogs inherit GeometryStateDialog
     // For reasons described in geometry_state_dialog.h no parent is set when
     // instantiating the dialogs and as a result objects are not automatically
@@ -780,8 +774,6 @@ void StratosharkMainWindow::addInterfaceToolbar(const iface_toolbar *toolbar_ent
     menu->insertAction(before, action);
 
     InterfaceToolbar *interface_toolbar = new InterfaceToolbar(this, toolbar_entry);
-    connect(mainApp, &MainApplication::appInitialized, interface_toolbar, &InterfaceToolbar::interfaceListChanged);
-    connect(mainApp, &MainApplication::localInterfaceListChanged, interface_toolbar, &InterfaceToolbar::interfaceListChanged);
 
     QToolBar *toolbar = new QToolBar(this);
     toolbar->addWidget(interface_toolbar);
@@ -840,7 +832,7 @@ void StratosharkMainWindow::updateStyleSheet()
     // palette (generally whether the theme is dark or not.) Some of these
     // widgets only have style sheets that vary with whether theme is dark
     // on macOS. (XXX - We could just update them all anyway.)
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     main_ui_->addressEditorFrame->updateStyleSheet();
     main_ui_->columnEditorFrame->updateStyleSheet();
     main_ui_->filterExpressionFrame->updateStyleSheet();
@@ -850,7 +842,6 @@ void StratosharkMainWindow::updateStyleSheet()
 
 #endif
     welcome_page_->updateStyleSheets();
-    df_combo_box_->updateStyleSheet();
 }
 
 bool StratosharkMainWindow::eventFilter(QObject *obj, QEvent *event) {
@@ -862,8 +853,8 @@ bool StratosharkMainWindow::eventFilter(QObject *obj, QEvent *event) {
         QKeyEvent *kevt = static_cast<QKeyEvent *>(event);
         if (kevt->text().length() > 0 && kevt->text()[0].isPrint() &&
             !(kevt->modifiers() & Qt::ControlModifier)) {
-            df_combo_box_->lineEdit()->insert(kevt->text());
-            df_combo_box_->lineEdit()->setFocus();
+            df_combo_box_->insert(kevt->text());
+            df_combo_box_->setFocus();
             return true;
         }
     }
@@ -1074,7 +1065,7 @@ void StratosharkMainWindow::loadWindowGeometry()
 {
     int min_sensible_dimension = 200;
 
-#ifndef Q_OS_MAC
+#ifndef Q_OS_MACOS
     if (recent.gui_geometry_main_maximized) {
         // [save|restore]Geometry does a better job (on Linux and Windows)
         // of restoring to the original monitor because it saves
@@ -1800,21 +1791,21 @@ bool StratosharkMainWindow::tryClosingCaptureFile(QString before_what, FileClose
             QPushButton *discard_button;
 
             msg_dialog.setIcon(QMessageBox::Question);
-            msg_dialog.setWindowTitle(tr("Unsaved packets…"));
+            msg_dialog.setWindowTitle(tr("Unsaved events…"));
 
             /* This file has unsaved data or there's a capture in
                progress; ask the user whether to save the data. */
             if (capture_in_progress && context != Restart) {
-                question = tr("Do you want to stop the capture and save the captured packets%1?").arg(before_what);
-                infotext = tr("Your captured packets will be lost if you don't save them.");
+                question = tr("Do you want to stop the capture and save the captured events%1?").arg(before_what);
+                infotext = tr("Your captured events will be lost if you don't save them.");
             } else if (capture_file_.capFile()->is_tempfile) {
                 if (context == Reload) {
                     // Reloading a tempfile will keep the packets, so this is not unsaved packets
                     question = tr("Do you want to save the changes you've made%1?").arg(before_what);
                     infotext = tr("Your changes will be lost if you don't save them.");
                 } else {
-                    question = tr("Do you want to save the captured packets%1?").arg(before_what);
-                    infotext = tr("Your captured packets will be lost if you don't save them.");
+                    question = tr("Do you want to save the captured events%1?").arg(before_what);
+                    infotext = tr("Your captured events will be lost if you don't save them.");
                 }
             } else {
                 // No capture in progress and not a tempfile, so this is not unsaved packets
@@ -1873,7 +1864,7 @@ bool StratosharkMainWindow::tryClosingCaptureFile(QString before_what, FileClose
             }
             discard_button = msg_dialog.addButton(discard_button_text, QMessageBox::DestructiveRole);
 
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_MACOS)
             /*
              * In macOS, the "default button" is not necessarily the
              * button that has the input focus; Enter/Return activates
@@ -1990,7 +1981,10 @@ void StratosharkMainWindow::captureStop() {
     }
 }
 
-void StratosharkMainWindow::initMainToolbarIcons()
+// Toolbar icons scale with the application zoom level (see the matching comment
+// in WiresharkMainWindow): the toolbar, as consumer, re-sizes on zoomChanged
+// rather than the icon scaling itself.
+void StratosharkMainWindow::updateMainToolbarIconSize()
 {
     // Normally 16 px. Reflects current GTK+ behavior and other Windows apps.
     int icon_size = style()->pixelMetric(QStyle::PM_SmallIconSize);
@@ -2000,54 +1994,68 @@ void StratosharkMainWindow::initMainToolbarIcons()
     // large IMHO.
     icon_size = icon_size * 3 / 2;
 #endif
+    icon_size = qRound(icon_size * FontManager::zoomFactor());
     main_ui_->mainToolBar->setIconSize(QSize(icon_size, icon_size));
+}
+
+void StratosharkMainWindow::initMainToolbarIcons()
+{
+    updateMainToolbarIconSize();
+    // UniqueConnection: initMainToolbarIcons() can run more than once.
+    connect(FontManager::instance(), &FontManager::zoomChanged,
+            this, &StratosharkMainWindow::updateMainToolbarIconSize, Qt::UniqueConnection);
 
     // Toolbar actions. The GNOME HIG says that we should have a menu icon for each
     // toolbar item but that clutters up our menu. Set menu icons sparingly.
 
-    main_ui_->actionCaptureStart->setIcon(StockIcon("x-capture-start"));
-    main_ui_->actionCaptureStop->setIcon(StockIcon("x-capture-stop"));
-    main_ui_->actionCaptureRestart->setIcon(StockIcon("x-capture-restart"));
-    main_ui_->actionCaptureOptions->setIcon(StockIcon("x-capture-options"));
+    // ThemedIcon renders an SVG's silhouette as a ThemeManager token color.
+
+    // ContrastAdaptIcon keeps each SVG's own colours and adapts them for contrast
+    // against the toolbar surface; one helper for every converted icon.
+
+    main_ui_->actionCaptureStart->setIcon(ContrastAdaptIcon("capture-start"));
+    main_ui_->actionCaptureStop->setIcon(ContrastAdaptIcon("capture-stop"));
+    main_ui_->actionCaptureRestart->setIcon(ContrastAdaptIcon("capture-restart"));
+    main_ui_->actionCaptureOptions->setIcon(ThemedIcon("capture-options"));
 
     // Menu icons are disabled in stratoshark_main_window.ui for these File-> items.
-    main_ui_->actionFileOpen->setIcon(StockIcon("document-open"));
-    main_ui_->actionFileSave->setIcon(StockIcon("x-capture-file-save"));
-    main_ui_->actionFileClose->setIcon(StockIcon("x-capture-file-close"));
+    main_ui_->actionFileOpen->setIcon(ThemedIcon("document-open"));
+    main_ui_->actionFileSave->setIcon(ThemedIcon("file-save"));
+    main_ui_->actionFileClose->setIcon(ThemedIcon("file-close"));
 
-    main_ui_->actionEditFindPacket->setIcon(StockIcon("edit-find"));
-    main_ui_->actionGoPreviousPacket->setIcon(StockIcon("go-previous"));
-    main_ui_->actionGoNextPacket->setIcon(StockIcon("go-next"));
-    main_ui_->actionGoGoToPacket->setIcon(StockIcon("go-jump"));
-    main_ui_->actionGoFirstPacket->setIcon(StockIcon("go-first"));
-    main_ui_->actionGoLastPacket->setIcon(StockIcon("go-last"));
-    main_ui_->actionGoPreviousConversationPacket->setIcon(StockIcon("go-previous"));
-    main_ui_->actionGoNextConversationPacket->setIcon(StockIcon("go-next"));
-#if defined(Q_OS_MAC)
+    main_ui_->actionEditFindPacket->setIcon(ThemedIcon("find"));
+    main_ui_->actionGoPreviousPacket->setIcon(ThemedIcon("nav-previous"));
+    main_ui_->actionGoNextPacket->setIcon(ThemedIcon("nav-next"));
+    main_ui_->actionGoGoToPacket->setIcon(ThemedIcon("nav-goto"));
+    main_ui_->actionGoFirstPacket->setIcon(ThemedIcon("nav-first"));
+    main_ui_->actionGoLastPacket->setIcon(ThemedIcon("nav-last"));
+    main_ui_->actionGoPreviousConversationPacket->setIcon(ThemedIcon("nav-previous"));
+    main_ui_->actionGoNextConversationPacket->setIcon(ThemedIcon("nav-next"));
+#if defined(Q_OS_MACOS)
     main_ui_->actionGoPreviousConversationPacket->setShortcut(QKeySequence(Qt::META | Qt::Key_Comma));
     main_ui_->actionGoNextConversationPacket->setShortcut(QKeySequence(Qt::META | Qt::Key_Period));
 #endif
-    main_ui_->actionGoFirstConversationPacket->setIcon(StockIcon("go-first"));
-    main_ui_->actionGoLastConversationPacket->setIcon(StockIcon("go-last"));
-    main_ui_->actionGoPreviousHistoryPacket->setIcon(StockIcon("go-previous"));
-    main_ui_->actionGoNextHistoryPacket->setIcon(StockIcon("go-next"));
-    main_ui_->actionGoAutoScroll->setIcon(StockIcon("x-stay-last"));
+    main_ui_->actionGoFirstConversationPacket->setIcon(ThemedIcon("nav-first"));
+    main_ui_->actionGoLastConversationPacket->setIcon(ThemedIcon("nav-last"));
+    main_ui_->actionGoPreviousHistoryPacket->setIcon(ThemedIcon("nav-previous"));
+    main_ui_->actionGoNextHistoryPacket->setIcon(ThemedIcon("nav-next"));
+    main_ui_->actionGoAutoScroll->setIcon(ThemedIcon("view-autoscroll"));
 
-    main_ui_->actionViewColorizePacketList->setIcon(StockIcon("x-colorize-packets"));
+    main_ui_->actionViewColorizePacketList->setIcon(ContrastAdaptIcon("view-colorize"));
 
     QList<QKeySequence> zi_seq = main_ui_->actionViewZoomIn->shortcuts();
     zi_seq << QKeySequence(Qt::CTRL | Qt::Key_Equal);
-    main_ui_->actionViewZoomIn->setIcon(StockIcon("zoom-in"));
+    main_ui_->actionViewZoomIn->setIcon(ThemedIcon("zoom-in"));
     main_ui_->actionViewZoomIn->setShortcuts(zi_seq);
-    main_ui_->actionViewZoomOut->setIcon(StockIcon("zoom-out"));
-    main_ui_->actionViewNormalSize->setIcon(StockIcon("zoom-original"));
-    main_ui_->actionViewResizeColumns->setIcon(StockIcon("x-resize-columns"));
-    main_ui_->actionViewResetLayout->setIcon(StockIcon("x-reset-layout_2"));
-    main_ui_->actionViewReload->setIcon(StockIcon("x-capture-file-reload"));
+    main_ui_->actionViewZoomOut->setIcon(ThemedIcon("zoom-out"));
+    main_ui_->actionViewNormalSize->setIcon(ThemedIcon("zoom-reset"));
+    main_ui_->actionViewResizeColumns->setIcon(ThemedIcon("view-resize-columns"));
+    main_ui_->actionViewResetLayout->setIcon(ThemedIcon("layout-reset-2"));
+    main_ui_->actionViewReload->setIcon(ThemedIcon("file-reload"));
     // XXX - What icon to use?
-    //main_ui_->actionViewRedissect->setIcon(StockIcon("x-capture-file-reload"));
+    // main_ui_->actionViewRedissect->setIcon(ContrastAdaptIcon("file-reload"));
 
-    main_ui_->actionNewDisplayFilterExpression->setIcon(StockIcon("list-add"));
+    main_ui_->actionNewDisplayFilterExpression->setIcon(ThemedIcon("list-add"));
 }
 
 void StratosharkMainWindow::initShowHideMainWidgets()
@@ -2406,9 +2414,6 @@ void StratosharkMainWindow::setForCapturedPackets(bool have_captured_packets)
     main_ui_->actionGoNextConversationPacket->setEnabled(have_captured_packets);
     main_ui_->actionGoPreviousConversationPacket->setEnabled(have_captured_packets);
 
-    main_ui_->actionViewZoomIn->setEnabled(have_captured_packets);
-    main_ui_->actionViewZoomOut->setEnabled(have_captured_packets);
-    main_ui_->actionViewNormalSize->setEnabled(have_captured_packets);
     main_ui_->actionViewResizeColumns->setEnabled(have_captured_packets);
     main_ui_->actionViewRedissect->setEnabled(have_captured_packets);
 

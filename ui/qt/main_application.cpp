@@ -37,7 +37,6 @@
 #include "ui/commandline.h"
 #include "ui/decode_as_utils.h"
 #include "ui/preference_utils.h"
-#include "ui/iface_lists.h"
 #include "ui/language.h"
 #include "ui/recent.h"
 #include "ui/simple_dialog.h"
@@ -46,9 +45,11 @@
 #include <ui/qt/utils/qt_ui_utils.h>
 #include <ui/qt/utils/color_utils.h>
 #include <ui/qt/utils/software_update.h>
+#include <ui/qt/utils/theme_manager.h>
 #include "coloring_rules_dialog.h"
 
 #include "epan/color_filters.h"
+#include "epan/tag_rules.h"
 
 #include "extcap.h"
 #ifdef HAVE_LIBPCAP
@@ -75,8 +76,10 @@
 #include <ui/qt/capture_file.h>
 
 #include <ui/qt/main_window.h>
+#include <ui/qt/manager/interface_list_manager.h>
 #include <ui/qt/main_status_bar.h>
 #include <ui/qt/utils/workspace_state.h>
+#include <ui/qt/utils/theme_styler.h>
 
 #include <QAction>
 #include <QApplication>
@@ -97,9 +100,6 @@
 #include <QUrl>
 #include <qmath.h>
 
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-#include <QFontDatabase>
-#endif
 #include <QMimeDatabase>
 
 #include <QStyleHints>
@@ -128,24 +128,12 @@ QString MainApplication::window_title_separator_ = QString::fromUtf8(" " UTF8_MI
 class MimeDatabaseInitThread : public QRunnable
 {
 private:
-    void run()
+    void run() override
     {
         QMimeDatabase mime_db;
         mime_db.mimeTypeForData(QByteArray());
     }
 };
-
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-// Populating the font database can be slow as well.
-class FontDatabaseInitThread : public QRunnable
-{
-private:
-    void run()
-    {
-        QFontDatabase font_db;
-    }
-};
-#endif
 
 void
 topic_action(topic_action_e action)
@@ -177,36 +165,6 @@ void MainApplication::refreshPacketData()
     }
 }
 
-// The Fusion style, and the Mac style, allow QMessageBox text to be
-// selectable by the mouse. The various Windows styles do not. On
-// Windows we switch between the Fusion style and Windows style depending
-// on dark mode, so to make things consistent on Windows (and between
-// Windows and other platforms) alllow it on all styles.
-class MsgBoxTextStyle : public QProxyStyle
-{
-public:
-    MsgBoxTextStyle(QStyle *style = nullptr) : QProxyStyle(style) {}
-    MsgBoxTextStyle(const QString &key) : QProxyStyle(key) {}
-    int styleHint(StyleHint hint, const QStyleOption *option = nullptr,
-        const QWidget *widget = nullptr, QStyleHintReturn *returnData = nullptr) const override
-    {
-        if (hint == QStyle::SH_MessageBox_TextInteractionFlags)
-            return QProxyStyle::styleHint(hint, option, widget, returnData) | Qt::TextSelectableByMouse;
-        return QProxyStyle::styleHint(hint, option, widget, returnData);
-    }
-};
-
-#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0) && defined(Q_OS_WIN)
-void MainApplication::colorSchemeChanged() {
-    // TODO - Supposedly the windows11 style handles dark mode better.
-    if (ColorUtils::themeIsDark()) {
-        setStyle(QStyleFactory::create("fusion"));
-    } else {
-        setStyle(new MsgBoxTextStyle("windowsvista"));
-    }
-}
-#endif
-
 void MainApplication::updateTaps()
 {
     draw_tap_listeners(false);
@@ -233,112 +191,12 @@ void MainApplication::helpTopicAction(topic_action_e action)
     }
 }
 
-const QFont MainApplication::monospaceFont(bool zoomed) const
-{
-    if (zoomed) {
-        return zoomed_font_;
-    }
-    return mono_font_;
-}
-
-void MainApplication::setMonospaceFont(const char *font_string) {
-
-    if (font_string && strlen(font_string) > 0) {
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-        // Qt 6's QFont::toString returns a value with 16 or 17 fields, e.g.
-        // Consolas,11,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
-        // Corbel,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,Regular
-        // Qt 5's QFont::fromString expects a value with 10 or 11 fields, e.g.
-        // Consolas,10,-1,5,50,0,0,0,0,0
-        // Corbel,10,-1,5,50,0,0,0,0,0,Regular
-        // It looks like Qt6's QFont::fromString can read both forms:
-        // https://github.com/qt/qtbase/blob/6.0/src/gui/text/qfont.cpp#L2146
-        // but Qt5's cannot:
-        // https://github.com/qt/qtbase/blob/5.15/src/gui/text/qfont.cpp#L2151
-        const char *fs_ptr = font_string;
-        int field_count = 1;
-        while ((fs_ptr = strchr(fs_ptr, ',')) != NULL) {
-            fs_ptr++;
-            field_count++;
-        }
-        if (field_count <= 11) {
-#endif
-            mono_font_.fromString(font_string);
-
-            // Only accept the font name if it actually exists.
-            if (mono_font_.family() == QFontInfo(mono_font_).family()) {
-                return;
-            } else {
-                ws_warning("Monospace font family %s differs from its fontinfo: %s",
-                    qUtf8Printable(mono_font_.family()), qUtf8Printable(QFontInfo(mono_font_).family()));
-            }
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-        } else {
-            ws_warning("Monospace font %s appears to be from Qt6 and we're running Qt5.", font_string);
-        }
-#endif
-    }
-
-    // https://en.wikipedia.org/wiki/Category:Monospaced_typefaces
-    const char *win_default_font = "Consolas";
-    const char *win_alt_font = "Lucida Console";
-    // SF Mono might be a system font someday. Right now (Oct 2016) it appears
-    // to be limited to Xcode and Terminal.
-    // http://www.openradar.me/26790072
-    // http://www.openradar.me/26862220
-    const char *osx_default_font = "SF Mono";
-    const QStringList osx_alt_fonts = QStringList() << "Menlo" << "Monaco";
-    // XXX Detect Ubuntu systems (e.g. via /etc/os-release and/or
-    // /etc/lsb_release) and add "Ubuntu Mono Regular" there.
-    // https://design.ubuntu.com/font/
-    const char *x11_default_font = "Liberation Mono";
-    const QStringList x11_alt_fonts = QStringList() << "DejaVu Sans Mono" << "Bitstream Vera Sans Mono";
-    const QStringList fallback_fonts = QStringList() << "Lucida Sans Typewriter" << "Inconsolata" << "Droid Sans Mono" << "Andale Mono" << "Courier New" << "monospace";
-    QStringList substitutes;
-    int font_size_adjust = 0;
-
-    // Try to pick the latest, shiniest fixed-width font for our OS.
-#if defined(Q_OS_WIN)
-    const char *default_font = win_default_font;
-    substitutes << win_alt_font << osx_default_font << osx_alt_fonts << x11_default_font << x11_alt_fonts << fallback_fonts;
-# if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
-    font_size_adjust = 1;
-# else // QT_VERSION
-    font_size_adjust = 2;
-# endif // QT_VERSION
-#elif defined(Q_OS_MAC)
-    const char *default_font = osx_default_font;
-    substitutes << osx_alt_fonts << win_default_font << win_alt_font << x11_default_font << x11_alt_fonts << fallback_fonts;
-#else // Q_OS
-    const char *default_font = x11_default_font;
-    substitutes << x11_alt_fonts << win_default_font << win_alt_font << osx_default_font << osx_alt_fonts << fallback_fonts;
-#endif // Q_OS
-
-    mono_font_ = QFont(default_font, mainApp->font().pointSize() + font_size_adjust);
-    mono_font_.insertSubstitutions(default_font, substitutes);
-    mono_font_.setBold(false);
-
-    // Retrieve the effective font and apply it.
-    mono_font_.setFamily(QFontInfo(mono_font_).family());
-
-    wmem_free(wmem_epan_scope(), prefs.gui_font_name);
-    prefs.gui_font_name = wmem_strdup(wmem_epan_scope(), mono_font_.toString().toUtf8().constData());
-}
-
-int MainApplication::monospaceTextSize(const char *str)
-{
-    return QFontMetrics(mono_font_).horizontalAdvance(str);
-}
-
 void MainApplication::setConfigurationProfile(const char *profile_name, bool write_recent_file)
 {
     char  *rf_path;
     int    rf_open_errno;
     char *err_msg = NULL;
     const char* env_prefix = application_configuration_environment_prefix();
-
-    bool prev_capture_no_interface_load;
-    bool prev_capture_no_extcap;
 
     /* First check if profile exists */
     if (!profile_exists(env_prefix, profile_name, false)) {
@@ -374,9 +232,6 @@ void MainApplication::setConfigurationProfile(const char *profile_name, bool wri
         return;
     }
 
-    prev_capture_no_interface_load = prefs.capture_no_interface_load;
-    prev_capture_no_extcap = prefs.capture_no_extcap;
-
     /* Get the current geometry, before writing it to disk */
     emit profileChanging();
 
@@ -396,6 +251,11 @@ void MainApplication::setConfigurationProfile(const char *profile_name, bool wri
 
     /* Apply new preferences */
     readConfigurationFiles(true);
+
+    /* Reading the new profile's preferences reset every registered preference,
+     * including the ones that are shared by all of our profiles. Those aren't
+     * part of the profile we're leaving, so read them back in. */
+    extcap_read_preferences();
 
     /* Apply command-line preferences */
     commandline_options_reapply();
@@ -421,11 +281,15 @@ void MainApplication::setConfigurationProfile(const char *profile_name, bool wri
     prefs_to_capture_opts(&global_capture_opts);
     prefs_apply_all();
 #ifdef HAVE_LIBPCAP
-    update_local_interfaces(&global_capture_opts);
+    /* Re-apply interface display attributes from the new profile's prefs before
+       the preferencesChanged() emit below, so its listeners see fresh data. The
+       manager owns interface enumeration/attributes now. */
+    if (MainWindow *mw = mainWindow())
+        if (InterfaceListManager *mgr = mw->interfaceListManager())
+            mgr->reapplyInterfacePreferences();
 #endif
 
     emit columnsChanged();
-    emit colorsChanged();
     emit preferencesChanged();
     emit recentPreferencesRead();
     emit filterExpressionsChanged();
@@ -439,14 +303,16 @@ void MainApplication::setConfigurationProfile(const char *profile_name, bool wri
         g_free(err_msg);
     }
 
-    /* Load interfaces if settings have changed */
-    if (!prefs.capture_no_interface_load &&
-        ((prefs.capture_no_interface_load != prev_capture_no_interface_load) ||
-         (prefs.capture_no_extcap != prev_capture_no_extcap))) {
-        refreshLocalInterfaces();
-    }
+    /* Reload tag rules (profile-specific file changes; global file stays the same) */
+    tag_rules_reload();
 
-    emit localInterfaceListChanged();
+    /* Capture-interface prefs are now watched by InterfaceListManager, which
+       rescans when capture_no_interface_load / capture_no_extcap flips. A profile
+       switch can also change interface display attributes, so notify subscribers
+       (the manager owns the interface-list-changed signal now). */
+    MainWindow *mw = mainWindow();
+    if (mw && mw->interfaceListManager())
+        mw->interfaceListManager()->notifyListChanged();
     emit packetDissectionChanged();
 
     /* Write recent_common file to ensure last used profile setting is stored. */
@@ -561,23 +427,15 @@ MainApplication::MainApplication(int &argc,  char **argv) :
     initialized_(false),
     is_reloading_lua_(false),
     if_notifier_(NULL),
-    active_captures_(0),
-    refresh_interfaces_pending_(false)
-#if defined(Q_OS_MAC) || defined(Q_OS_WIN)
+    active_captures_(0)
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
     , normal_icon_(windowIcon())
-#endif
-#ifdef HAVE_LIBPCAP
-    , cached_if_list_(NULL)
 #endif
 {
     mainApp = this;
 
     MimeDatabaseInitThread *mime_db_init_thread = new(MimeDatabaseInitThread);
     QThreadPool::globalInstance()->start(mime_db_init_thread);
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-    FontDatabaseInitThread *font_db_init_thread = new (FontDatabaseInitThread);
-    QThreadPool::globalInstance()->start(font_db_init_thread);
-#endif
 
     Q_INIT_RESOURCE(about);
     Q_INIT_RESOURCE(i18n);
@@ -585,18 +443,25 @@ MainApplication::MainApplication(int &argc,  char **argv) :
     Q_INIT_RESOURCE(stock_icons);
     Q_INIT_RESOURCE(languages);
 
+    // Initialize the ThemeManager as early as possible so that any
+    // widget constructed afterwards can resolve themed stylesheets and
+    // color tokens.  This must run after QApplication's base ctor (so
+    // that the palette is queryable for light/dark detection) but
+    // before any UI is built.  recent_common has already been read in
+    // main()/stratoshark_main() prior to constructing this application
+    // object, so we can read any configured themes as well.
+    // Theme selection is persisted in recent_common (recent.gui_theme_name),
+    // not in the preferences file — so it survives profile switches and
+    // stays global to the install.  Empty / missing value, or the legacy
+    // "default" sentinel, get resolved by ThemeManager itself to the
+    // current flavor's preferred default (wireshark / stratoshark).
+    ThemeManager::init(ThemeManager::resolveThemeName(
+            QString::fromUtf8(recent.gui_theme_name)));
+
 #ifdef Q_OS_WIN
     /* RichEd20.DLL is needed for native file dialog filter entries. */
     ws_load_library("riched20.dll");
 #endif // Q_OS_WIN
-
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-    setAttribute(Qt::AA_UseHighDpiPixmaps);
-#endif
-
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    setAttribute(Qt::AA_DisableWindowContextHelpButton);
-#endif
 
     // We use a lot of style sheets that base their colors on the main
     // application palette, so this works better.
@@ -616,16 +481,7 @@ MainApplication::MainApplication(int &argc,  char **argv) :
     connect(this, &MainApplication::appInitialized, &tap_update_timer_, [&]() { tap_update_timer_.start(); });
     connect(&tap_update_timer_, &QTimer::timeout, this, &MainApplication::updateTaps);
 
-
-    // If our window text is lighter than the window background, assume the theme is dark.
-    prefs_set_gui_theme_is_dark(ColorUtils::themeIsDark());
-
-#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0) && defined(Q_OS_WIN)
-    colorSchemeChanged();
-    connect(styleHints(), &QStyleHints::colorSchemeChanged, this, &MainApplication::colorSchemeChanged);
-#else
-    setStyle(new MsgBoxTextStyle);
-#endif
+    setStyle(new ThemeStyler);
 
     connect(qApp, &QApplication::aboutToQuit, this, &MainApplication::cleanup);
 }
@@ -633,9 +489,6 @@ MainApplication::MainApplication(int &argc,  char **argv) :
 MainApplication::~MainApplication()
 {
     mainApp = NULL;
-#ifdef HAVE_LIBPCAP
-    free_interface_list(cached_if_list_);
-#endif
     clearDynamicMenuGroupItems();
 }
 
@@ -654,32 +507,21 @@ void MainApplication::emitAppSignal(AppSignal signal)
     case FilterExpressionsChanged:
         emit filterExpressionsChanged();
         break;
-    case LocalInterfacesChanged:
-        emit localInterfaceListChanged();
-        break;
     case NameResolutionChanged:
         emit addressResolutionChanged();
         break;
     case PreferencesChanged:
         tap_update_timer_.setInterval(prefs.tap_update_interval);
-        setMonospaceFont(prefs.gui_font_name);
         emit preferencesChanged();
         break;
     case PacketDissectionChanged:
         emit packetDissectionChanged();
-        break;
-    case ProfileChanging:
-        emit profileChanging();
         break;
     case RecentPreferencesRead:
         emit recentPreferencesRead();
         break;
     case FieldsChanged:
         emit fieldsChanged();
-        break;
-    case ColorsChanged:
-        ColorUtils::setScheme(prefs.gui_color_scheme);
-        emit colorsChanged();
         break;
     case FreezePacketList:
         emit freezePacketList(false);
@@ -863,7 +705,9 @@ iface_mon_event_cb(const char *iface, int added, int up)
          * so we probably should monitor those events as well and update
          * the interface list appropriately when those change.
          */
-        mainApp->refreshLocalInterfaces();
+        MainWindow *mainWindow = mainApp->mainWindow();
+        if (mainWindow && mainWindow->interfaceListManager())
+            mainWindow->interfaceListManager()->requestRefresh();
     }
 }
 
@@ -888,33 +732,45 @@ void MainApplication::emitLocalInterfaceEvent(const char *ifname, int added, int
     emit localInterfaceEvent(ifname, added, up);
 }
 
-void MainApplication::refreshLocalInterfaces()
+void MainApplication::whenInitializedDispatch(const QObject *context, std::function<void()> fn)
 {
-    if (active_captures_ > 0) {
-        refresh_interfaces_pending_ = true;
-        return;
-    }
-
-    refresh_interfaces_pending_ = false;
-    extcap_clear_interfaces();
-
-#ifdef HAVE_LIBPCAP
-    emit scanLocalInterfaces(nullptr);
-#endif
+    // POLICY DECISION (your input shapes behavior here):
+    //
+    // We get here only when a caller registers via whenInitialized() *after*
+    // appInitialized() has already fired. The not-yet-initialized path runs the
+    // callback later, from the event loop, once construction is long finished.
+    // How should the already-initialized path behave?
+    //
+    //   A) Synchronous: fn(); right now. Simplest. But the callback runs while
+    //      the caller's constructor is still on the stack -- the object may be
+    //      only partly built, and any code after the whenInitialized() call in
+    //      that constructor runs *after* the callback. Timing differs from the
+    //      deferred path.
+    //
+    //   B) Deferred to the event loop (e.g. QTimer::singleShot(0, context, fn)
+    //      or QMetaObject::invokeMethod(..., Qt::QueuedConnection)): callback
+    //      always runs after the current call returns, matching the signal path
+    //      exactly, so callers see one consistent ordering. Costs one event-loop
+    //      turn and needs the context-still-alive guarantee.
+    //
+    // Option A (current behavior) is intentional for now: it exactly reproduces
+    // the old open-coded `if (isInitialized()) doThing();` -- a synchronous call
+    // on the caller's stack -- so routing those sites through whenInitialized()
+    // is a pure no-op refactor. Option B is the intended end state, but it
+    // shifts the already-initialized callback by one event-loop turn and so
+    // changes ordering for every converted site at once; switch to it only
+    // behind broader ordering/lifetime tests (dialogs opened mid-session,
+    // welcome/interface frames at cold start, context destroyed same-turn).
+    //
+    // To switch, delete the fn() below and enable the deferred dispatch:
+    //
+    //     QTimer::singleShot(0, const_cast<QObject *>(context), std::move(fn));
+    //
+    // (context is the receiver, so the call is dropped if it dies first, and
+    // runs on context's thread -- matching the connect() branch.)
+    Q_UNUSED(context) // option A ignores context; option B uses it.
+    fn(); // option A: synchronous, matches legacy behavior.
 }
-
-#ifdef HAVE_LIBPCAP
-GList* MainApplication::getInterfaceList() const
-{
-    return interface_list_copy(cached_if_list_);
-}
-
-void MainApplication::setInterfaceList(GList *if_list)
-{
-    free_interface_list(cached_if_list_);
-    cached_if_list_ = interface_list_copy(if_list);
-}
-#endif
 
 void MainApplication::allSystemsGo()
 {
@@ -961,56 +817,101 @@ _e_prefs *MainApplication::readConfigurationFiles(bool reset)
     return prefs_p;
 }
 
-static void switchTranslator(QTranslator& myTranslator, const QString& filename,
-    const QString& searchPath)
+static void switchTranslator(QTranslator& myTranslator, const QLocale &locale, const QString& filename, const QStringList &searchPath)
 {
     mainApp->removeTranslator(&myTranslator);
+    for (const QString &path : searchPath) {
+        if (myTranslator.load(locale, filename, QStringLiteral("_"), path)) {
+            mainApp->installTranslator(&myTranslator);
+            return;
+        }
+    }
+    if (locale.language() != QLocale::C) {
+        /* Don't compare the locale itself, see:
+         * https://doc.qt.io/qt-6/qlocale.html#operator-eq-eq
+         *
+         * Note that the ordered list of languages that were tried is that of
+         * locale.uiLanguages(); the first language in that list is not
+         * necessarily locale.language(), especially on Windows (See #17221.)
+         */
+        qWarning() << "Couldn't load" << filename << "translations." << "Searched:" << searchPath;
+    }
+}
 
-    if (myTranslator.load(filename, searchPath))
-        mainApp->installTranslator(&myTranslator);
+QStringList MainApplication::getTranslationsPaths() const
+{
+    const char* env_prefix = application_configuration_environment_prefix();
+
+    // Search path list ordered by priority. Prefer personal configuration
+    // to global datadir to embedded resources to Qt global directory.
+    QStringList searchPath;
+    searchPath.emplaceBack(gchar_free_to_qstring(get_persconffile_path("languages", false, env_prefix)));
+    searchPath.emplaceBack(QStringLiteral("%1/languages").arg(get_datafile_dir(env_prefix)));
+    searchPath.emplaceBack(QStringLiteral(":/i18n/"));
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    searchPath.append(QLibraryInfo::paths(QLibraryInfo::TranslationsPath));
+#else
+    searchPath.emplaceBack(QLibraryInfo::path(QLibraryInfo::TranslationsPath));
+#endif
+
+    return searchPath;
 }
 
 void MainApplication::loadLanguage(const QString newLanguage)
 {
     QLocale locale;
-    QString localeLanguage;
-    const char* env_prefix = application_configuration_environment_prefix();
 
     if (newLanguage.isEmpty() || newLanguage == USE_SYSTEM_LANGUAGE) {
         locale = QLocale::system();
-        localeLanguage = locale.name();
     } else {
-        localeLanguage = newLanguage;
-        locale = QLocale(localeLanguage);
+        locale = QLocale(newLanguage);
     }
 
     QLocale::setDefault(locale);
-    switchTranslator(mainApp->translator,
-            QStringLiteral("wireshark_%1.qm").arg(localeLanguage), QStringLiteral(":/i18n/"));
-    if (QFile::exists(QStringLiteral("%1/%2/wireshark_%3.qm")
-            .arg(get_datafile_dir(env_prefix)).arg("languages").arg(localeLanguage)))
-        switchTranslator(mainApp->translator,
-                QStringLiteral("wireshark_%1.qm").arg(localeLanguage), QStringLiteral("%1/languages").arg(get_datafile_dir(env_prefix)));
-    if (QFile::exists(QStringLiteral("%1/wireshark_%3.qm")
-            .arg(gchar_free_to_qstring(get_persconffile_path("languages", false, env_prefix))).arg(localeLanguage)))
-        switchTranslator(mainApp->translator,
-                QStringLiteral("wireshark_%1.qm").arg(localeLanguage), gchar_free_to_qstring(get_persconffile_path("languages", false, env_prefix)));
-    if (QFile::exists(QStringLiteral("%1/qt_%2.qm")
-            .arg(get_datafile_dir(env_prefix)).arg(localeLanguage))) {
-        switchTranslator(mainApp->translatorQt,
-                QStringLiteral("qt_%1.qm").arg(localeLanguage), QString(get_datafile_dir(env_prefix)));
-    } else if (QFile::exists(QStringLiteral("%1/qt_%2.qm")
-            .arg(get_datafile_dir(env_prefix)).arg(localeLanguage.left(localeLanguage.lastIndexOf('_'))))) {
-        switchTranslator(mainApp->translatorQt,
-                QStringLiteral("qt_%1.qm").arg(localeLanguage.left(localeLanguage.lastIndexOf('_'))), QString(get_datafile_dir(env_prefix)));
-    } else {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-        QString translationPath = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
-#else
-        QString translationPath = QLibraryInfo::location(QLibraryInfo::TranslationsPath);
-#endif
-        switchTranslator(mainApp->translatorQt, QStringLiteral("qt_%1.qm").arg(localeLanguage), translationPath);
+
+    QStringList searchPath = getTranslationsPaths();
+
+    // Translations are searched for in the reverse order in which they were
+    // installed, so install the Qt generic translator first and ours last.
+    switchTranslator(mainApp->translatorQt, locale, QStringLiteral("qt"), searchPath);
+
+    // XXX - Yes, the translation files are also wireshark_%1.qm for Stratoshark.
+    // There is a stratoshark_en.[ts|qm] file too (for plurals?) though I'm
+    // not sure if it's used properly.
+    switchTranslator(mainApp->translator, locale, QStringLiteral("wireshark"), searchPath);
+}
+
+QString MainApplication::translateSystemLocale(const char *context, const char *sourceText, const char *disambiguation, int n) const
+{
+    // If we called this a lot, we could store the system QTranslators as
+    // member variables, but we only call this when constructing the
+    // language preference QComboBox.
+    QTranslator systemTranslator;
+    QString translated;
+    QStringList searchPath = getTranslationsPaths();
+
+    // Search in our translations first
+    for (const QString &path : searchPath) {
+        if (systemTranslator.load(QLocale::system(), QStringLiteral("wireshark"), QStringLiteral("_"), path)) {
+            translated = systemTranslator.translate(context, sourceText, disambiguation, n);
+            if (!translated.isEmpty()) {
+                return translated;
+            }
+        }
     }
+
+    // Try the generic Qt translations
+    for (const QString &path : searchPath) {
+        if (systemTranslator.load(QLocale::system(), QStringLiteral("qt"), QStringLiteral("_"), path)) {
+            translated = systemTranslator.translate(context, sourceText, disambiguation, n);
+            if (!translated.isEmpty()) {
+                return translated;
+            }
+        }
+    }
+
+    return QString::fromUtf8(sourceText);
 }
 
 void MainApplication::doTriggerMenuItem(MainMenuItem menuItem)
@@ -1024,23 +925,6 @@ void MainApplication::doTriggerMenuItem(MainMenuItem menuItem)
         emit openCaptureOptions();
         break;
     }
-}
-
-void MainApplication::zoomTextFont(int zoomLevel)
-{
-    // Scale by 10%, rounding to nearest half point, minimum 1 point.
-    // XXX Small sizes repeat. It might just be easier to create a map of multipliers.
-    qreal zoom_size = mono_font_.pointSize() * 2 * qPow(qreal(1.1), zoomLevel);
-    zoom_size = qRound(zoom_size) / qreal(2.0);
-    zoom_size = qMax(zoom_size, qreal(1.0));
-
-    zoomed_font_ = mono_font_;
-    zoomed_font_.setPointSizeF(zoom_size);
-    emit zoomMonospaceFont(zoomed_font_);
-
-    QFont zoomed_application_font = font();
-    zoomed_application_font.setPointSizeF(zoom_size);
-    emit zoomRegularFont(zoomed_application_font);
 }
 
 void MainApplication::captureEventHandler(CaptureEvent ev)
@@ -1062,9 +946,9 @@ void MainApplication::captureEventHandler(CaptureEvent ev)
         case CaptureEvent::Finished:
             active_captures_--;
             emit captureActive(active_captures_);
-            if (refresh_interfaces_pending_ && !global_capture_opts.restart) {
-                refreshLocalInterfaces();
-            }
+            // A refresh requested during the capture was deferred by
+            // InterfaceListManager (capture-active guard) and is serviced now via
+            // the captureActive signal above; no explicit re-trigger needed.
             break;
         default:
             break;

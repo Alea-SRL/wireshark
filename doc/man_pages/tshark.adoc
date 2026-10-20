@@ -393,6 +393,24 @@ carriage return, form feed, and vertical tab) backspace, and the
 backslash will be replaced in field values by C-style escapes, e.g.
 "\n" for line feed.  If *n*, field value strings will be printed as-is.
 Defaults to *y*.
+
+*escape_formulas=y|n* If *y*, prefix any field value that a spreadsheet
+application would evaluate as a formula with an apostrophe, so that packet
+data cannot inject a formula into a CSV file that is later opened in a
+spreadsheet.  Values that begin with *=*, *+*, *-* or *@* (optionally
+preceded by blanks) are affected.  Note that this changes the exported
+values, and in particular that it also applies to legitimately negative
+numbers, so it is off by default; enable it when the output is destined for
+a spreadsheet rather than for further machine processing.  Defaults to *n*.
+
+*split=*<proto> Split the output into one row per message instance of
+the protocol <proto> within a packet.  This is useful when a single
+packet contains multiple protocol messages (e.g., several Diameter
+messages bundled in one SCTP packet).  Fields that belong to a specific
+message instance are output only on that instance's row, while fields
+not under any instance (e.g., frame-level fields) are repeated on every
+row.  Only applies to *-T fields* CSV output.  By default, no splitting
+is performed.
 --
 
 -f  <capture filter>::
@@ -2320,6 +2338,36 @@ interfaces. If used after an *-i* option, the capture filter for the interface
 specified by the last *-i* option occurring before this option is not optimized.
 // This is not supported for extcaps (yet)
 
+--process-info[=basic|full]::
++
+--
+Record, for each packet, the processes on this host that sent or received
+it, when the packet belongs to a TCP or UDP socket: the process ID goes in
+an __epb_processid_threadid__ option of the packet's block, and a Process
+Information Block describing the process is written once per output file.
+Wireshark shows them as the __frame.process__ fields.
+
+With *basic*, which is the default, a process is described by what
+identifies it: its ID, name and start time, which is what tools such as
+*netstat* show.  With *full* its executable path, command line, parent
+process ID and user are recorded as well.  Those can be sensitive: a command
+line can contain a password or a token, and a path the name of a user.  They
+are stored in the capture file as they are, for everybody the file is given
+to, so use *full* only for files that will be handled accordingly.  With
+*basic* they are not even read.  The argument has to be attached with an
+equals sign, as in *--process-info=full*.
+
+The processes are
+found in the operating system's socket tables, so a socket must still exist
+when its packet is captured; very short-lived sockets can be missed.  Which
+processes can be identified depends on privileges: on Windows all of them;
+on Linux the user's own, or all of them if *dumpcap* runs as root or has
+the CAP_SYS_PTRACE capability, which it then keeps, and nothing else,
+after opening the interfaces; on macOS the user's own, or all of them if
+*dumpcap* runs as root.  Not supported on other platforms.
+Requires the pcapng file format.
+--
+
 --time-stamp-type <type>::
 Change the interface's timestamp method.
 
@@ -2340,6 +2388,11 @@ configuring color filters.
 If a key appears multiple times in an object, only write it a single time with
 as value a json array containing all the separate values. (Only works with
 *-T json*)
+
+--json-compact::
+Output compact JSON without indentation or extra whitespace. This significantly
+reduces output size and improves performance. (Only works with *-T json* and
+*-T jsonraw*)
 
 --elastic-mapping-filter <protocol>,<protocol>,...::
 +

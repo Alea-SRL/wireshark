@@ -15,7 +15,6 @@
 #include "ui/recent.h"
 
 #include "wsutil/filesystem.h"
-#include "wsutil/utf8_entities.h"
 #include "app/application_flavor.h"
 
 #include <ui/simple_dialog.h>
@@ -23,8 +22,10 @@
 
 #include <ui/qt/utils/color_utils.h>
 #include <ui/qt/utils/qt_ui_utils.h>
+#include <ui/qt/utils/theme_manager.h>
 #include <ui/qt/utils/wireshark_zip_helper.h>
 
+#include <QApplication>
 #include <QDir>
 #include <QFont>
 #include <QTemporaryDir>
@@ -72,18 +73,14 @@ bool ProfileItem::isDefault() const
 
 QString ProfileItem::getProfilePath(QString profileName) const
 {
-    QString profile_path;
-    if (isGlobal()) {
-        profile_path = gchar_free_to_qstring(get_global_profiles_dir(application_configuration_environment_prefix()));
-    }
-    else {
-        profile_path = gchar_free_to_qstring(get_profiles_dir(application_configuration_environment_prefix()));
-    }
-    if (profileName.isEmpty())
-        profileName = getName();
+    QString profile_path = gchar_free_to_qstring(get_profile_dir(application_configuration_environment_prefix(), profileName.toUtf8().constData(), isGlobal()));
 
-    profile_path.append("/").append(profileName);
     return QDir::toNativeSeparators(profile_path);
+}
+
+QString ProfileItem::getProfilePath() const
+{
+    return getProfilePath(getName());
 }
 
 void ProfileItem::setName(QString value)
@@ -387,18 +384,18 @@ QVariant ProfileModel::dataBackgroundRole(const QModelIndex &index) const
     ProfileItem* item = profile_items_[index.row()];
 
     if (item->isDeleted())
-        return ColorUtils::fromColorT(&prefs.gui_inactive_bg);
+        return ThemeManager::instance()->color(ThemeManager::PacketsInactive);
 
     if (!item->isDefault() && !item->isGlobal())
     {
         /* Highlights erroneous line */
         QString ignore;
         if (item->isDeleted() || checkDuplicate(index) || !checkNameValidity(item->getName(), ignore))
-            return ColorUtils::fromColorT(&prefs.gui_filter_invalid_bg);
+            return ThemeManager::instance()->color(ThemeManager::FilterInvalid);
 
         /* Highlights line, which has been duplicated by another index */
         if (checkDuplicate(index, true))
-            return ColorUtils::fromColorT(&prefs.gui_filter_valid_bg);
+            return ThemeManager::instance()->color(ThemeManager::FilterValid);
     }
 
     return QVariant();
@@ -409,7 +406,7 @@ QVariant ProfileModel::dataForegroundRole(const QModelIndex &index) const
     ProfileItem* item = profile_items_[index.row()];
 
     if (item->isDeleted())
-        return ColorUtils::fromColorT(&prefs.gui_inactive_fg);
+        return QApplication::palette().color(QPalette::Disabled, QPalette::Text);
 
     if (item->isGlobal() && index.column() == COL_AUTO_SWITCH_FILTER) {
         return ColorUtils::disabledForeground();
@@ -530,12 +527,11 @@ QVariant ProfileModel::dataPath(const QModelIndex &index, QString& profilePath) 
                 ProfileItem* refItem = Q_NULLPTR;
                 int row = findByNameAndVisibility(item->getReference(), false, true);
                 if (row >= 0)
-                {
                     refItem = profile_items_[row];
-                    /* The reference is itself a copy of the original, therefore it is not accepted */
-                    if ((refItem->getStatus() == ProfileItem::StatusType::Copy || refItem->getStatus() == ProfileItem::StatusType::New) && refItem->getName().compare(item->getReference()) != 0)
-                        refItem = Q_NULLPTR;
-                }
+
+                /* The reference is itself a copy of the original, therefore it is not accepted */
+                if ((refItem->getStatus() == ProfileItem::StatusType::Copy || refItem->getStatus() == ProfileItem::StatusType::New) && refItem->getName().compare(item->getReference()) != 0)
+                    refItem = Q_NULLPTR;
 
                 /* found no other profile, original one had to be deleted */
                 if (!refItem || row == index.row() || (refItem->isDeleted()))
@@ -856,7 +852,7 @@ void ProfileModel::deleteEntries(QModelIndexList idcs)
         }
     }
 
-    emit dataChanged(index(start, COL_NAME), index(end, COL_NAME));
+    emit dataChanged(index(start, COL_NAME), index(end, columnCount() - 1));
 }
 
 bool ProfileModel::restoreEntries(QModelIndexList idcs)
@@ -869,7 +865,7 @@ bool ProfileModel::restoreEntries(QModelIndexList idcs)
         {
             // Reset the profile status
             item->setName(item->getName());
-            emit dataChanged(index(idx.row(), ProfileModel::COL_NAME), index(idx.row(), columnCount()));
+            emit dataChanged(index(idx.row(), ProfileModel::COL_NAME), index(idx.row(), columnCount() - 1));
             restored = true;
         }
     }
@@ -1075,10 +1071,13 @@ bool ProfileModel::exportProfiles(QString filename, QModelIndexList items, QStri
 }
 
 /* This check runs BEFORE the file has been unzipped! */
-bool ProfileModel::acceptFile(QString fileName, int fileSize)
+bool ProfileModel::acceptFile(QString fileName, uint64_t fileSize)
 {
     if (fileName.toLower().endsWith(".zip"))
         return false;
+
+    /* Should we skip entries that are just directories? I don't believe
+     * we add them to our archive and it may simplify the logic elsewhere. */
 
     /* Arbitrary maximum config file size accepted: 256MB */
     if (fileSize > 1024 * 1024 * 256)
@@ -1209,20 +1208,26 @@ void ProfileModel::applyChanges()
 
     foreach(ProfileItem* profile, profile_items_)
     {
-        // Ignore any profiles slated for deletion
-        // They will be handled in the following for loop, so
-        // profiles potentially relying on this can do their actions
-        if (profile->isDeleted())
-        {
-            deletedProfiles.push_back(profile);
-            continue;
-        }
-
         // Cache the profile information for the (C-like) UI layer
         QByteArray qN = profile->getName().toUtf8();
         const char* profileName = qN.constData();
         QByteArray qR = profile->getReference().toUtf8();
         const char* profileReference = qR.constData();
+
+        // Ignore any profiles slated for deletion
+        // They will be handled in the following for loop, so
+        // profiles potentially relying on this can do their actions
+        if (profile->isDeleted())
+        {
+            // Only keep the profile if it's the default; we need to
+            // do this now to keep it at the front of the list.
+            if (profile->isDefault())
+                profile_add_profile(profileName, profileReference, false, "");
+
+            deletedProfiles.push_back(profile);
+            continue;
+        }
+
         QByteArray qA = profile->getAutoSwitchFilter().toUtf8();
         const char* profileAutoSwitchFilter = qA.constData();
         switch (profile->getStatus())
@@ -1333,10 +1338,6 @@ void ProfileModel::applyChanges()
         const char* profileName = qN.constData();
         QByteArray qR = profile->getReference().toUtf8();
         const char* profileReference = qR.constData();
-
-        // Only keep the profile if it's the default
-        if (profile->isDefault())
-            profile_add_profile(profileName, profileReference, false, "");
 
         // If it has been renamed, remove the original name
         if (profile->getStatus() == ProfileItem::StatusType::Changed)

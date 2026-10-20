@@ -18408,6 +18408,17 @@ static void rrc_free_value(void *value ){
             g_free(value);
 }
 
+static void
+rrc_free_ciphering_info(void *data) {
+  rrc_ciphering_info *cipher_info = (rrc_ciphering_info *)data;
+
+  if (cipher_info->start_cs)
+      g_tree_unref(cipher_info->start_cs);
+  if (cipher_info->start_ps)
+      g_tree_unref(cipher_info->start_ps);
+  g_free(cipher_info);
+}
+
 static rrc_ciphering_info*
 get_or_create_cipher_info(fp_info *fpinf, rlc_info *rlcinf) {
   rrc_ciphering_info *cipher_info = NULL;
@@ -18781,6 +18792,11 @@ dissect_rrc_RB_ActivationTimeInfo(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_c
   rbid = private_data_get_rbid(actx);
   rlc_ciphering_sqn = private_data_get_rlc_ciphering_sqn(actx);
   direction = fpinf->is_uplink ? P2P_DIR_UL : P2P_DIR_DL;
+  if (rbid >= G_N_ELEMENTS(ciphering_info->seq_no) ||
+      direction >= G_N_ELEMENTS(ciphering_info->seq_no[0])) {
+    return offset;
+  }
+
   /*Set the ciphering activation frame information*/
   ciphering_info->seq_no[rbid][direction] = rlc_ciphering_sqn;
 
@@ -18895,6 +18911,8 @@ dissect_rrc_U_RNTI(tvbuff_t *tvb _U_, uint32_t offset _U_, asn1_ctx_t *actx _U_,
 
   /* Adding a "Current U-RNTI" or "New U-RNTI" as generated field */
   sub_tree = proto_item_get_subtree(actx->created_item);
+  /* XXX - proto_item_get_len is not accurate when the item was faked. Just
+     use BLEN(original_offset, offset) instead? */
   item_len = proto_item_get_len(actx->created_item);
   ti = proto_tree_add_uint(sub_tree, generated_field_hf, tvb, original_offset/8, item_len, u_rnti_value);
   proto_item_set_generated(ti);
@@ -165205,7 +165223,7 @@ rrc_init(void) {
     rrc_ciph_info_tree = g_tree_new_full(rrc_key_cmp,
                        NULL,      /* data pointer, optional */
                        NULL,
-                       rrc_free_value);
+                       rrc_free_ciphering_info);
 }
 
 static void

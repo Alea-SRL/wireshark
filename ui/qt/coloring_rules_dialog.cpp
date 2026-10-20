@@ -43,7 +43,7 @@
 // - Make the filter column narrower? It's easy to run into Qt's annoying
 //   habit of horizontally scrolling QTreeWidgets here.
 
-ColoringRulesDialog::ColoringRulesDialog(QWidget *parent, QString add_filter) :
+ColoringRulesDialog::ColoringRulesDialog(QWidget *parent, QString add_filter, QString add_name) :
     GeometryStateDialog(parent),
     ui(new Ui::ColoringRulesDialog),
     colorRuleModel_(palette().color(QPalette::Text), palette().color(QPalette::Base), this),
@@ -63,12 +63,12 @@ ColoringRulesDialog::ColoringRulesDialog(QWidget *parent, QString add_filter) :
         ui->coloringRulesTreeView->resizeColumnToContents(i);
     }
 
-    ui->newToolButton->setStockIcon("list-add");
-    ui->deleteToolButton->setStockIcon("list-remove");
-    ui->copyToolButton->setStockIcon("list-copy");
-    ui->clearToolButton->setStockIcon("list-clear");
+    ui->newToolButton->setIconByName("list-add");
+    ui->deleteToolButton->setIconByName("list-remove");
+    ui->copyToolButton->setIconByName("list-copy");
+    ui->clearToolButton->setIconByName("list-clear");
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     ui->newToolButton->setAttribute(Qt::WA_MacSmallSize, true);
     ui->deleteToolButton->setAttribute(Qt::WA_MacSmallSize, true);
     ui->copyToolButton->setAttribute(Qt::WA_MacSmallSize, true);
@@ -103,7 +103,12 @@ ColoringRulesDialog::ColoringRulesDialog(QWidget *parent, QString add_filter) :
     }
 
     if (!add_filter.isEmpty()) {
-        colorRuleModel_.addColor(false, add_filter, palette().color(QPalette::Text), palette().color(QPalette::Base));
+        colorRuleModel_.addColor(true, add_filter, palette().color(QPalette::Text), palette().color(QPalette::Base));
+
+        if (!add_name.isEmpty()) {
+            colorRuleModel_.setData(colorRuleModel_.index(0, ColoringRulesModel::colName),
+                                    add_name, Qt::EditRole);
+        }
 
         //setup the buttons appropriately
         ui->coloringRulesTreeView->setCurrentIndex(colorRuleModel_.index(0, 0));
@@ -139,7 +144,7 @@ void ColoringRulesDialog::showEvent(QShowEvent *)
 {
     ui->fGPushButton->setFixedHeight(ui->copyToolButton->geometry().height());
     ui->bGPushButton->setFixedHeight(ui->copyToolButton->geometry().height());
-#ifndef Q_OS_MAC
+#ifndef Q_OS_MACOS
     ui->displayFilterPushButton->setFixedHeight(ui->copyToolButton->geometry().height());
 #endif
 }

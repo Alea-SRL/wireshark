@@ -267,6 +267,9 @@ static int hf_afp_modification_date;
 static int hf_afp_backup_date;
 static int hf_afp_finder_info;
 static int hf_afp_long_name_offset;
+static int hf_afp_prodos_info;
+static int hf_afp_prodos_type;
+static int hf_afp_prodos_auxtype;
 static int hf_afp_short_name_offset;
 static int hf_afp_unicode_name_offset;
 static int hf_afp_unix_privs_uid;
@@ -319,6 +322,7 @@ static int ett_afp_unix_privs;
 static int ett_afp_path_name;
 static int ett_afp_lock_flags;
 static int ett_afp_dir_ar;
+static int ett_afp_prodos_info;
 
 static int ett_afp_server_vol;
 static int ett_afp_vol_list;
@@ -1448,11 +1452,10 @@ parse_long_filename(proto_tree *tree, tvbuff_t *tvb, int offset, int org_offset)
 	int tp_ofs = 0;
 	uint8_t len;
 
-	lnameoff = tvb_get_ntohs(tvb, offset);
-	proto_tree_add_item(tree, hf_afp_long_name_offset,tvb, offset, 2, ENC_BIG_ENDIAN);
+	proto_tree_add_item_ret_uint16(tree, hf_afp_long_name_offset,tvb, offset, 2, ENC_BIG_ENDIAN, &lnameoff);
 	if (lnameoff) {
 		tp_ofs = lnameoff +org_offset;
-		proto_tree_add_item_ret_uint8(tree, hf_afp_path_len, tvb, tp_ofs,	 1, ENC_BIG_ENDIAN, &len);
+		proto_tree_add_item_ret_uint8(tree, hf_afp_path_len, tvb, tp_ofs, 1, ENC_BIG_ENDIAN, &len);
 		tp_ofs++;
 		proto_tree_add_item(tree, hf_afp_path_name, tvb, tp_ofs, len, ENC_UTF_8);
 		tp_ofs += len;
@@ -1469,6 +1472,28 @@ parse_UTF8_filename(proto_tree *tree, tvbuff_t *tvb, int offset, int org_offset)
 	uint16_t len;
 
 	unameoff = tvb_get_ntohs(tvb, offset);
+	/* Check for and process the AFP 2.x ProDOS info block if found.
+	 * We detect this by looking for a value of 0 or any value greater
+	 * than 255, which is an implausible offset for a UTF-8 filename.
+	 */
+	if (unameoff == 0 || unameoff > 255) {
+		proto_item *ti, *hidden_item;
+		ti = proto_tree_add_item(tree, hf_afp_prodos_info, tvb, offset, 6, ENC_NA);
+		proto_tree* sub_tree = NULL;
+		sub_tree = proto_item_add_subtree(ti, ett_afp_prodos_info);
+		proto_tree_add_item(sub_tree, hf_afp_prodos_type, tvb, offset, 1, ENC_NA);
+		offset += 1;
+		hidden_item = proto_tree_add_item(sub_tree, hf_afp_pad, tvb, offset, 1, ENC_NA);
+		offset += 1;
+		proto_item_set_hidden(hidden_item); /* hide one byte pad */
+		proto_tree_add_item(sub_tree, hf_afp_prodos_auxtype, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+		offset += 2;
+		hidden_item = proto_tree_add_item(sub_tree, hf_afp_pad, tvb, offset, 2, ENC_NA);
+		/* offset += 2; */
+		proto_item_set_hidden(hidden_item); /* hide two byte pad */
+		return tp_ofs;
+	}
+	/* Otherwise, it is an AFP 3.x UTF-8 name offset. */
 	proto_tree_add_item(tree, hf_afp_unicode_name_offset,tvb, offset, 2, ENC_BIG_ENDIAN);
 	offset += 2;
 	if (unameoff) {
@@ -3588,8 +3613,7 @@ dissect_query_afp_get_session_token(tvbuff_t *tvb, packet_info *pinfo _U_, proto
 
 	PAD(1);
 
-	token = tvb_get_ntohs(tvb, offset);
-	proto_tree_add_item(tree, hf_afp_session_token_type, tvb, offset, 2, ENC_BIG_ENDIAN);
+	proto_tree_add_item_ret_uint16(tree, hf_afp_session_token_type, tvb, offset, 2, ENC_BIG_ENDIAN, &token);
 	offset += 2;
 	if (token == kLoginWithoutID || token == kGetKerberosSessionKey) /* 0 || 8 */
 		return offset;
@@ -4393,7 +4417,7 @@ dissect_spotlight(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
 {
 	unsigned encoding;
 	int i;
-	int offset = 0;
+	unsigned offset = 0;
 	uint64_t toc_offset;
 	uint64_t querylen;
 	int toc_entries;
@@ -4834,32 +4858,28 @@ dissect_afp_server_status(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
 	if ((flag & AFPSRVRINFO_SRVSIGNATURE)) {
 		if ((offset & 1))
 			offset++;
-		sign_ofs = tvb_get_ntohs(tvb, offset);
-		proto_tree_add_item(tree, hf_afp_signature_offset, tvb, offset, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_item_ret_uint16(tree, hf_afp_signature_offset, tvb, offset, 2, ENC_BIG_ENDIAN, &sign_ofs);
 		offset += 2;
 	}
 
 	if ((flag & AFPSRVRINFO_TCPIP)) {
 		if ((offset & 1))
 			offset++;
-		adr_ofs = tvb_get_ntohs(tvb, offset);
-		proto_tree_add_item(tree, hf_afp_network_address_offset, tvb, offset, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_item_ret_uint16(tree, hf_afp_network_address_offset, tvb, offset, 2, ENC_BIG_ENDIAN, &adr_ofs);
 		offset += 2;
 	}
 
 	if ((flag & AFPSRVRINFO_SRVDIRECTORY)) {
 		if ((offset & 1))
 			offset++;
-		dir_ofs = tvb_get_ntohs(tvb, offset);
-		proto_tree_add_item(tree, hf_afp_directory_services_offset, tvb, offset, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_item_ret_uint16(tree, hf_afp_directory_services_offset, tvb, offset, 2, ENC_BIG_ENDIAN, &dir_ofs);
 		offset += 2;
 	}
 
 	if ((flag & AFPSRVRINFO_SRVUTF8)) {
 		if ((offset & 1))
 			offset++;
-		utf_ofs = tvb_get_ntohs(tvb, offset);
-		proto_tree_add_item(tree, hf_afp_utf8_server_name_offset, tvb, offset, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_item_ret_uint16(tree, hf_afp_utf8_server_name_offset, tvb, offset, 2, ENC_BIG_ENDIAN, &utf_ofs);
 		offset += 2;
 	}
 
@@ -5762,9 +5782,9 @@ proto_register_afp(void)
 		    "Return access rights if directory", HFILL }},
 
 		{ &hf_afp_dir_bitmap_UTF8Name,
-		  { "UTF-8 name",         "afp.dir_bitmap.UTF8_name",
+		  { "UTF-8 name or ProDOS info",         "afp.dir_bitmap.UTF8_name",
 		    FT_BOOLEAN, 16, NULL,  kFPUTF8NameBit,
-		    "Return UTF-8 name if directory", HFILL }},
+		    "Return UTF-8 name or ProDOS info if directory", HFILL }},
 
 		{ &hf_afp_dir_bitmap_UnixPrivs,
 		  { "UNIX privileges",         "afp.dir_bitmap.unix_privs",
@@ -5887,9 +5907,9 @@ proto_register_afp(void)
 		    "Return launch limit if file", HFILL }},
 
 		{ &hf_afp_file_bitmap_UTF8Name,
-		  { "UTF-8 name",         "afp.file_bitmap.UTF8_name",
+		  { "UTF-8 name or ProDOS info",         "afp.file_bitmap.UTF8_name",
 		    FT_BOOLEAN, 16, NULL,  kFPUTF8NameBit,
-		    "Return UTF-8 name if file", HFILL }},
+		    "Return UTF-8 name or ProDOS info if file", HFILL }},
 
 		{ &hf_afp_file_bitmap_ExtRsrcForkLen,
 		  { "Extended resource fork size",         "afp.file_bitmap.ex_resource_fork_len",
@@ -6087,6 +6107,21 @@ proto_register_afp(void)
 		  { "Long name offset",    "afp.long_name_offset",
 		    FT_UINT16, BASE_DEC, NULL, 0x0,
 		    "Long name offset in packet", HFILL }},
+
+		{ &hf_afp_prodos_info,
+		  { "ProDOS info",         "afp.prodos_info",
+		    FT_BYTES, BASE_NONE, NULL, 0x0,
+		    "ProDOS file information", HFILL } },
+
+		{ &hf_afp_prodos_type,
+		  { "ProDOS type",         "afp.prodos_type",
+		    FT_UINT8, BASE_HEX, NULL, 0x0,
+		    NULL, HFILL } },
+
+		{ &hf_afp_prodos_auxtype,
+		  { "ProDOS aux. type",    "afp.prodos_auxtype",
+		    FT_UINT16, BASE_HEX, NULL, 0x0,
+		    NULL, HFILL } },
 
 		{ &hf_afp_short_name_offset,
 		  { "Short name offset",   "afp.short_name_offset",
@@ -7186,6 +7221,7 @@ proto_register_afp(void)
 		&ett_afp_spotlight_query,
 		&ett_afp_spotlight_data,
 		&ett_afp_spotlight_toc,
+		&ett_afp_prodos_info,
 
 		/* Status stuff from ASP or DSI */
 		&ett_afp_status,

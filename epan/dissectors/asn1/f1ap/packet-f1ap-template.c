@@ -8,7 +8,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
- * References: 3GPP TS 38.473 V19.2.0 (2026-03)
+ * References: 3GPP TS 38.473 V19.4.0 (2026-09)
  */
 
 #include "config.h"
@@ -186,6 +186,9 @@ static int ett_f1ap_OndemandSIB1Config;
 static int ett_f1ap_SBFD_Frequency_Configuration;
 static int ett_f1ap_SSB_resource_config;
 static int ett_f1ap_sRS_Resource;
+static int ett_f1ap_CSI_RSResourceSetToReleaseList;
+static int ett_f1ap_CSI_IMResourceToReleaseList;
+static int ett_f1ap_CSI_IMResourceSetToReleaseList;
 #include "packet-f1ap-ett.c"
 
 enum{
@@ -553,6 +556,9 @@ typedef struct {
   uint32_t gdb_cu_ue_f1ap_id;
   e212_number_type_t number_type;
   struct f1ap_tap_t  *stats_tap;
+  proto_tree *top_tree;
+  proto_tree *rrc_tree;
+  tvbuff_t *rrc_tvb;
 } f1ap_private_data_t;
 
 typedef struct {
@@ -585,16 +591,26 @@ static int dissect_SuccessfulOutcomeValue(tvbuff_t *tvb, packet_info *pinfo, pro
 static int dissect_UnsuccessfulOutcomeValue(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *);
 
 
-static proto_tree *top_tree;
+static f1ap_private_data_t*
+f1ap_get_private_data(packet_info *pinfo)
+{
+  f1ap_private_data_t *f1ap_data = (f1ap_private_data_t*)p_get_proto_data(pinfo->pool, pinfo, proto_f1ap, 0);
+  if (!f1ap_data) {
+    f1ap_data = wmem_new0(pinfo->pool, f1ap_private_data_t);
+    f1ap_data->srb_id = -1;
+    f1ap_data->gdb_cu_ue_f1ap_id = 1;
+    p_add_proto_data(pinfo->pool, pinfo, proto_f1ap, 0, f1ap_data);
+  }
+  return f1ap_data;
+}
 
 static void set_message_label(asn1_ctx_t *actx, int type)
 {
   const char *label = val_to_str_ext_const(type, &mtype_names_ext, "Unknown");
   col_append_sep_str(actx->pinfo->cinfo, COL_INFO, NULL, label);
-  /* N.B. would like to be able to use actx->subTree.top_tree, but not easy to set.. */
-  proto_item_append_text(top_tree, " (%s)", label);
+  f1ap_private_data_t *priv_data = f1ap_get_private_data(actx->pinfo);
+  proto_item_append_text(priv_data->top_tree, " (%s)", label);
 }
-
 
 
 static void
@@ -619,19 +635,6 @@ static void
 f1ap_N6Jitter_fmt(char *s, uint32_t v)
 {
   snprintf(s, ITEM_LABEL_LENGTH, "%.1fms (%d)", (float)v/2, (int32_t)v);
-}
-
-static f1ap_private_data_t*
-f1ap_get_private_data(packet_info *pinfo)
-{
-  f1ap_private_data_t *f1ap_data = (f1ap_private_data_t*)p_get_proto_data(wmem_file_scope(), pinfo, proto_f1ap, 0);
-  if (!f1ap_data) {
-    f1ap_data = wmem_new0(wmem_file_scope(), f1ap_private_data_t);
-    f1ap_data->srb_id = -1;
-    f1ap_data->gdb_cu_ue_f1ap_id = 1;
-    p_add_proto_data(wmem_file_scope(), pinfo, proto_f1ap, 0, f1ap_data);
-  }
-  return f1ap_data;
 }
 
 static void
@@ -752,13 +755,13 @@ dissect_f1ap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
   f1ap_item = proto_tree_add_item(tree, proto_f1ap, tvb, 0, -1, ENC_NA);
   f1ap_tree = proto_item_add_subtree(f1ap_item, ett_f1ap);
 
-  /* Store top-level tree */
-  top_tree = f1ap_tree;
 
   /* Add stats tap to private struct */
   f1ap_private_data_t *priv_data = f1ap_get_private_data(pinfo);
   priv_data->stats_tap = f1ap_info;
 
+  /* Store top-level tree */
+  priv_data->top_tree = f1ap_tree;
 
   dissect_F1AP_PDU_PDU(tvb, pinfo, f1ap_tree, NULL);
 
@@ -988,6 +991,9 @@ void proto_register_f1ap(void) {
     &ett_f1ap_SBFD_Frequency_Configuration,
     &ett_f1ap_SSB_resource_config,
     &ett_f1ap_sRS_Resource,
+    &ett_f1ap_CSI_RSResourceSetToReleaseList,
+    &ett_f1ap_CSI_IMResourceToReleaseList,
+    &ett_f1ap_CSI_IMResourceSetToReleaseList,
 #include "packet-f1ap-ettarr.c"
   };
 

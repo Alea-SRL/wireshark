@@ -1,5 +1,5 @@
 /* packet-edonkey.c
- * Routines for edonkey dissection
+ * Routines for eDonkey dissection
  * Copyright 2003, Xuan Zhang <xz@aemail4u.com>
  * Copyright 2007, Stefano Picerno <stefano.picerno@gmail.com>
  * Copyright 2008, Stefan Monhof <stefan.monhof@stud.uni-due.de>
@@ -26,6 +26,7 @@
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
+#include <epan/exceptions.h>
 #include "packet-edonkey.h"
 #include "packet-tcp.h"
 
@@ -641,6 +642,9 @@ static int dissect_edonkey_list(tvbuff_t *tvb, packet_info *pinfo,
 
         /* dissect one list element */
         offset = (*item_dissector)(tvb, pinfo, offset, subtree);
+        if (offset <= item_start_offset) {
+            THROW(ReportedBoundsError);
+        }
         /* Set the container node length */
         proto_item_set_len( ti, offset - item_start_offset );
     }
@@ -880,7 +884,7 @@ static int dissect_edonkey_metatag(tvbuff_t *tvb, packet_info *pinfo,
             if (tag_type==real_tag_type)
                 proto_tree_add_uint(metatag_tree, hf_edonkey_metatag_namesize, tvb, offset+1, 2, tag_name_size);
             edonkey_tree_add_metatag_name(metatag_tree, tvb, tag_offset-tag_name_size, tag_name_size, special_tagtype);
-            proto_tree_add_item(metatag_tree, hf_edonkey_blob_length, tvb, tag_offset, 2, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item(metatag_tree, hf_edonkey_blob_length, tvb, tag_offset, 4, ENC_LITTLE_ENDIAN);
             break;
 
         case EDONKEY_MTAG_BSOB:
@@ -3055,7 +3059,7 @@ static int dissect_edonkey_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 {
     proto_item *ti;
     proto_tree *edonkey_tree = NULL, *edonkey_msg_tree = NULL;
-    int offset = 0;
+    unsigned offset = 0;
     uint8_t protocol, msg_type;
     const char *protocol_name, *message_name;
 
@@ -3400,7 +3404,7 @@ void proto_register_edonkey(void) {
       { &hf_edonkey_meta_tag_value_revision, { "Meta Tag Value", "edonkey.meta_tag_value.revision", FT_UINT32, BASE_CUSTOM, CF_FUNC(edonkey_fmt_revision), 0x0, NULL, HFILL }},
       { &hf_edonkey_meta_tag_value_uint, { "Meta Tag Value", "edonkey.meta_tag_value.uint", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_edonkey_boolean_array_length, { "Boolean Array Length", "edonkey.boolean_array_length", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-      { &hf_edonkey_blob_length, { "BLOB Length", "edonkey.blob_length", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_edonkey_blob_length, { "BLOB Length", "edonkey.blob_length", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_edonkey_kademlia_string, { "String", "edonkey.kademlia_string", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_emule_public_key_length, { "Public key length", "edonkey.emule.public_key_length", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_emule_signature_length, { "Signature length", "edonkey.emule.signature_length", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -3466,7 +3470,7 @@ void proto_register_edonkey(void) {
     module_t *edonkey_module;
     expert_module_t* expert_edonkey;
 
-    proto_edonkey = proto_register_protocol("eDonkey Protocol", "EDONKEY", "edonkey");
+    proto_edonkey = proto_register_protocol("eDonkey Protocol", "eDonkey", "edonkey");
 
     proto_register_field_array(proto_edonkey, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));

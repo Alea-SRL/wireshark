@@ -139,6 +139,16 @@ private:
     /** The color used for the last created annotation. */
     QColor last_annotation_color_;
 
+    /**
+     * @brief Shadow of the theme's ExpertComment color as of last refresh.
+     *
+     * Used to detect user customization: if @c last_annotation_color_ still
+     * equals this value when the theme changes, the user hasn't picked a
+     * custom color in the annotation dialog yet, so it's safe to refresh
+     * @c last_annotation_color_ to the new theme's ExpertComment.
+     */
+    QColor last_themed_annotation_color_;
+
     /** Flag tracking if the session notice for annotations has been shown. */
     bool annotations_session_notice_shown_;
 
@@ -206,13 +216,13 @@ protected:
      * @brief Called when a new tab is inserted.
      * @param tab_index The index of the new tab.
      */
-    void tabInserted(int tab_index);
+    void tabInserted(int tab_index) override;
 
     /**
      * @brief Called when a tab is removed.
      * @param tab_index The index of the removed tab.
      */
-    void tabRemoved(int tab_index);
+    void tabRemoved(int tab_index) override;
 
 private slots:
     /**

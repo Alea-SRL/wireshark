@@ -269,6 +269,13 @@ sharkd_epan_new(capture_file *cf)
         cap_file_provider_get_process_id,
         cap_file_provider_get_process_name,
         cap_file_provider_get_process_uuid,
+        cap_file_provider_get_process_path,
+        cap_file_provider_get_process_cmdline,
+        cap_file_provider_get_process_parent_id,
+        cap_file_provider_get_process_user_id,
+        cap_file_provider_get_process_user_name,
+        cap_file_provider_get_process_start_time,
+        cap_file_provider_find_process_info,
     };
 
     return epan_new(&cf->provider, &funcs);
@@ -390,7 +397,6 @@ load_cap_file(capture_file *cf, int max_packet_count, int64_t max_byte_count)
 
         while (wtap_read(cf->provider.wth, &rec, &err, &err_info, &data_offset)) {
             if (process_packet(cf, edt, data_offset, &rec)) {
-                wtap_rec_reset(&rec);
                 /* Stop reading if we have the maximum number of packets;
                  * When the -c option has not been used, max_packet_count
                  * starts at 0, which practically means, never stop reading.
@@ -590,7 +596,6 @@ sharkd_dissect_request(uint32_t framenum, uint32_t frame_ref_num,
             cinfo, (dissect_flags & SHARKD_DISSECT_FLAG_BYTES) ? edt.pi.data_src : NULL,
             data);
 
-    wtap_rec_reset(rec);
     epan_dissect_cleanup(&edt);
     return DISSECT_REQUEST_SUCCESS;
 }
@@ -641,7 +646,6 @@ sharkd_retap(void)
         fdata->frame_ref_num = 1;
         fdata->prev_dis_num = framenum - 1;
         epan_dissect_run_with_taps(&edt, cfile.cd_t, &rec, fdata, cinfo);
-        wtap_rec_reset(&rec);
         epan_dissect_reset(&edt);
     }
 
@@ -713,7 +717,6 @@ sharkd_filter(const char *dftext, uint8_t **result)
 
         /* if passed or ref -> frame_data_set_after_dissect */
 
-        wtap_rec_reset(&rec);
         epan_dissect_reset(&edt);
     }
 

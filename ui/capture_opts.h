@@ -50,6 +50,7 @@ extern "C" {
 #define LONGOPT_CAPTURE_TMPDIR    LONGOPT_BASE_CAPTURE+4
 #define LONGOPT_UPDATE_INTERVAL   LONGOPT_BASE_CAPTURE+5
 #define LONGOPT_NO_OPTIMIZE       LONGOPT_BASE_CAPTURE+6
+#define LONGOPT_PROCESS_INFO      LONGOPT_BASE_CAPTURE+7
 
 /*
  * Options for capturing common to all capturing programs.
@@ -84,7 +85,8 @@ extern "C" {
     {"time-stamp-type",       ws_required_argument, NULL, LONGOPT_SET_TSTAMP_TYPE}, \
     {"compress-type",         ws_required_argument, NULL, LONGOPT_COMPRESS_TYPE}, \
     {"temp-dir",              ws_required_argument, NULL, LONGOPT_CAPTURE_TMPDIR},\
-    {"update-interval",       ws_required_argument, NULL, LONGOPT_UPDATE_INTERVAL},
+    {"update-interval",       ws_required_argument, NULL, LONGOPT_UPDATE_INTERVAL}, \
+    {"process-info",          ws_optional_argument, NULL, LONGOPT_PROCESS_INFO},
 
 
 #define OPTSTRING_CAPTURE_COMMON \
@@ -148,89 +150,110 @@ typedef struct remote_options_tag {
 } remote_options;
 #endif /* HAVE_PCAP_REMOTE */
 
+/**
+ * @brief Represents a network interface and its full capture configuration as shown in the UI.
+ */
 typedef struct interface_tag {
-    char           *name;
-    char           *display_name;
-    char           *addresses;
-    int             no_addresses;
-    char           *cfilter;
-    int             optimize;             /* whether the capture filter above is optimized when compiled */
-    GList          *links;
-    int             active_dlt;
-    bool            pmode;
-    bool            has_snaplen;
-    int             snaplen;
-    bool            local;
-    int             buffer;
-    bool            monitor_mode_enabled;
-    bool            monitor_mode_supported;
+    char           *name;                      /**< Internal interface name as known to the capture library. */
+    char           *display_name;              /**< Human-readable name shown in the UI. */
+    char           *addresses;                 /**< String representation of addresses assigned to this interface. */
+    int             no_addresses;              /**< Number of addresses assigned to this interface. */
+    char           *cfilter;                   /**< Capture filter string applied to this interface. */
+    int             optimize;                  /**< Whether the capture filter is compiled with optimization enabled: 1 = yes, 0 = no. */
+    GList          *links;                     /**< List of link-layer types supported by this interface. */
+    int             active_dlt;                /**< Currently selected data link type (DLT) for capture. */
+    bool            pmode;                     /**< Whether promiscuous mode is enabled. */
+    bool            has_snaplen;               /**< Whether a snapshot length limit is set. */
+    int             snaplen;                   /**< Snapshot length in bytes; only meaningful if @p has_snaplen is true. */
+    bool            local;                     /**< Whether this is a local (as opposed to remote) interface. */
+    int             buffer;                    /**< Kernel capture buffer size in megabytes. */
+    bool            monitor_mode_enabled;      /**< Whether monitor mode (rfmon) is currently enabled. */
+    bool            monitor_mode_supported;    /**< Whether the interface supports monitor mode. */
 #ifdef HAVE_PCAP_REMOTE
-    remote_options  remote_opts;
+    remote_options  remote_opts;               /**< Remote capture options; only present when remote pcap support is compiled in. */
 #endif
-    uint32_t        last_packets;
-    uint32_t        packet_diff;
-    if_info_t       if_info;
-    bool            selected;
-    bool            hidden;
+    if_info_t       if_info;                   /**< Low-level interface information from the capture library. */
+    bool            selected;                  /**< Whether this interface is selected for capture in the UI. */
+    bool            hidden;                    /**< Whether this interface is hidden from the UI interface list. */
     /* External capture cached data */
-    GHashTable     *external_cap_args_settings;
-    char           *timestamp_type;
+    GHashTable     *external_cap_args_settings;/**< Cached argument settings for external capture (extcap) plugins. */
+    char           *timestamp_type;            /**< Requested timestamp type string for this interface. */
 } interface_t;
 
+/**
+ * @brief Represents a single link-layer type row in the interface link-type selection list.
+ */
 typedef struct link_row_tag {
-    char *name;
-    int dlt;
+    char *name; /**< Human-readable name of the link-layer type. */
+    int   dlt;  /**< Data link type (DLT) value corresponding to this link-layer type. */
 } link_row;
 
+/**
+ * @brief Holds the full set of configuration options for a single capture interface session.
+ */
 typedef struct interface_options_tag {
-    char             *name;                 /* the name of the interface supplied to libpcap/WinPcap/Npcap to specify the interface */
-    char             *descr;                /* a more user-friendly description of the interface; may be NULL if none */
-    char             *hardware;             /* description of the hardware */
-    char             *display_name;         /* the name displayed in the console and title bar */
-    char             *ifname;               /* if not null, name to use instead of the interface name in IDBs */
-    char             *cfilter;
-    int               optimize;             /* whether the capture filter above is optimized when compiled */
-    bool              has_snaplen;
-    int               snaplen;
-    int               linktype;
-    bool              promisc_mode;
-    interface_type    if_type;
-    char             *extcap;
-    char             *extcap_fifo;
-    GHashTable       *extcap_args;
-    GPid              extcap_pid;           /* pid of running process or WS_INVALID_PID */
-    void *            extcap_pipedata;
-    GString          *extcap_stderr;
-    unsigned          extcap_stdout_watch;
-    unsigned          extcap_stderr_watch;
+    char             *name;                  /**< Interface name supplied to libpcap/WinPcap/Npcap to identify the interface. */
+    char             *descr;                 /**< User-friendly description of the interface; may be NULL if unavailable. */
+    char             *hardware;              /**< Description of the interface hardware. */
+    char             *display_name;          /**< Name displayed in the console and title bar. */
+    char             *ifname;                /**< If non-NULL, overrides the interface name written into Interface Description Blocks (IDBs). */
+    char             *cfilter;               /**< Capture filter string applied to this interface. */
+    int               optimize;              /**< Whether the capture filter is compiled with optimization enabled: 1 = yes, 0 = no. */
+    bool              has_snaplen;           /**< Whether a snapshot length limit is set. */
+    int               snaplen;              /**< Snapshot length in bytes; only meaningful if @p has_snaplen is true. */
+    int               linktype;             /**< Selected link-layer type (DLT) for this capture session. */
+    bool              promisc_mode;          /**< Whether promiscuous mode is requested. */
+    interface_type    if_type;               /**< Interface type classification (e.g. standard, pipe, extcap). */
+    char             *extcap;               /**< Path to the extcap executable for this interface; NULL if not an extcap interface. */
+    char             *extcap_fifo;          /**< Path to the FIFO or pipe used to receive data from the extcap process. */
+    GHashTable       *extcap_args;          /**< Key-value argument table passed to the extcap executable. */
+    GPid              extcap_pid;           /**< PID of the running extcap process, or WS_INVALID_PID if not running. */
+    void             *extcap_pipedata;      /**< Internal state for reading data from the extcap pipe. */
+    GString          *extcap_stderr;        /**< Accumulated stderr output from the extcap process. */
+    unsigned          extcap_stdout_watch;  /**< GLib I/O watch ID for the extcap stdout pipe. */
+    unsigned          extcap_stderr_watch;  /**< GLib I/O watch ID for the extcap stderr pipe. */
 #ifdef _WIN32
-    HANDLE            extcap_pipe_h;
-    HANDLE            extcap_control_in_h;
-    HANDLE            extcap_control_out_h;
+    HANDLE            extcap_pipe_h;        /**< Windows HANDLE for the extcap data pipe; Windows only. */
+    HANDLE            extcap_control_in_h;  /**< Windows HANDLE for the extcap control input pipe; Windows only. */
+    HANDLE            extcap_control_out_h; /**< Windows HANDLE for the extcap control output pipe; Windows only. */
 #endif
-    char             *extcap_control_in;
-    char             *extcap_control_out;
-    int               buffer_size;
-    bool              monitor_mode;
+    char             *extcap_control_in;    /**< Path to the extcap control input FIFO. */
+    char             *extcap_control_out;   /**< Path to the extcap control output FIFO. */
+    unsigned          extcap_control_in_watch;  /**< GLib I/O watch ID for the extcap control input FIFO. */
+    unsigned          extcap_control_out_watch;  /**< GLib I/O watch ID for the extcap control input FIFO. */
+    GAsyncQueue      *extcap_control_out_q; /**< Asynchronous queue to receive control out to send */
+    int               buffer_size;          /**< Capture buffer size in megabytes requested from the kernel. */
+    bool              monitor_mode;         /**< Whether monitor mode (rfmon) is requested for this interface. */
 #ifdef HAVE_PCAP_REMOTE
-    capture_source    src_type;
-    char             *remote_host;
-    char             *remote_port;
-    capture_auth      auth_type;
-    char             *auth_username;
-    char             *auth_password;
-    bool              datatx_udp;
-    bool              nocap_rpcap;
-    bool              nocap_local;
+    capture_source    src_type;             /**< Whether the capture source is local or remote; only with remote pcap support. */
+    char             *remote_host;          /**< Hostname or IP address of the remote capture host. */
+    char             *remote_port;          /**< Port string on which the remote capture daemon is listening. */
+    capture_auth      auth_type;            /**< Authentication method used to connect to the remote host. */
+    char             *auth_username;        /**< Username for remote capture authentication. */
+    char             *auth_password;        /**< Password for remote capture authentication. */
+    bool              datatx_udp;           /**< Whether to use UDP instead of TCP for remote capture data transfer. */
+    bool              nocap_rpcap;          /**< Whether to exclude rpcap traffic from the remote capture. */
+    bool              nocap_local;          /**< Whether to exclude local traffic from the remote capture. */
 #endif
 #ifdef HAVE_PCAP_SETSAMPLING
-    capture_sampling  sampling_method;
-    int               sampling_param;
+    capture_sampling  sampling_method;      /**< Packet sampling method to apply (e.g. by count or by timer). */
+    int               sampling_param;       /**< Parameter value associated with the chosen sampling method. */
 #endif
-    char             *timestamp_type;       /* requested timestamp as string */
-    int               timestamp_type_id;    /* Timestamp type to pass to pcap_set_tstamp_type.
-                                               only valid if timestamp_type != NULL */
+    char             *timestamp_type;       /**< Requested timestamp type as a string; NULL if using the default. */
+    int               timestamp_type_id;    /**< Numeric timestamp type passed to pcap_set_tstamp_type(); valid only when @p timestamp_type is non-NULL. */
 } interface_options;
+
+/**
+ * @brief What to record of the processes that sent or received each packet.
+ *
+ * The path, command line and user of a process can be sensitive, so they
+ * are only recorded, and only looked at, when explicitly asked for.
+ */
+typedef enum {
+    PROCESS_INFO_NONE,   /**< Nothing */
+    PROCESS_INFO_BASIC,  /**< What identifies a process: its ID, name and start time */
+    PROCESS_INFO_FULL    /**< Also its path, command line, parent and user */
+} process_info_level_e;
 
 /** Capture options coming from user interface */
 typedef struct capture_options_tag {
@@ -246,7 +269,6 @@ typedef struct capture_options_tag {
                                                    when it was fetched, if any */
     char              *ifaces_err_info;       /**< error string for that error */
     unsigned           num_selected;
-    const char        *app_name;              /**< Application name that will be passed to dumpcap */
 
     /*
      * Options to be applied to all interfaces.
@@ -271,6 +293,7 @@ typedef struct capture_options_tag {
     char              *save_file;             /**< the capture file name */
     bool               group_read_access;     /**< true is group read permission needs to be set */
     bool               use_pcapng;            /**< true if file format is pcapng */
+    process_info_level_e process_info;        /**< What to record of the processes that sent or received each packet (pcapng only) */
     unsigned           update_interval;       /**< Time in milliseconds. How often to notify parent of new packet counts, check file duration, etc. */
 
     /* GUI related */
@@ -315,6 +338,11 @@ typedef struct capture_options_tag {
                                                    files as we close them */
     char              *print_name_to;         /**< output file name */
     char              *temp_dir;              /**< temporary directory path */
+    bool               temp_dir_from_prefs;   /**< true if temp_dir came from the
+                                                   capture.temp_dir preference rather
+                                                   than from --temp-dir or the Capture
+                                                   Options dialog, and so may be
+                                                   overridden by either */
 
     /* internally used (don't touch from outside) */
     bool               output_to_pipe;        /**< save_file is a pipe (named or stdout) */
@@ -336,11 +364,10 @@ typedef struct capture_options_tag {
  * to waste time doing that if we don't have to.)
  *
  * @param capture_opts Pointer to the capture options structure to initialize.
- * @param app_name The application name that will be passed to dumpcap.
  * @param get_iface_list A function pointer to a routine that can be called to get the list of capture interfaces. This routine should return a GList of interface options and set the provided error parameters if it fails.
  */
 extern void
-capture_opts_init(capture_options *capture_opts, const char* app_name, GList *(*get_iface_list)(int *, char **));
+capture_opts_init(capture_options *capture_opts, GList *(*get_iface_list)(int *, char **));
 
 /* clean internal structures */
 
@@ -375,6 +402,19 @@ extern void
 capture_opts_log(const char *domain, enum ws_log_level level, capture_options *capture_opts);
 
 /**
+ * @brief Get the directory in which to write temporary capture files.
+ *
+ * Returns the directory the user asked for - from --temp-dir, the Capture
+ * Options dialog, or the capture.temp_dir preference - and the system
+ * default when none of those chose one. Never returns NULL.
+ *
+ * @param capture_opts Pointer to the capture options structure, which may be NULL.
+ * @return The directory. Owned by the callee; do not free.
+ */
+extern const char *
+capture_opts_get_temp_dir(const capture_options *capture_opts);
+
+/**
  * @brief Lists available file types for capture options.
  *
  * List supported file types for capturing. This is intentionally smaller
@@ -385,9 +425,12 @@ capture_opts_log(const char *domain, enum ws_log_level level, capture_options *c
 extern void
 capture_opts_list_file_types(void);
 
+/**
+ * @brief Bitmask flags selecting which interface capability sets to query from a capture device.
+ */
 enum caps_query {
-    CAPS_QUERY_LINK_TYPES      = 0x1,
-    CAPS_QUERY_TIMESTAMP_TYPES = 0x2
+    CAPS_QUERY_LINK_TYPES      = 0x1, /**< Query the set of supported data link types (DLTs) */
+    CAPS_QUERY_TIMESTAMP_TYPES = 0x2  /**< Query the set of supported timestamp types */
 };
 
 /* print interface capabilities, including link layer types */

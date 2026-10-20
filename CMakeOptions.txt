@@ -4,9 +4,6 @@ include(CMakeDependentOption)
 
 option(BUILD_wireshark     "Build Wireshark" ON)
 option(BUILD_stratoshark   "Build Stratoshark" OFF)
-if(BUILD_wireshark OR BUILD_stratoshark)
-	option(USE_qt6     "Use Qt6 (preferred) instead of Qt5" ON)
-endif()
 option(BUILD_tshark        "Build tshark" ON)
 option(BUILD_strato        "Build strato" ${BUILD_stratoshark})
 option(BUILD_tfshark       "Build tfshark" OFF)
@@ -84,6 +81,7 @@ else()
 endif()
 
 option(ENABLE_LTO "Use Link Time Optimization (release configuration only)" OFF)
+option(ENABLE_Y2038 "Require 64-bit time_t even on 32-bit platforms (experimental)" OFF)
 
 if(WIN32)
 	option(ENABLE_VLD "Enable Visual Leak Detect in Debug configuration" OFF)
@@ -132,6 +130,7 @@ option(ENABLE_AMRWB      "Build with AMRWB codec support in RTP Player" ON)
 option(ENABLE_ILBC       "Build with iLBC codec support in RTP Player" ON)
 option(ENABLE_OPUS       "Build with opus support" ON)
 option(ENABLE_SINSP      "Build with libsinsp+libscap support" ON)
+option(ENABLE_CPUINFO    "Build with cpuinfo CPU detection support" ON)
 
 option(FETCH_lua         "Download and build Lua" OFF)
 

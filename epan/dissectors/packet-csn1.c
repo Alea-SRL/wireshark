@@ -404,6 +404,8 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
       {
         uint8_t no_of_bits  = (uint8_t) pDescr->i;
         uint16_t nCount = (uint16_t)pDescr->descr.value; /* nCount supplied by value i.e. M_UINT_ARRAY(...) */
+        uint64_t ret_val;
+        proto_item *pi;
         int i = 0;
 
         if (pDescr->value != 0)
@@ -419,8 +421,11 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
             pui8 = pui8DATA(data, pDescr->offset);
             do
             {
-              *pui8++ = tvb_get_bits8(tvb, bit_offset, no_of_bits);
-              proto_tree_add_uint_bits_format_value(tree, *(pDescr->hf_ptr), tvb, bit_offset, no_of_bits, *pui8, ENC_BIG_ENDIAN, " (Count %d)", i++);
+              pi = proto_tree_add_bits_ret_val(tree, *(pDescr->hf_ptr), tvb,
+                                               bit_offset, no_of_bits,
+                                               &ret_val, ENC_BIG_ENDIAN);
+              proto_item_append_text(pi, " (count %d)", i++);
+              *pui8++ = (uint8_t)ret_val;
               bit_offset += no_of_bits;
             } while (--nCount > 0);
           }
@@ -882,6 +887,8 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
           {
             uint8_t no_of_bits  = (uint8_t) pDescr->i;
             uint16_t nCount = (uint16_t)pDescr->descr.value; /* nCount supplied by value i.e. M_UINT_ARRAY(...) */
+            uint64_t ret_val;
+            proto_item *pi;
             int i = 0;
 
             if (pDescr->value != 0)
@@ -898,9 +905,11 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
 
                 while (nCount > 0)
                 {
-                  *pui8 = tvb_get_bits8(tvb, bit_offset, no_of_bits);
-                  proto_tree_add_uint_bits_format_value(tree, *(pDescr->hf_ptr), tvb, bit_offset, no_of_bits, *pui8, ENC_BIG_ENDIAN, " (Count %d)", i++);
-                  pui8++;
+                  pi = proto_tree_add_bits_ret_val(tree, *(pDescr->hf_ptr), tvb,
+                                                   bit_offset, no_of_bits,
+                                                   &ret_val, ENC_BIG_ENDIAN);
+                  proto_item_append_text(pi, " (count %d)", i++);
+                  *pui8++ = (uint8_t)ret_val;
                   bit_offset += no_of_bits;
                   nCount--;
                 }
@@ -911,10 +920,11 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
 
                 while (nCount > 0)
                 {
-                  uint16_t ui16;
-                  ui16 = tvb_get_bits16(tvb, bit_offset, no_of_bits, ENC_BIG_ENDIAN);
-                  proto_tree_add_uint_bits_format_value(tree, *(pDescr->hf_ptr), tvb, bit_offset, no_of_bits, ui16, ENC_BIG_ENDIAN, " (Count %d)", i++);
-                  memcpy(pui16++, &ui16, sizeof(ui16));
+                  pi = proto_tree_add_bits_ret_val(tree, *(pDescr->hf_ptr), tvb,
+                                                   bit_offset, no_of_bits,
+                                                   &ret_val, ENC_BIG_ENDIAN);
+                  proto_item_append_text(pi, " (count %d)", i++);
+                  *pui16++ = (uint16_t)ret_val;
                   bit_offset += no_of_bits;
                   nCount--;
                 }
@@ -1346,6 +1356,7 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
          * REMARK: recursive way to specify an array but an iterative implementation!
          */
         int16_t no_of_bits        = pDescr->i;
+        uint32_t nSizeArray = (uint32_t)((uintptr_t)pDescr->aux_fn);
         uint8_t ElementCount = 0;
 
         pui8  = pui8DATA(data, pDescr->offset);
@@ -1357,8 +1368,13 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
           remaining_bits_len--;
 
           /* extract and store no_of_bits long element from bitstream */
-          *pui8++   = tvb_get_bits8(tvb, bit_offset, no_of_bits);
           ElementCount++;
+          if (ElementCount > nSizeArray)
+          {
+            /* error: too many elements in recursive array. Increase its size! */
+            return ProcessError(tree , ar->pinfo, tvb, bit_offset, CSN_ERROR_STREAM_NOT_SUPPORTED, &ei_csn1_stream_not_supported, pDescr);
+          }
+          *pui8++   = tvb_get_bits8(tvb, bit_offset, no_of_bits);
 
           if (remaining_bits_len < 0)
           {

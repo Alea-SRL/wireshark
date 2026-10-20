@@ -1610,15 +1610,15 @@ dissect_rdp_clientNetworkData(tvbuff_t *tvb, unsigned offset, packet_info *pinfo
       if (rdp_info)
          channel = &rdp_info->staticChannels[i];
 
+      char *channelName = (char*)tvb_get_string_enc(pinfo->pool, tvb, offset, 8, ENC_ASCII);
+
       if (!PINFO_FD_VISITED(pinfo) && channel) {
         channel->value = -1; /* unset */
-        channel->strptr = (char*)tvb_get_string_enc(wmem_file_scope(), tvb, offset, 8, ENC_ASCII);
+        channel->strptr = wmem_strdup(wmem_file_scope(), channelName);
         channel->channelType = find_known_channel_by_name(channel->strptr);
         channel->chunks_cs = wmem_multimap_new(wmem_file_scope(), g_direct_hash, g_direct_equal);
         channel->chunks_sc = wmem_multimap_new(wmem_file_scope(), g_direct_hash, g_direct_equal);
       }
-
-      char *channelName = (char*)tvb_get_string_enc(pinfo->pool, tvb, offset, 8, ENC_ASCII);
 
       proto_tree *channel_tree = proto_tree_add_subtree_format(next_tree, tvb, offset, 12, ett_rdp_channelDef, NULL, "channel %s", channelName);
       if (channel)
@@ -1836,7 +1836,7 @@ dissect_rdp_channelPDU(tvbuff_t *tvb, unsigned offset, packet_info *pinfo, proto
 
                   /* Make sure we received a first chunk, or else reassembly
                    * has already failed. */
-                  if (context->chunks != NULL) {
+                  if (context->chunks != NULL && chunksMap != NULL) {
                           /* XXX - Check if length == context->packetLen; else
                            * something went wrong (missing/out of order?) */
                           chunk = wmem_alloc(wmem_file_scope(), sizeof(*chunk));
@@ -1850,10 +1850,11 @@ dissect_rdp_channelPDU(tvbuff_t *tvb, unsigned offset, packet_info *pinfo, proto
                           wmem_array_append(context->chunks, &chunk, 1);
 
                           if (last) {
+#if 0
                                   if (context->pendingLen) {
                                           printf("%d: oops context->pendingLen=%d\n", pinfo->num, context->pendingLen);
                                   }
-
+#endif
                                   chunk->reassembled = !first;
                                   chunk->tvb = tvb_new_real_data(wmem_array_get_raw(context->currentPayload), context->packetLen - context->pendingLen, context->packetLen);
 
@@ -2316,7 +2317,7 @@ dissect_rdp_bandwidth_req(tvbuff_t *tvb, unsigned offset, packet_info *pinfo, pr
 
 
 void
-rdp_transport_set_udp_conversation(const packet_info *pinfo, bool reliable, uint32_t reqId, uint8_t *cookie, conversation_t *conv)
+rdp_transport_set_udp_conversation(const packet_info *pinfo _U_, bool reliable, uint32_t reqId, uint8_t *cookie, conversation_t *conv)
 {
 	rdp_transports_key_t key;
 	rdp_transports_link_t *transport_link;
@@ -2327,7 +2328,9 @@ rdp_transport_set_udp_conversation(const packet_info *pinfo, bool reliable, uint
 
 	transport_link = (rdp_transports_link_t *)wmem_map_lookup(rdp_transport_links, &key);
 	if (!transport_link) {
+#if 0
 		printf("%d: strange, TCP conversation was not existing when adding UDP part\n", pinfo->num);
+#endif
 		transport_link = wmem_new(wmem_file_scope(), rdp_transports_link_t);
 
 		memcpy(&transport_link->key, &key, sizeof(key));
@@ -2362,9 +2365,11 @@ rdp_find_main_conversation(const packet_info *pinfo)
 
 	if (pinfo->ptype == PT_UDP) {
 		conversation = rdp_find_tcp_conversation_from_udp(conversation);
+#if 0
 		if (!conversation) {
 			printf("%d: unable to find TCP connection for UDP counterpart\n", pinfo->num);
 		}
+#endif
 	}
 
 	return conversation;

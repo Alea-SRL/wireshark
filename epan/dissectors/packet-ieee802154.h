@@ -504,11 +504,33 @@ typedef struct {
     uint8_t mle_key[IEEE802154_CIPHER_SIZE];
 } ieee802154_key_t;
 
+/* Auxiliary Security Header registration fields */
+typedef struct {
+    int hf_aux_security_header;
+    int hf_aux_sec_security_control;
+    int hf_aux_sec_security_level;
+    int hf_aux_sec_key_id_mode;
+    int hf_aux_sec_frame_counter_suppression;
+    int hf_aux_sec_asn_in_nonce;
+    int hf_aux_sec_reserved;
+    int hf_aux_sec_frame_counter;
+    int hf_aux_sec_key_source;
+    int hf_aux_sec_key_source_bytes;
+    int hf_aux_sec_key_index;
+    int ett_auxiliary_security;
+    int ett_aux_sec_control;
+    int ett_aux_sec_key_id;
+} ieee802154_aux_sec_hf_t;
+
+WS_DLL_PUBLIC const value_string ieee802154_sec_level_names[];
+WS_DLL_PUBLIC const value_string ieee802154_key_id_mode_names[];
+
 /* */
 void dissect_ieee802154_superframe      (tvbuff_t *, packet_info *, proto_tree *, unsigned *);
 void dissect_ieee802154_gtsinfo         (tvbuff_t *, packet_info *, proto_tree *, unsigned *);
 void dissect_ieee802154_pendaddr        (tvbuff_t *, packet_info *, proto_tree *, unsigned *);
 void dissect_ieee802154_aux_sec_header_and_key(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, ieee802154_packet *packet, unsigned *offset);
+void dissect_ieee802154_aux_sec_header_and_key_with_hf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, ieee802154_packet *packet, unsigned *offset, const ieee802154_aux_sec_hf_t *aux_sec_hf);
 void ccm_init_block(uint8_t *block, bool adata, int M, uint64_t addr, uint32_t frame_counter, uint8_t level, int ctr_val, const uint8_t *generic_nonce);
 bool ccm_ctr_encrypt(const uint8_t *key, const uint8_t *iv, uint8_t *mic, uint8_t *data, int length);
 bool ccm_cbc_mac(const uint8_t *key, const uint8_t *iv, const uint8_t *a, int a_len, const uint8_t *m, int m_len, uint8_t *mic);
@@ -569,7 +591,6 @@ unsigned ieee802154_dissect_frame_payload(tvbuff_t *tvb, packet_info *pinfo, pro
 /* Results for the decryption */
 typedef struct {
     /* Set by decrypt_ieee802154_payload */
-    unsigned char *key;  // not valid after return of decrypt_ieee802154_payload
     unsigned key_number;
     /* Set by the ieee802154_decrypt_func */
     unsigned char* rx_mic;
@@ -583,7 +604,7 @@ typedef struct {
  * and return the number of keys set (0: none, 1: just key, 2: key and alt_key) */
 typedef unsigned (*ieee802154_set_key_func) (ieee802154_packet *packet, unsigned char *key, unsigned char *alt_key, ieee802154_key_t *uat_key);
 /** Decrypt the payload with the provided information */
-typedef tvbuff_t* (*ieee802154_decrypt_func) (tvbuff_t *, unsigned, packet_info *, ieee802154_packet *, ieee802154_decrypt_info_t*);
+typedef tvbuff_t* (*ieee802154_decrypt_func) (tvbuff_t *, unsigned, packet_info *, ieee802154_packet *, ieee802154_decrypt_info_t*, unsigned char *key);
 /** Loop over the keys specified in the IEEE 802.15.4 preferences, try to use them with the specified set_key_func
  * and try to decrypt with the specified decrypt_func
  */

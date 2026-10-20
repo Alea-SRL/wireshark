@@ -303,17 +303,24 @@ WS_DLL_PUBLIC bool filetime_ns_to_nstime(nstime_t *nstime, uint64_t nsfiletime);
  */
 WS_DLL_PUBLIC bool filetime_1sec_to_nstime(nstime_t *nstime, uint64_t filetime);
 
+/**
+ * @brief Selects the ISO 8601 datetime string format used for parsing or formatting timestamps.
+ */
 typedef enum {
-    ISO8601_DATETIME,       /** e.g. 2014-07-04T12:34:56.789+00:00 */
-    ISO8601_DATETIME_BASIC, /** ISO8601 Basic format, i.e. no - : separators */
-    ISO8601_DATETIME_AUTO,  /** Autodetect the presence of separators */
+    ISO8601_DATETIME,       /**< Extended format with separators, e.g. 2014-07-04T12:34:56.789+00:00 */
+    ISO8601_DATETIME_BASIC, /**< Basic format without date or time separators, e.g. 20140704T123456.789+0000 */
+    ISO8601_DATETIME_AUTO,  /**< Autodetect whether the input uses extended (with separators) or basic (without) format */
 } iso8601_fmt_e;
 
 /**
  * @brief Parses an ISO 8601 formatted datetime string into an nstime_t.
  *
  * Converts a string in ISO 8601 format (e.g., "2025-10-22T23:10:00.123Z") into an nstime_t structure.
- * On failure, returns NULL and sets the nstime to "unset".
+ * On failure, returns NULL and sets the nstime to "unset". If the string is
+ * successfully parsed, but the conversion fails (e.g., systems with
+ * 32-bit time_t, or Microsoft Windows with dates past the year 3000),
+ * the pointer will point to the first character after the parsed input,
+ * and the nstime will be unset.
  *
  * @param nstime Pointer to the destination nstime_t structure.
  * @param ptr Pointer to the ISO 8601 string to parse.

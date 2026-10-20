@@ -39,6 +39,7 @@ static int ttl_file_type_subtype = -1;
 
 #define TTL_ADDRESS_NAME_PREFS      "file_format_ttl_names"
 #define TTL_ADDRESS_MASTER_PREFS    "file_format_ttl_masters"
+#define TTL_MAX_CORRUPTED_BLOCKS    1024
 
 void register_ttl(void);
 static bool ttl_read(wtap* wth, wtap_rec* rec, int* err, char** err_info, int64_t* data_offset);
@@ -1554,8 +1555,8 @@ static const ttl_addr_to_iface_entry_t* ttl_lookup_interface_int(wtap* wth, uint
 
     /* Recursion limit to avoid coding errors. */
     if (iteration > TTL_LOOKUP_INTERFACE_MAX_ITERATIONS) {
-        *err = WTAP_ERR_INTERNAL;
-        *err_info = ws_strdup_printf("ttl_lookup_interface(): more iterations than allowed: %d (max. %d)", iteration, TTL_LOOKUP_INTERFACE_MAX_ITERATIONS);
+        *err = WTAP_ERR_BAD_FILE;
+        *err_info = ws_strdup_printf("ttl: more iterations than allowed: %d (max. %d)", iteration, TTL_LOOKUP_INTERFACE_MAX_ITERATIONS);
         return NULL;
     }
 
@@ -1632,7 +1633,7 @@ ttl_read_bytes(ttl_read_t* in, void* out, uint16_t size, int* err, char** err_in
         if (size != 0) {
             if ((in->cur_pos + size) > in->size) {
                 *err = WTAP_ERR_SHORT_READ;
-                *err_info = ws_strdup("ttl_read_bytes(): Attempt to read beyond buffer end");
+                *err_info = ws_strdup("ttl: Attempt to read beyond buffer end");
                 return false;
             }
             if (out != NULL) {
@@ -1643,7 +1644,7 @@ ttl_read_bytes(ttl_read_t* in, void* out, uint16_t size, int* err, char** err_in
         break;
     default:
         *err = WTAP_ERR_INTERNAL;
-        *err_info = ws_strdup_printf("ttl_read_bytes(): ttl_read_t unknown validity flags: %d", in->validity);
+        *err_info = ws_strdup_printf("ttl: ttl_read_t unknown validity flags: %d", in->validity);
         return false;
     }
 
@@ -2009,10 +2010,15 @@ ttl_check_segmented_message_recursion(const ttl_read_t* in, int* err, char** err
 
     if (in->validity != VALIDITY_BUF) {
         *err = WTAP_ERR_INTERNAL;
-        *err_info = ws_strdup("tt_fix_segmented_message_entry_payload: input buffer is not valid");
+        *err_info = ws_strdup("ttl: input buffer is not valid");
         return false;
     }
 
+    if (sizeof(ttl_entryheader_t) > in->size - in->cur_pos) {
+        *err = WTAP_ERR_BAD_FILE;
+        *err_info = ws_strdup("ttl: input buffer too short");
+        return false;
+    }
     memcpy(&header, in->buf + in->cur_pos, sizeof(ttl_entryheader_t));
     fix_endianness_ttl_entryheader(&header);
 
@@ -2033,14 +2039,23 @@ ttl_fix_segmented_message_entry_timestamp(const ttl_read_t* in, uint64_t timesta
 
     if (in->validity != VALIDITY_BUF) {
         *err = WTAP_ERR_INTERNAL;
-        *err_info = ws_strdup("tt_fix_segmented_message_entry_payload: input buffer is not valid");
+        *err_info = ws_strdup("ttl: input buffer is not valid");
         return false;
     }
 
+    if (sizeof(ttl_entryheader_t) > in->size - in->cur_pos) {
+        goto buf_too_small;
+    }
     memcpy(&header, in->buf + in->cur_pos, sizeof(ttl_entryheader_t));
     fix_endianness_ttl_entryheader(&header);
 
     if ((header.size_type >> 12) == TTL_BUS_DATA_ENTRY) {
+        if (sizeof(uint64_t) > in->size - (in->cur_pos + sizeof(ttl_entryheader_t))) {
+        buf_too_small:
+            *err = WTAP_ERR_BAD_FILE;
+            *err_info = ws_strdup("ttl: input buffer too short");
+            return false;
+        }
         timestamp = GUINT64_TO_LE(timestamp);
         memcpy(in->buf + in->cur_pos + sizeof(ttl_entryheader_t), &timestamp, sizeof(uint64_t));
     }
@@ -2237,6 +2252,9 @@ static ttl_result_t ttl_read_entry(wtap* wth, wtap_rec* rec, int* err, char** er
         /*
          * We probably have a corrupted file, try to recover our alignment
          * by skipping to the next block.
+         *
+         * Note this doesn't read bytes, so wth->fh->eof might not get set
+         * even offset is past the end of the file.
          */
         return TTL_CORRUPTED;
     }
@@ -2709,9 +2727,9 @@ ttl_open(wtap* wth, int* err, char** err_info) {
     /* This seems to be a TLL! */
 
     /* Check for valid block size */
-    if (header.block_size == 0) {
+    if (header.block_size < sizeof(ttl_entryheader_t)) {
         *err = WTAP_ERR_BAD_FILE;
-        *err_info = ws_strdup("ttl: block size cannot be 0");
+        *err_info = ws_strdup("ttl: entry block size cannot be smaller than an entry header");
         return WTAP_OPEN_ERROR;
     }
     /* Check for a valid header length */
@@ -2796,6 +2814,8 @@ ttl_next_block(const ttl_t* ttl, int64_t pos) {
         return pos;
     }
 
+    // ttl_open should assure this
+    ws_assert(ttl->block_size >= sizeof(ttl_entryheader_t));
     return pos + ttl->block_size - ((pos - ttl->header_size) % ttl->block_size);
 }
 
@@ -2803,6 +2823,7 @@ static bool ttl_read(wtap* wth, wtap_rec* rec, int* err, char** err_info, int64_
     ttl_read_t      input;
     int64_t         pos, end;
     ttl_result_t    res;
+    unsigned        corrupted_blocks = 0;
 
     input.fh = wth->fh;
     input.validity = VALIDITY_FH;
@@ -2813,6 +2834,11 @@ static bool ttl_read(wtap* wth, wtap_rec* rec, int* err, char** err_info, int64_
 
         res = ttl_read_entry(wth, rec, err, err_info, &input, pos, end);
         if (G_UNLIKELY(res == TTL_CORRUPTED)) {
+            if (++corrupted_blocks > TTL_MAX_CORRUPTED_BLOCKS) {
+                *err = WTAP_ERR_BAD_FILE;
+                *err_info = ws_strdup("ttl: too many consecutive corrupted blocks");
+                return false;
+            }
             ws_warning("ttl_read(): Unaligned block found, skipping to next block offset: 0x%" PRIx64, end);
             report_warning("Found unaligned TTL block. Skipping to the next one.");
             if (file_seek(wth->fh, end, SEEK_SET, err) < 0) {

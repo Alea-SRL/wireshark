@@ -62,7 +62,7 @@
 #include "capture_file_dialog.h"
 #include "capture_file_properties_dialog.h"
 #include <ui/qt/utils/field_information.h>
-#include <ui/qt/widgets/display_filter_combo.h>
+#include <ui/qt/widgets/display_filter_entry.h>
 #include "main_window.h"
 
 class AccordionFrame;
@@ -129,12 +129,6 @@ public:
      * @return Pointer to the newly created QMenu; caller takes ownership.
      */
     QMenu *createPopupMenu() override;
-
-    /**
-     * @brief Returns a pointer to the current capture file object.
-     * @return Pointer to the internal CaptureFile instance.
-     */
-    CaptureFile *captureFile() { return &capture_file_; }
 
     /**
      * @brief Rebuilds the Lua funnel statistics menus from registered funnel entries.
@@ -343,6 +337,9 @@ private:
     /** @brief Loads and assigns icons to the main toolbar actions. */
     void initMainToolbarIcons();
 
+    /** @brief Sizes the main toolbar icons for the current zoom level. */
+    void updateMainToolbarIconSize();
+
     /** @brief Connects show/hide actions for main UI panels (packet list, tree, bytes). */
     void initShowHideMainWidgets();
 
@@ -510,13 +507,6 @@ public slots:
      */
     bool openCaptureFile(QString cf_path = QString(), QString display_filter = QString()) { return openCaptureFile(cf_path, display_filter, WTAP_TYPE_AUTO); }
 
-    /**
-     * @brief Applies a new display filter to the open capture file.
-     * @param new_filter New filter expression; empty string shows all packets.
-     * @param force      @c true to reapply even if the filter is unchanged.
-     */
-    void filterPackets(QString new_filter = QString(), bool force = false) override;
-
     /** @brief Updates title bar, menus, and status bar to reflect unsaved changes. */
     void updateForUnsavedChanges();
 
@@ -582,7 +572,24 @@ public slots:
     void openLuaDebuggerDialog();
 #endif
 
+protected slots:
+    /**
+     * @brief Applies a new display filter to the open capture file.
+     * @param new_filter New filter expression; empty string shows all packets.
+     * @param force      @c true to reapply even if the filter is unchanged.
+     */
+    void applyFilter(QString new_filter = QString(), bool force = false) override;
+
 private slots:
+    /**
+     * @brief Runs the post-initialization setup once the application is ready.
+     *
+     * Invoked via MainApplication::whenInitialized(). Groups the menu/feature
+     * setup that can only run after appInitialized() into one ordered sequence,
+     * instead of one connection per step.
+     */
+    void onAppInitialized();
+
     /**
      * @brief Dispatches capture lifecycle events to the appropriate UI update methods.
      * @param ev The capture event to handle.
@@ -888,13 +895,12 @@ private slots:
     /** @brief Applies current name-resolution preference changes to the packet list. */
     void setNameResolution();
 
-    /**
-     * @brief Adjusts the text zoom level in the packet details and bytes panes.
-     */
-    void zoomText();
 
     /** @brief Opens the Coloring Rules management dialog. */
     void showColoringRulesDialog();
+
+    /** @brief Opens the Tagging Rules management dialog. */
+    void showTaggingRulesDialog();
 
     /**
      * @brief Colorizes packets matching the current conversation, optionally

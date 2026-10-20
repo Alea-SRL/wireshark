@@ -74,7 +74,6 @@ static int find_val_for_string(const char *needle, const enum_val_t *haystack, i
 static char *gpf_path;
 static char *cols_hidden_list;
 static char *cols_hidden_fmt_list;
-static bool gui_theme_is_dark;
 
 e_prefs prefs;
 
@@ -122,16 +121,16 @@ static const enum_val_t gui_packet_dialog_layout[] = {
     {NULL, NULL, -1}
 };
 
-static const enum_val_t gui_update_channel[] = {
-    {"DEVELOPMENT", "DEVELOPMENT", UPDATE_CHANNEL_DEVELOPMENT},
-    {"STABLE", "STABLE", UPDATE_CHANNEL_STABLE},
+static const enum_val_t capture_process_info_vals[] = {
+    {"NONE", "Nothing", CAPTURE_PROCESS_INFO_NONE},
+    {"BASIC", "Process ID and name", CAPTURE_PROCESS_INFO_BASIC},
+    {"FULL", "Process ID, name, path, command line and user", CAPTURE_PROCESS_INFO_FULL},
     {NULL, NULL, -1}
 };
 
-static const enum_val_t gui_selection_style[] = {
-    {"DEFAULT", "DEFAULT",   COLOR_STYLE_DEFAULT},
-    {"FLAT",    "FLAT",      COLOR_STYLE_FLAT},
-    {"GRADIENT", "GRADIENT", COLOR_STYLE_GRADIENT},
+static const enum_val_t gui_update_channel[] = {
+    {"DEVELOPMENT", "DEVELOPMENT", UPDATE_CHANNEL_DEVELOPMENT},
+    {"STABLE", "STABLE", UPDATE_CHANNEL_STABLE},
     {NULL, NULL, -1}
 };
 
@@ -147,13 +146,6 @@ static const enum_val_t gui_packet_list_multi_color_separators[] = {
     {"vertical",  "Vertical",  PACKET_LIST_MULTI_COLOR_SEPARATOR_VERTICAL},
     {"diagonal",  "Diagonal",  PACKET_LIST_MULTI_COLOR_SEPARATOR_DIAGONAL},
     {"bubble",    "Bubble",    PACKET_LIST_MULTI_COLOR_SEPARATOR_BUBBLE},
-    {NULL, NULL, -1}
-};
-
-static const enum_val_t gui_color_scheme[] = {
-    {"system",  "System Default",   COLOR_SCHEME_DEFAULT},
-    {"light",   "Light Mode",       COLOR_SCHEME_LIGHT},
-    {"dark",    "Dark Mode",        COLOR_SCHEME_DARK},
     {NULL, NULL, -1}
 };
 
@@ -189,19 +181,6 @@ static const enum_val_t abs_time_format_options[] = {
     {"ALWAYS", "Always", ABS_TIME_ASCII_ALWAYS},
     {NULL, NULL, -1}
 };
-
-static int num_capture_cols = 7;
-static const char *capture_cols[7] = {
-    "INTERFACE",
-    "LINK",
-    "PMODE",
-    "SNAPLEN",
-    "MONITOR",
-    "BUFFER",
-    "FILTER"
-};
-#define CAPTURE_COL_TYPE_DESCRIPTION \
-    "Possible values: INTERFACE, LINK, PMODE, SNAPLEN, MONITOR, BUFFER, FILTER\n"
 
 static const enum_val_t gui_packet_list_elide_mode[] = {
     {"LEFT", "LEFT", ELIDE_LEFT},
@@ -449,11 +428,6 @@ prefs_cleanup(void)
     gpf_path = NULL;
     g_regex_unref(prefs_regex);
     prefs_regex = NULL;
-}
-
-void prefs_set_gui_theme_is_dark(bool is_dark)
-{
-    gui_theme_is_dark = is_dark;
 }
 
 static void
@@ -2174,50 +2148,41 @@ pref_stash(pref_t *pref, void *unused _U_)
     return 0;
 }
 
-unsigned
-pref_unstash(pref_t *pref, void *unstash_data_p)
+unsigned pref_get_changed_flags(pref_t *pref, void *unstash_data_p)
 {
     pref_unstash_data_t *unstash_data = (pref_unstash_data_t *)unstash_data_p;
-    dissector_table_t sub_dissectors = NULL;
-    dissector_handle_t handle = NULL;
 
     ws_assert(!pref->obsolete);
 
-    /* Revert the preference to its saved value. */
     switch (pref->type) {
 
     case PREF_UINT:
         if (*pref->varp.uint != pref->stashed_val.uint) {
             unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
-            *pref->varp.uint = pref->stashed_val.uint;
         }
         break;
 
     case PREF_INT:
         if (*pref->varp.intp != pref->stashed_val.intval) {
             unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
-            *pref->varp.intp = pref->stashed_val.intval;
         }
         break;
 
     case PREF_FLOAT:
         if (*pref->varp.floatp != pref->stashed_val.floatval) {
             unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
-            *pref->varp.floatp = pref->stashed_val.floatval;
         }
         break;
 
     case PREF_BOOL:
         if (*pref->varp.boolp != pref->stashed_val.boolval) {
             unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
-            *pref->varp.boolp = pref->stashed_val.boolval;
         }
         break;
 
     case PREF_ENUM:
         if (*pref->varp.enump != pref->stashed_val.enumval) {
             unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
-            *pref->varp.enump = pref->stashed_val.enumval;
         }
         break;
 
@@ -2232,19 +2197,131 @@ pref_unstash(pref_t *pref, void *unstash_data_p)
             fdata = (frame_data*)elem->data;
             if (fdata->tcp_snd_manual_analysis != *pref->varp.enump) {
                 unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
-                fdata->tcp_snd_manual_analysis = *pref->varp.enump;
             }
         }
         break;
     }
+
     case PREF_STRING:
     case PREF_SAVE_FILENAME:
     case PREF_OPEN_FILENAME:
     case PREF_DIRNAME:
     case PREF_PASSWORD:
     case PREF_DISSECTOR:
+        if (pref->stashed_val.string == NULL) {
+            /* XXX - This shouldn't happen, but there's an issue with how the
+             * Preferences Dialog handles newly registered extcap prefs. */
+            ws_debug("stashed pref %s is NULL", prefs_get_name(pref));
+            break;
+        }
         if (strcmp(*pref->varp.string, pref->stashed_val.string) != 0) {
             unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
+        }
+        break;
+
+    case PREF_DECODE_AS_RANGE:
+    case PREF_RANGE:
+        if (!ranges_are_equal(*pref->varp.range, pref->stashed_val.range)) {
+            unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
+        }
+        break;
+
+    case PREF_COLOR:
+        if ((pref->varp.colorp->blue != pref->stashed_val.color.blue) ||
+            (pref->varp.colorp->red != pref->stashed_val.color.red) ||
+            (pref->varp.colorp->green != pref->stashed_val.color.green)) {
+            unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
+        }
+        break;
+
+    case PREF_UAT:
+        if (pref->varp.uat && pref->varp.uat->changed) {
+            unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
+        }
+        break;
+
+    case PREF_STATIC_TEXT:
+    case PREF_CUSTOM:
+        break;
+
+    default:
+        ws_assert_not_reached();
+        break;
+    }
+    return 0;
+}
+
+unsigned
+pref_unstash(pref_t *pref, void *unstash_data_p)
+{
+    pref_unstash_data_t *unstash_data = (pref_unstash_data_t *)unstash_data_p;
+    dissector_table_t sub_dissectors = NULL;
+    dissector_handle_t handle = NULL;
+
+    ws_assert(!pref->obsolete);
+
+    /* Revert the preference to its saved value. */
+    switch (pref->type) {
+
+    case PREF_UINT:
+        if (*pref->varp.uint != pref->stashed_val.uint) {
+            *pref->varp.uint = pref->stashed_val.uint;
+        }
+        break;
+
+    case PREF_INT:
+        if (*pref->varp.intp != pref->stashed_val.intval) {
+            *pref->varp.intp = pref->stashed_val.intval;
+        }
+        break;
+
+    case PREF_FLOAT:
+        if (*pref->varp.floatp != pref->stashed_val.floatval) {
+            *pref->varp.floatp = pref->stashed_val.floatval;
+        }
+        break;
+
+    case PREF_BOOL:
+        if (*pref->varp.boolp != pref->stashed_val.boolval) {
+            *pref->varp.boolp = pref->stashed_val.boolval;
+        }
+        break;
+
+    case PREF_ENUM:
+        if (*pref->varp.enump != pref->stashed_val.enumval) {
+            *pref->varp.enump = pref->stashed_val.enumval;
+        }
+        break;
+
+    case PREF_PROTO_TCP_SNDAMB_ENUM:
+    {
+        /* The preference dialogs are modal so the frame_data pointers should
+         * still be valid; otherwise we could store the frame numbers to
+         * change.
+         */
+        frame_data *fdata;
+        for (GList* elem = pref->stashed_val.list; elem != NULL; elem = elem->next) {
+            fdata = (frame_data*)elem->data;
+            if (fdata->tcp_snd_manual_analysis != *pref->varp.enump) {
+                fdata->tcp_snd_manual_analysis = *pref->varp.enump;
+            }
+        }
+        break;
+    }
+
+    case PREF_STRING:
+    case PREF_SAVE_FILENAME:
+    case PREF_OPEN_FILENAME:
+    case PREF_DIRNAME:
+    case PREF_PASSWORD:
+    case PREF_DISSECTOR:
+        if (pref->stashed_val.string == NULL) {
+            /* XXX - This shouldn't happen, but there's an issue with how the
+             * Preferences Dialog handles newly registered extcap prefs. */
+            ws_debug("stashed pref %s is NULL", prefs_get_name(pref));
+            break;
+        }
+        if (strcmp(*pref->varp.string, pref->stashed_val.string) != 0) {
             wmem_free(pref->scope, *pref->varp.string);
             *pref->varp.string = wmem_strdup(pref->scope, pref->stashed_val.string);
         }
@@ -2255,7 +2332,6 @@ pref_unstash(pref_t *pref, void *unstash_data_p)
         const char* table_name = prefs_get_dissector_table(pref);
         if (!ranges_are_equal(*pref->varp.range, pref->stashed_val.range)) {
             uint32_t i, j;
-            unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
 
             if (unstash_data->handle_decode_as) {
                 sub_dissectors = find_dissector_table(table_name);
@@ -2309,9 +2385,9 @@ pref_unstash(pref_t *pref, void *unstash_data_p)
         }
         break;
     }
+
     case PREF_RANGE:
         if (!ranges_are_equal(*pref->varp.range, pref->stashed_val.range)) {
-            unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
             wmem_free(pref->scope, *pref->varp.range);
             *pref->varp.range = range_copy(pref->scope, pref->stashed_val.range);
         }
@@ -2321,15 +2397,11 @@ pref_unstash(pref_t *pref, void *unstash_data_p)
         if ((pref->varp.colorp->blue != pref->stashed_val.color.blue) ||
             (pref->varp.colorp->red != pref->stashed_val.color.red) ||
             (pref->varp.colorp->green != pref->stashed_val.color.green)) {
-            unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
             *pref->varp.colorp = pref->stashed_val.color;
         }
-        break;
+    break;
+
     case PREF_UAT:
-        if (pref->varp.uat && pref->varp.uat->changed) {
-            unstash_data->module->prefs_changed_flags |= prefs_get_effect_flags(pref);
-        }
-        break;
     case PREF_STATIC_TEXT:
     case PREF_CUSTOM:
         break;
@@ -3018,182 +3090,6 @@ column_format_to_str_cb(pref_t* pref, bool default_val)
     return column_format_str;
 }
 
-
-/******  Capture column custom preference functions  ******/
-
-/* This routine is only called when Wireshark is started, NOT when another profile is selected.
-   Copy the pref->capture_columns list (just loaded with the capture_cols[] struct values)
-   to prefs->default_val.list.
-*/
-static void
-capture_column_init_cb(pref_t* pref, GList** capture_cols_values)
-{
-    GList   *ccv_list = *capture_cols_values,
-            *dlist = NULL;
-
-    /*  */
-    while (ccv_list) {
-        dlist = g_list_append(dlist, g_strdup((char *)ccv_list->data));
-        ccv_list = ccv_list->next;
-    }
-
-    pref->default_val.list = dlist;
-    pref->varp.list = &prefs.capture_columns;
-    pref->stashed_val.boolval = false;
-}
-
-/* Free the prefs->capture_columns list strings and remove the list entries.
-   Note that since pref->varp.list points to &prefs.capture_columns, it is
-   also freed.
-*/
-static void
-capture_column_free_cb(pref_t* pref)
-{
-    prefs_clear_string_list(prefs.capture_columns);
-    prefs.capture_columns = NULL;
-
-    if (pref->stashed_val.boolval == true) {
-      prefs_clear_string_list(pref->default_val.list);
-      pref->default_val.list = NULL;
-    }
-}
-
-/* Copy pref->default_val.list to *pref->varp.list.
-*/
-static void
-capture_column_reset_cb(pref_t* pref)
-{
-    GList *vlist = NULL, *dlist;
-
-    /* Free the column name strings and remove the links from *pref->varp.list */
-    prefs_clear_string_list(*pref->varp.list);
-
-    for (dlist = pref->default_val.list; dlist != NULL; dlist = g_list_next(dlist)) {
-      vlist = g_list_append(vlist, g_strdup((char *)dlist->data));
-    }
-    *pref->varp.list = vlist;
-}
-
-static prefs_set_pref_e
-capture_column_set_cb(pref_t* pref, const char* value, unsigned int* changed_flags _U_)
-{
-    GList *col_l  = prefs_get_string_list(value);
-    GList *col_l_elt;
-    char *col_name;
-    int i;
-
-    if (col_l == NULL)
-      return PREFS_SET_SYNTAX_ERR;
-
-    capture_column_free_cb(pref);
-
-    /* If value (the list of capture.columns read from preferences) is empty, set capture.columns
-       to the full list of valid capture column names. */
-    col_l_elt = g_list_first(col_l);
-    if (!(*(char *)col_l_elt->data)) {
-        for (i = 0; i < num_capture_cols; i++) {
-          col_name = g_strdup(capture_cols[i]);
-          prefs.capture_columns = g_list_append(prefs.capture_columns, col_name);
-        }
-    }
-
-    /* Verify that all the column names are valid. If not, use the entire list of valid columns.
-     */
-    while (col_l_elt) {
-      bool found_match = false;
-      col_name = (char *)col_l_elt->data;
-
-      for (i = 0; i < num_capture_cols; i++) {
-        if (strcmp(col_name, capture_cols[i])==0) {
-          found_match = true;
-          break;
-        }
-      }
-      if (!found_match) {
-        /* One or more cols are invalid so use the entire list of valid cols. */
-        for (i = 0; i < num_capture_cols; i++) {
-          col_name = g_strdup(capture_cols[i]);
-          prefs.capture_columns = g_list_append(prefs.capture_columns, col_name);
-        }
-        pref->varp.list = &prefs.capture_columns;
-        prefs_clear_string_list(col_l);
-        return PREFS_SET_SYNTAX_ERR;
-      }
-      col_l_elt = col_l_elt->next;
-    }
-
-    col_l_elt = g_list_first(col_l);
-    while (col_l_elt) {
-      col_name = (char *)col_l_elt->data;
-      prefs.capture_columns = g_list_append(prefs.capture_columns, col_name);
-      col_l_elt = col_l_elt->next;
-    }
-    pref->varp.list = &prefs.capture_columns;
-    g_list_free(col_l);
-    return PREFS_SET_OK;
-}
-
-
-static const char *
-capture_column_type_name_cb(void)
-{
-    return "Column list";
-}
-
-static char *
-capture_column_type_description_cb(void)
-{
-    return g_strdup(
-        "List of columns to be displayed in the capture options dialog.\n"
-        CAPTURE_COL_TYPE_DESCRIPTION);
-}
-
-static bool
-capture_column_is_default_cb(pref_t* pref)
-{
-    GList   *pref_col = g_list_first(prefs.capture_columns),
-            *def_col = g_list_first(pref->default_val.list);
-    bool is_default = true;
-
-    /* See if the column data has changed from the default */
-    while (pref_col && def_col) {
-        if (strcmp((char *)pref_col->data, (char *)def_col->data) != 0) {
-            is_default = false;
-            break;
-        }
-        pref_col = pref_col->next;
-        def_col = def_col->next;
-    }
-
-    /* Ensure the same column count */
-    if (((pref_col == NULL) && (def_col != NULL)) ||
-        ((pref_col != NULL) && (def_col == NULL)))
-        is_default = false;
-
-    return is_default;
-}
-
-static char *
-capture_column_to_str_cb(pref_t* pref, bool default_val)
-{
-
-    GList       *pref_l = default_val ? pref->default_val.list : prefs.capture_columns;
-    GList       *clp = g_list_first(pref_l);
-    GList       *col_l = NULL;
-    char        *col;
-    char        *capture_column_str;
-
-    while (clp) {
-        col = (char *) clp->data;
-        col_l = g_list_append(col_l, g_strdup(col));
-        clp = clp->next;
-    }
-
-    capture_column_str = join_string_list(col_l);
-    prefs_clear_string_list(col_l);
-    return capture_column_str;
-}
-
 static prefs_set_pref_e
 colorized_frame_set_cb(pref_t* pref, const char* value, unsigned int* changed_flags)
 {
@@ -3240,13 +3136,13 @@ colorized_frame_to_str_cb(pref_t* pref _U_, bool default_val _U_)
 static module_t *gui_module;
 static module_t *gui_color_module;
 static module_t *nameres_module;
+static module_t *extcap_module;
 
 static void
 prefs_register_modules(void)
 {
     module_t *printing, *capture_module, *console_module,
         *gui_layout_module, *gui_font_module;
-    module_t *extcap_module;
     unsigned int layout_gui_flags;
     struct pref_custom_cbs custom_cbs;
 
@@ -3255,14 +3151,15 @@ prefs_register_modules(void)
         return;
     }
 
-    /* GUI
-     * These are "simple" GUI preferences that can be read/written using the
-     * preference module API.  These preferences still use their own
-     * configuration screens for access, but this cuts down on the
-     * preference "string compare list" in set_pref()
+    /* Extcap
+     * The extcap preferences used to be in the main preference file, but are
+     * now (since 4.4.0) written separately to "extcap.cfg". It occasionally
+     * seems to cause issues that this is registered as a top level module.
      */
     extcap_module = prefs_register_module(prefs_top_level_modules, prefs_modules, "extcap", "Extcap Utilities",
         "Extcap Utilities", NULL, NULL, false);
+    /* Extcap preferences don't affect dissection */
+    prefs_set_module_effect_flags(extcap_module, PREF_EFFECT_CAPTURE);
 
     /* Setting default value to true */
     prefs.extcap_save_on_start = true;
@@ -3308,11 +3205,7 @@ prefs_register_modules(void)
     prefs_register_obsolete_preference(gui_module, "tree_view_altern_colors");
     prefs_register_obsolete_preference(gui_module, "expert_composite_eyecandy");
     prefs_register_obsolete_preference(gui_module, "filter_toolbar_show_in_statusbar");
-
-    prefs_register_bool_preference(gui_module, "restore_filter_after_following_stream",
-                                   "Restore current display filter after following a stream",
-                                   "Restore current display filter after following a stream?",
-                                   &prefs.restore_filter_after_following_stream);
+    prefs_register_obsolete_preference(gui_module, "restore_filter_after_following_stream");
 
     prefs_register_obsolete_preference(gui_module, "protocol_tree_line_style");
 
@@ -3391,50 +3284,12 @@ prefs_register_modules(void)
     unsigned gui_color_effect_flags = gui_effect_flags | PREF_EFFECT_GUI_COLOR;
     prefs_set_module_effect_flags(gui_color_module, gui_color_effect_flags);
 
-    prefs_register_enum_preference(gui_color_module, "color_scheme", "Color scheme", "Color scheme",
-        &prefs.gui_color_scheme, gui_color_scheme, false);
-
-    prefs_register_color_preference(gui_color_module, "active_frame.fg", "Foreground color for an active selected item",
-        "Foreground color for an active selected item", &prefs.gui_active_fg);
-
-    prefs_register_color_preference(gui_color_module, "active_frame.bg", "Background color for an active selected item",
-        "Background color for an active selected item", &prefs.gui_active_bg);
-
-    prefs_register_enum_preference(gui_color_module, "active_frame.style", "Color style for an active selected item",
-        "Color style for an active selected item", &prefs.gui_active_style, gui_selection_style, false);
-
-    prefs_register_color_preference(gui_color_module, "inactive_frame.fg", "Foreground color for an inactive selected item",
-        "Foreground color for an inactive selected item", &prefs.gui_inactive_fg);
-
-    prefs_register_color_preference(gui_color_module, "inactive_frame.bg", "Background color for an inactive selected item",
-        "Background color for an inactive selected item", &prefs.gui_inactive_bg);
-
-    prefs_register_enum_preference(gui_color_module, "inactive_frame.style", "Color style for an inactive selected item",
-        "Color style for an inactive selected item", &prefs.gui_inactive_style, gui_selection_style, false);
-
-    prefs_register_color_preference(gui_color_module, "marked_frame.fg", "Color preferences for a marked frame",
-        "Color preferences for a marked frame", &prefs.gui_marked_fg);
-
-    prefs_register_color_preference(gui_color_module, "marked_frame.bg", "Color preferences for a marked frame",
-        "Color preferences for a marked frame", &prefs.gui_marked_bg);
-
-    prefs_register_color_preference(gui_color_module, "ignored_frame.fg", "Color preferences for a ignored frame",
-        "Color preferences for a ignored frame", &prefs.gui_ignored_fg);
-
-    prefs_register_color_preference(gui_color_module, "ignored_frame.bg", "Color preferences for a ignored frame",
-        "Color preferences for a ignored frame", &prefs.gui_ignored_bg);
-
-    prefs_register_color_preference(gui_color_module, "stream.client.fg", "TCP stream window color preference",
-        "TCP stream window color preference", &prefs.st_client_fg);
-
-    prefs_register_color_preference(gui_color_module, "stream.client.bg", "TCP stream window color preference",
-        "TCP stream window color preference", &prefs.st_client_bg);
-
-    prefs_register_color_preference(gui_color_module, "stream.server.fg", "TCP stream window color preference",
-        "TCP stream window color preference", &prefs.st_server_fg);
-
-    prefs_register_color_preference(gui_color_module, "stream.server.bg", "TCP stream window color preference",
-        "TCP stream window color preference", &prefs.st_server_bg);
+    /* The appearance mode moved to global recent_common storage
+       (recent.gui_color_scheme) so it no longer flips when switching
+       profiles.  Keep the old per-profile key registered as obsolete so
+       existing preferences files load without an "unknown preference"
+       warning. */
+    prefs_register_obsolete_preference(gui_color_module, "color_scheme");
 
     custom_cbs.free_cb = free_string_like_preference;
     custom_cbs.reset_cb = reset_string_like_preference;
@@ -3457,21 +3312,6 @@ prefs_register_modules(void)
     register_string_like_preference(gui_column_module, "colorized_frame.bg", "Colorized Background",
         "Filter Colorized Background",
         &prefs.gui_colorized_bg, PREF_CUSTOM, &custom_cbs, true);
-
-    prefs_register_color_preference(gui_color_module, "color_filter_fg.valid", "Valid color filter foreground",
-        "Valid color filter foreground", &prefs.gui_filter_valid_fg);
-    prefs_register_color_preference(gui_color_module, "color_filter_bg.valid", "Valid color filter background",
-        "Valid color filter background", &prefs.gui_filter_valid_bg);
-
-    prefs_register_color_preference(gui_color_module, "color_filter_fg.invalid", "Invalid color filter foreground",
-        "Invalid color filter foreground", &prefs.gui_filter_invalid_fg);
-    prefs_register_color_preference(gui_color_module, "color_filter_bg.invalid", "Invalid color filter background",
-        "Invalid color filter background", &prefs.gui_filter_invalid_bg);
-
-    prefs_register_color_preference(gui_color_module, "color_filter_fg.deprecated", "Deprecated color filter foreground",
-        "Deprecated color filter foreground", &prefs.gui_filter_deprecated_fg);
-    prefs_register_color_preference(gui_color_module, "color_filter_bg.deprecated", "Deprecated color filter background",
-        "Deprecated color filter background", &prefs.gui_filter_deprecated_bg);
 
     prefs_register_enum_preference(gui_module, "fileopen.style",
                        "Where to start the File Open dialog box",
@@ -3945,6 +3785,23 @@ prefs_register_modules(void)
     prefs_register_bool_preference(capture_module, "pcap_ng", "Capture in pcapng format",
         "Capture in pcapng format?", &prefs.capture_pcap_ng);
 
+#ifdef HAVE_ZSTD
+    prefs_register_int_preference(capture_module, "zstd_compression_level",
+        "Zstandard compression level",
+        "Compression level for saving and exporting Zstandard captures. "
+        "Higher levels use more CPU and memory to produce smaller files. "
+        "Use 1 to 22, or 0 for the library default (3). "
+        "With Zstandard 1.4.0 or newer, negative levels select fast compression; "
+        "more negative levels favor speed over compression ratio. "
+        "Also applies to TShark when rewriting captures with -r and -w.",
+        &prefs.capture_zstd_compression_level);
+#endif
+
+    prefs_register_enum_preference(capture_module, "process_info", "Record the processes that packets belong to",
+        "What to record, in pcapng files, of the processes on this host that sent or received each packet."
+        " Paths, command lines and user names can be sensitive.",
+        (int*)(void*)(&prefs.capture_process_info), capture_process_info_vals, false);
+
     prefs_register_bool_preference(capture_module, "real_time_update", "Update packet list in real time during capture",
         "Update packet list in real time during capture?", &prefs.capture_real_time);
 
@@ -3953,6 +3810,12 @@ prefs_register_modules(void)
                                    "Capture update interval in ms",
                                    10,
                                    &prefs.capture_update_interval);
+
+    prefs_register_directory_preference(capture_module, "temp_dir", "Temporary directory",
+        "Directory in which to write temporary capture files. Leave empty to use the "
+        "system default (the TMPDIR environment variable, or /tmp). A directory chosen in "
+        "the Capture Options dialog is saved here. Overridden by the --temp-dir option.",
+        (const char **)&prefs.capture_temp_dir);
 
     prefs_register_bool_preference(capture_module, "no_interface_load", "Don't load interfaces on startup",
         "Don't automatically load capture interfaces on startup", &prefs.capture_no_interface_load);
@@ -3967,15 +3830,8 @@ prefs_register_modules(void)
 
     prefs_register_obsolete_preference(capture_module, "syntax_check_filter");
 
-    custom_cbs.free_cb = capture_column_free_cb;
-    custom_cbs.reset_cb = capture_column_reset_cb;
-    custom_cbs.set_cb = capture_column_set_cb;
-    custom_cbs.type_name_cb = capture_column_type_name_cb;
-    custom_cbs.type_description_cb = capture_column_type_description_cb;
-    custom_cbs.is_default_cb = capture_column_is_default_cb;
-    custom_cbs.to_str_cb = capture_column_to_str_cb;
-    prefs_register_list_custom_preference(capture_module, "columns", "Capture options dialog column list",
-        "List of columns to be displayed", &custom_cbs, capture_column_init_cb, &prefs.capture_columns);
+    prefs_register_obsolete_preference(capture_module, "columns");
+
     aggregation_field_register_uat(capture_module);
 
     /* Name Resolution */
@@ -4369,98 +4225,16 @@ static void
 prefs_set_global_defaults(wmem_allocator_t* pref_scope, const char** col_fmt, int num_cols)
 {
     int         i;
-    char        *col_name;
     fmt_data    *cfmt;
 
-    prefs.restore_filter_after_following_stream = false;
     prefs.gui_toolbar_main_style = TB_STYLE_ICONS;
     /* We try to find the best font in the Qt code */
     wmem_free(pref_scope, prefs.gui_font_name);
     prefs.gui_font_name              = wmem_strdup(pref_scope, "");
-    prefs.gui_active_fg.red          =         0;
-    prefs.gui_active_fg.green        =         0;
-    prefs.gui_active_fg.blue         =         0;
-    prefs.gui_active_bg.red          =     52223;
-    prefs.gui_active_bg.green        =     59647;
-    prefs.gui_active_bg.blue         =     65535;
-    prefs.gui_active_style           = COLOR_STYLE_DEFAULT;
-    prefs.gui_inactive_fg.red        =         0;
-    prefs.gui_inactive_fg.green      =         0;
-    prefs.gui_inactive_fg.blue       =         0;
-    prefs.gui_inactive_bg.red        =     61439;
-    prefs.gui_inactive_bg.green      =     61439;
-    prefs.gui_inactive_bg.blue       =     61439;
-    prefs.gui_inactive_style         = COLOR_STYLE_DEFAULT;
-    prefs.gui_marked_fg.red          =     65535;
-    prefs.gui_marked_fg.green        =     65535;
-    prefs.gui_marked_fg.blue         =     65535;
-    prefs.gui_marked_bg.red          =         0;
-    prefs.gui_marked_bg.green        =      8224;
-    prefs.gui_marked_bg.blue         =     10794;
-    prefs.gui_ignored_fg.red         =     32767;
-    prefs.gui_ignored_fg.green       =     32767;
-    prefs.gui_ignored_fg.blue        =     32767;
-    prefs.gui_ignored_bg.red         =     65535;
-    prefs.gui_ignored_bg.green       =     65535;
-    prefs.gui_ignored_bg.blue        =     65535;
     wmem_free(pref_scope, prefs.gui_colorized_fg);
     prefs.gui_colorized_fg           = wmem_strdup(pref_scope, "000000,000000,000000,000000,000000,000000,000000,000000,000000,000000");
     wmem_free(pref_scope, prefs.gui_colorized_bg);
     prefs.gui_colorized_bg           = wmem_strdup(pref_scope, "ffc0c0,ffc0ff,e0c0e0,c0c0ff,c0e0e0,c0ffff,c0ffc0,ffffc0,e0e0c0,e0e0e0");
-    prefs.st_client_fg.red           = 32767;
-    prefs.st_client_fg.green         =     0;
-    prefs.st_client_fg.blue          =     0;
-    prefs.st_client_bg.red           = 64507;
-    prefs.st_client_bg.green         = 60909;
-    prefs.st_client_bg.blue          = 60909;
-    prefs.st_server_fg.red           =     0;
-    prefs.st_server_fg.green         =     0;
-    prefs.st_server_fg.blue          = 32767;
-    prefs.st_server_bg.red           = 60909;
-    prefs.st_server_bg.green         = 60909;
-    prefs.st_server_bg.blue          = 64507;
-
-    if (gui_theme_is_dark) {
-        // Green, red and yellow with HSV V = 84
-        prefs.gui_filter_valid_bg.red         = 0x0000; /* dark green */
-        prefs.gui_filter_valid_bg.green       = 0x66ff;
-        prefs.gui_filter_valid_bg.blue        = 0x0000;
-        prefs.gui_filter_valid_fg.red         = 0xFFFF;
-        prefs.gui_filter_valid_fg.green       = 0xFFFF;
-        prefs.gui_filter_valid_fg.blue        = 0xFFFF;
-        prefs.gui_filter_invalid_bg.red       = 0x66FF; /* dark red */
-        prefs.gui_filter_invalid_bg.green     = 0x0000;
-        prefs.gui_filter_invalid_bg.blue      = 0x0000;
-        prefs.gui_filter_invalid_fg.red       = 0xFFFF;
-        prefs.gui_filter_invalid_fg.green     = 0xFFFF;
-        prefs.gui_filter_invalid_fg.blue      = 0xFFFF;
-        prefs.gui_filter_deprecated_bg.red    = 0x66FF; /* dark yellow / olive */
-        prefs.gui_filter_deprecated_bg.green  = 0x66FF;
-        prefs.gui_filter_deprecated_bg.blue   = 0x0000;
-        prefs.gui_filter_deprecated_fg.red    = 0xFFFF;
-        prefs.gui_filter_deprecated_fg.green  = 0xFFFF;
-        prefs.gui_filter_deprecated_fg.blue   = 0xFFFF;
-    } else {
-        // Green, red and yellow with HSV V = 20
-        prefs.gui_filter_valid_bg.red         = 0xAFFF; /* light green */
-        prefs.gui_filter_valid_bg.green       = 0xFFFF;
-        prefs.gui_filter_valid_bg.blue        = 0xAFFF;
-        prefs.gui_filter_valid_fg.red         = 0x0000;
-        prefs.gui_filter_valid_fg.green       = 0x0000;
-        prefs.gui_filter_valid_fg.blue        = 0x0000;
-        prefs.gui_filter_invalid_bg.red       = 0xFFFF; /* light red */
-        prefs.gui_filter_invalid_bg.green     = 0xAFFF;
-        prefs.gui_filter_invalid_bg.blue      = 0xAFFF;
-        prefs.gui_filter_invalid_fg.red       = 0x0000;
-        prefs.gui_filter_invalid_fg.green     = 0x0000;
-        prefs.gui_filter_invalid_fg.blue      = 0x0000;
-        prefs.gui_filter_deprecated_bg.red    = 0xFFFF; /* light yellow */
-        prefs.gui_filter_deprecated_bg.green  = 0xFFFF;
-        prefs.gui_filter_deprecated_bg.blue   = 0xAFFF;
-        prefs.gui_filter_deprecated_fg.red    = 0x0000;
-        prefs.gui_filter_deprecated_fg.green  = 0x0000;
-        prefs.gui_filter_deprecated_fg.blue   = 0x0000;
-    }
 
     prefs.gui_geometry_save_position = true;
     prefs.gui_geometry_save_size     = true;
@@ -4537,18 +4311,12 @@ prefs_set_global_defaults(wmem_allocator_t* pref_scope, const char** col_fmt, in
     prefs.capture_prom_mode             = true;
     prefs.capture_monitor_mode          = false;
     prefs.capture_pcap_ng               = true;
+    prefs.capture_zstd_compression_level = 3;
+    prefs.capture_process_info          = CAPTURE_PROCESS_INFO_BASIC;
     prefs.capture_real_time             = true;
     prefs.capture_update_interval       = DEFAULT_UPDATE_INTERVAL;
     prefs.capture_no_extcap             = false;
     prefs.capture_show_info             = false;
-
-    if (!prefs.capture_columns) {
-        /* First time through */
-        for (i = 0; i < num_capture_cols; i++) {
-            col_name = g_strdup(capture_cols[i]);
-            prefs.capture_columns = g_list_append(prefs.capture_columns, col_name);
-        }
-    }
 
 /* set the default values for the tap/statistics dialog box */
     prefs.tap_update_interval    = TAP_UPDATE_DEFAULT_INTERVAL;
@@ -4753,7 +4521,7 @@ read_registry(void)
 #endif
 
 void
-prefs_read_module(const char *module, const char* app_env_var_prefix)
+prefs_read_module(const char *module, bool from_profile, const char* app_env_var_prefix)
 {
     int         err;
     char        *pf_path;
@@ -4765,9 +4533,9 @@ prefs_read_module(const char *module, const char* app_env_var_prefix)
     }
 
     /* Construct the pathname of the user's preferences file for the module. */
-    char *pf_name = wmem_strdup_printf(NULL, "%s.cfg", module);
-    pf_path = get_persconffile_path(pf_name, true, app_env_var_prefix);
-    wmem_free(NULL, pf_name);
+    char *pf_name = g_strdup_printf("%s.cfg", module);
+    pf_path = get_persconffile_path(pf_name, from_profile, app_env_var_prefix);
+    g_free(pf_name);
 
     /* Read the user's module preferences file, if it exists and is not a dir. */
     if (!test_for_regular_file(pf_path) || ((pf = ws_fopen(pf_path, "r")) == NULL)) {
@@ -5542,24 +5310,6 @@ prefs_capture_device_monitor_mode(const char *name)
         g_free (devices);
     }
 
-    return false;
-}
-
-/*
- * Returns true if the user has marked this column as visible
- */
-bool
-prefs_capture_options_dialog_column_is_visible(const char *column)
-{
-    GList *curr;
-    char *col;
-
-    for (curr = g_list_first(prefs.capture_columns); curr; curr = g_list_next(curr)) {
-        col = (char *)curr->data;
-        if (col && (g_ascii_strcasecmp(col, column) == 0)) {
-            return true;
-        }
-    }
     return false;
 }
 
@@ -6355,6 +6105,7 @@ set_pref(char *pref_name, const char *value, void *private_data,
 typedef struct {
     FILE     *pf;
     bool is_gui_module;
+    bool is_extcap_module;
 } write_gui_pref_arg_t;
 
 const char *
@@ -6981,6 +6732,9 @@ write_module_prefs(module_t *module, void *user_data)
     if ((module == gui_module) && (gui_pref_arg->is_gui_module != true))
         return 0;
 
+    if ((module == extcap_module) && (gui_pref_arg->is_extcap_module != true))
+        return 0;
+
     /* Write a header for the main modules and GUI sub-modules */
     if (((module->parent == NULL) || (module->parent == gui_module)) &&
         ((prefs_module_has_submodules(module)) ||
@@ -7034,14 +6788,62 @@ write_registry(void)
 }
 #endif
 
+int
+prefs_write_module(const char *module, bool from_profile, const char* app_env_var_prefix)
+{
+    write_gui_pref_arg_t write_pref_info;
+
+    module_t *target_module = prefs_find_module(module);
+    if (!target_module) {
+        return ENOENT;
+    }
+
+    char *pf_name = g_strdup_printf("%s.cfg", module);
+    char *pf_path = get_persconffile_path(pf_name, from_profile, app_env_var_prefix);
+    g_free(pf_name);
+
+    FILE *pf;
+    if ((pf = ws_fopen(pf_path, "w")) == NULL) {
+        int err = errno;
+        if (err != EISDIR) {
+            ws_warning("Unable to save %s preferences \"%s\": %s",
+                module, pf_path, g_strerror(err));
+        }
+        g_free(pf_path);
+        return err;
+    }
+    g_free(pf_path);
+
+    fprintf(pf, "# %s configuration file for Wireshark " VERSION ".\n"
+                "#\n"
+                "# This file is regenerated each time preferences are saved within\n"
+                "# Wireshark. Making manual changes should be safe, however.\n"
+                "# Preferences that have been commented out have not been\n"
+                "# changed from their default value.\n", target_module->title);
+
+    write_pref_info.pf = pf;
+    write_pref_info.is_gui_module = (target_module == gui_module);
+    write_pref_info.is_extcap_module = (target_module == extcap_module);
+
+    write_module_prefs(target_module, &write_pref_info);
+
+    fclose(pf);
+
+    return 0;
+}
+
 /* Write out "prefs" to the user's preferences file, and return 0.
 
    If the preferences file path is NULL, write to stdout.
 
-   If we got an error, stuff a pointer to the path of the preferences file
-   into "*pf_path_return", and return the errno. */
-int
-write_prefs(const char* app_env_var_prefix, char **pf_path_return)
+   If we got an error, stuff a pointer to the path of the preferences
+   file into "*pf_path_return", and return the errno.
+
+   Note that we don't write extcap.cfg here; that's done by
+   extcap_write_preferences().
+*/
+    int
+    write_prefs(const char *app_env_var_prefix, char **pf_path_return)
 {
     char        *pf_path;
     FILE        *pf;
@@ -7081,35 +6883,6 @@ write_prefs(const char* app_env_var_prefix, char **pf_path_return)
                 g_free(err);
             }
         }
-
-        module_t *extcap_module = prefs_find_module("extcap");
-        if (extcap_module && !prefs.capture_no_extcap) {
-            char *ext_path = get_persconffile_path("extcap.cfg", true, app_env_var_prefix);
-            FILE *extf;
-            if ((extf = ws_fopen(ext_path, "w")) == NULL) {
-                if (errno != EISDIR) {
-                    ws_warning("Unable to save extcap preferences \"%s\": %s",
-                        ext_path, g_strerror(errno));
-                }
-                g_free(ext_path);
-            } else {
-                g_free(ext_path);
-
-                fputs("# Extcap configuration file for Wireshark " VERSION ".\n"
-                      "#\n"
-                      "# This file is regenerated each time preferences are saved within\n"
-                      "# Wireshark. Making manual changes should be safe, however.\n"
-                      "# Preferences that have been commented out have not been\n"
-                      "# changed from their default value.\n", extf);
-
-                write_gui_pref_info.pf = extf;
-                write_gui_pref_info.is_gui_module = false;
-
-                write_module_prefs(extcap_module, &write_gui_pref_info);
-
-                fclose(extf);
-            }
-        }
     }
 
     fputs("# Configuration file for Wireshark " VERSION ".\n"
@@ -7127,10 +6900,15 @@ write_prefs(const char* app_env_var_prefix, char **pf_path_return)
      */
     write_gui_pref_info.pf = pf;
     write_gui_pref_info.is_gui_module = true;
+    write_gui_pref_info.is_extcap_module = false;
 
     write_module_prefs(gui_module, &write_gui_pref_info);
 
     write_gui_pref_info.is_gui_module = false;
+    if (pf_path_return == NULL) {
+        /* If we're writing the prefs to stdout, write the extcap prefs. */
+        write_gui_pref_info.is_extcap_module = true;
+    }
     prefs_module_list_foreach(prefs_top_level_modules, write_module_prefs, &write_gui_pref_info, true);
 
     fclose(pf);

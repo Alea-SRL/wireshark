@@ -40,7 +40,7 @@ protected:
     /**
      * @brief Handles resize events to adjust the position and size of the embedded apply button.
      */
-    void resizeEvent(QResizeEvent *);
+    void resizeEvent(QResizeEvent *) override;
 
 signals:
     /**
@@ -76,6 +76,12 @@ private:
      * @param is_valid True to apply the valid style, false to apply the invalid/error style.
      */
     void updateStyleSheet(bool is_valid);
+
+    /** @brief Scales the apply button icon with the application zoom. */
+    void updateApplyButtonZoom();
+
+    /** @brief Sizes and places the apply button inside the frame. */
+    void updateApplyButtonGeometry();
 
     /** Pointer to the embedded apply button. */
     StockIconToolButton *apply_button_;

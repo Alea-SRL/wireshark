@@ -2095,8 +2095,9 @@ static int dlms_get_type_description_length(tvbuff_t* tvb, packet_info* pinfo, i
 
     int choice = tvb_get_uint8(tvb, offset);
     if (choice == 1) { // array
+        int type_description_length = 1 + 2 + dlms_get_type_description_length(tvb, pinfo, offset + 3);
         decrement_dissection_depth_by_n(pinfo, 3);
-        return 1 + 2 + dlms_get_type_description_length(tvb, pinfo, offset + 3);
+        return type_description_length;
     }
     else if (choice == 2) { // structure
         int end_offset = offset + 1;
@@ -2547,11 +2548,10 @@ dlms_dissect_event_notification_request(tvbuff_t* tvb, packet_info* pinfo, proto
 static void
 dlms_dissect_action_request(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, int offset)
 {
-    int choice, method_invocation_parameters;
+    uint8_t choice, method_invocation_parameters;
     proto_tree* subtree;
 
-    proto_tree_add_item(tree, hf_dlms_action_request, tvb, offset, 1, ENC_NA);
-    choice = tvb_get_uint8(tvb, offset);
+    proto_tree_add_item_ret_uint8(tree, hf_dlms_action_request, tvb, offset, 1, ENC_NA, &choice);
     offset += 1;
     offset = dlms_dissect_invoke_id_and_priority(tree, tvb, offset);
     if (choice == DLMS_ACTION_REQUEST_NORMAL) {
@@ -3581,7 +3581,7 @@ void proto_register_cosem(void) {
     { &hf_dlms_service_class,
     { "Service Class", "dlms.service_class", FT_BOOLEAN, 8, TFS(&tfs_confirmed_unconfirmed), 0x40, NULL, HFILL }},
     { &hf_dlms_priority,
-    { "Priority", "dlms.priority", FT_BOOLEAN, 32, TFS(&tfs_high_normal), 0x80, NULL, HFILL }},
+    { "Priority", "dlms.priority", FT_BOOLEAN, 8, TFS(&tfs_high_normal), 0x80, NULL, HFILL }},
     /* Long-Invoke-Id-And-Priority */
     { &hf_dlms_long_invoke_id,
     { "Long Invoke Id", "dlms.long_invoke_id", FT_UINT32, BASE_DEC, NULL, 0xffffff, NULL, HFILL }},

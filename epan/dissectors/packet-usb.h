@@ -113,6 +113,7 @@ enum usb_conv_class_data_type {
     USB_CONV_MASS_STORAGE_BOT,
     USB_CONV_MASS_STORAGE_UASP,
     USB_CONV_CDC_DATA,
+    USB_CONV_PTP,
 };
 
 /* Conversation Structure
@@ -134,6 +135,7 @@ struct _usb_conv_info_t {
 
     void *class_data;           /* private class/id decode data */
     enum usb_conv_class_data_type class_data_type;
+    uint32_t config_desc_frame_num;  /* configuration descriptor frame number (0 = none) */
 
     wmem_array_t *alt_settings;
 };

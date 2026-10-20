@@ -167,8 +167,14 @@ static int hf_capwap_msg_element_type_capwap_local_ipv4_address;
 
 static int hf_capwap_msg_element_type_idle_timeout;
 
+static int hf_capwap_msg_element_type_image_data_type;
+static int hf_capwap_msg_element_type_image_data_data;
+
 static int hf_capwap_msg_element_type_image_identifier_vendor;
 static int hf_capwap_msg_element_type_image_identifier_data;
+
+static int hf_capwap_msg_element_type_image_information_file_size;
+static int hf_capwap_msg_element_type_image_information_hash;
 
 static int hf_capwap_msg_element_type_radio_admin_id;
 static int hf_capwap_msg_element_type_radio_admin_state;
@@ -1184,6 +1190,20 @@ static const value_string last_failure_type_vals[] = {
 static const value_string capwap_transport_protocol_vals[] = {
     { 1, "UDP-Lite" },
     { 2, "UDP" },
+    { 0,     NULL     }
+};
+
+/* ************************************************************************* */
+/*                     Image Data Types                                      */
+/* ************************************************************************* */
+#define IMAGE_DATA_TYPE_DATA 1
+#define IMAGE_DATA_TYPE_DATA_EOF 2
+#define IMAGE_DATA_TYPE_ERROR 5
+
+static const value_string image_data_types[] = {
+    { IMAGE_DATA_TYPE_DATA, "Image data is included" },
+    { IMAGE_DATA_TYPE_DATA_EOF, "Last Image Data Block is included (EOF)" },
+    { IMAGE_DATA_TYPE_ERROR, "An error occurred. Transfer is aborted" },
     { 0,     NULL     }
 };
 
@@ -2290,8 +2310,7 @@ hf_capwap_msg_element_type_ac_descriptor_dtls_policy, ett_capwap_ac_descriptor_d
             break;
         }
         proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_add_station_radio_id, tvb, offset + 4, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_add_station_length, tvb, offset + 5, 1, ENC_BIG_ENDIAN);
-        maclength = tvb_get_uint8(tvb, offset+5);
+        proto_tree_add_item_ret_uint8(sub_msg_element_type_tree, hf_capwap_msg_element_type_add_station_length, tvb, offset + 5, 1, ENC_BIG_ENDIAN, &maclength);
         switch(maclength){
             case 6:
                 proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_add_station_mac_eui48, tvb, offset+6, maclength, ENC_NA);
@@ -2358,8 +2377,7 @@ hf_capwap_msg_element_type_ac_descriptor_dtls_policy, ett_capwap_ac_descriptor_d
             break;
         }
         proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_delete_station_radio_id, tvb, offset + 4, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_delete_station_length, tvb, offset + 5, 1, ENC_BIG_ENDIAN);
-        maclength = tvb_get_uint8(tvb, offset+5);
+        proto_tree_add_item_ret_uint8(sub_msg_element_type_tree, hf_capwap_msg_element_type_delete_station_length, tvb, offset + 5, 1, ENC_BIG_ENDIAN, &maclength);
         switch(maclength){
             case 6:
                 proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_delete_station_mac_eui48, tvb, offset+6, maclength, ENC_NA);
@@ -2392,6 +2410,25 @@ hf_capwap_msg_element_type_ac_descriptor_dtls_policy, ett_capwap_ac_descriptor_d
         proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_idle_timeout, tvb, offset+4, 4, ENC_BIG_ENDIAN);
         break;
 
+    case TYPE_IMAGE_DATA: { /* Image Data (24) */
+        uint8_t data_type;
+        unsigned data_len;
+
+        if (optlen == 0) {
+            expert_add_info_format(pinfo, ti_len, &ei_capwap_msg_element_length,
+                           "Image Data length 0 wrong, must be >= 1");
+            break;
+        }
+        proto_tree_add_item_ret_uint8(sub_msg_element_type_tree, hf_capwap_msg_element_type_image_data_type, tvb, offset+4, 1, ENC_BIG_ENDIAN, &data_type);
+        proto_tree_add_item_ret_length(sub_msg_element_type_tree, hf_capwap_msg_element_type_image_data_data, tvb, offset+5, optlen-1, ENC_NA, &data_len);
+        /* When the Data Type field is 5, the Value field has a zero length [RFC5415 4.6.26] */
+        if (data_type == IMAGE_DATA_TYPE_ERROR && data_len > 0) {
+            expert_add_info_format(pinfo, ti_len, &ei_capwap_msg_element_length,
+                           "Data length %u wrong, must be 0 when Data Type = %d", data_len, IMAGE_DATA_TYPE_ERROR);
+        }
+        break;
+    }
+
     case TYPE_IMAGE_IDENTIFIER: /* Image Identifier (25) */
         if (optlen < 5) {
             expert_add_info_format(pinfo, ti_len, &ei_capwap_msg_element_length,
@@ -2400,6 +2437,24 @@ hf_capwap_msg_element_type_ac_descriptor_dtls_policy, ett_capwap_ac_descriptor_d
         }
         proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_image_identifier_vendor, tvb, offset+4, 4, ENC_BIG_ENDIAN);
         proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_image_identifier_data, tvb, offset+8, optlen-4, ENC_UTF_8);
+        break;
+
+    case TYPE_IMAGE_INFORMATION: /* Image Information (26) */
+        if (optlen != 20) {
+            expert_add_info_format(pinfo, ti_len, &ei_capwap_msg_element_length,
+                           "Image Information length %u wrong, must be = 20", optlen);
+            break;
+        }
+        proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_image_information_file_size, tvb, offset+4, 4, ENC_BIG_ENDIAN);
+        proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_image_information_hash, tvb, offset+8, 16, ENC_NA);
+        break;
+
+    case TYPE_INITIATE_DOWNLOAD: /* Initiate Download (27) */
+        /* Initiate Download message element does not contain any payload */
+        if (optlen != 0) {
+            expert_add_info_format(pinfo, ti_len, &ei_capwap_msg_element_length,
+                           "Initiate Download length %u wrong, must be 0", optlen);
+        }
         break;
 
     case TYPE_LOCATION_DATA: /* Location Data (28) */
@@ -2487,8 +2542,7 @@ hf_capwap_msg_element_type_ac_descriptor_dtls_policy, ett_capwap_ac_descriptor_d
                            "Vendor Specific Payload length %u wrong, must be >= 7", optlen);
             break;
         }
-        proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_vsp_vendor_identifier, tvb, offset+4, 4, ENC_BIG_ENDIAN);
-        vendor_id = tvb_get_ntohl(tvb, offset+4);
+        proto_tree_add_item_ret_uint(sub_msg_element_type_tree, hf_capwap_msg_element_type_vsp_vendor_identifier, tvb, offset+4, 4, ENC_BIG_ENDIAN, &vendor_id);
         proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_vsp_vendor_element_id, tvb, offset+8, 2, ENC_BIG_ENDIAN);
         proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_vsp_vendor_data, tvb, offset+10, optlen-6, ENC_NA);
         switch(vendor_id){
@@ -3016,8 +3070,10 @@ hf_capwap_msg_element_type_ieee80211_station_capabilities, ett_capwap_ieee80211_
         break;
         }
         proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_ieee80211_supported_mac_profiles_numbers, tvb, offset+4, 1, ENC_BIG_ENDIAN);
-        num_profiles = tvb_get_uint8(tvb ,offset);
+        /* TODO: offset should be +4 here? */
+        num_profiles = tvb_get_uint8(tvb, offset);
         while(num_profiles){
+            /* TODO: profiles all read from same offset? */
             proto_tree_add_item(sub_msg_element_type_tree, hf_capwap_msg_element_type_ieee80211_supported_mac_profiles_profile, tvb, offset+5, 1, ENC_BIG_ENDIAN);
             offset += 1;
             num_profiles--;
@@ -3079,8 +3135,7 @@ dissect_capwap_data_keep_alive(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ca
     ti = proto_tree_add_item(capwap_data_tree, hf_capwap_data_keep_alive, tvb, offset, tvb_reported_length(tvb), ENC_NA);
     capwap_data_keep_alive_tree = proto_item_add_subtree(ti, ett_capwap_data_keep_alive);
 
-    ti = proto_tree_add_item(capwap_data_keep_alive_tree, hf_capwap_data_keep_alive_length, tvb, offset, 2, ENC_BIG_ENDIAN);
-    len = tvb_get_ntohs(tvb, offset);
+    ti = proto_tree_add_item_ret_uint16(capwap_data_keep_alive_tree, hf_capwap_data_keep_alive_length, tvb, offset, 2, ENC_BIG_ENDIAN, &len);
     if (len != tvb_reported_length(tvb))
         expert_add_info(pinfo, ti, &ei_capwap_data_keep_alive_length);
 
@@ -3963,6 +4018,16 @@ proto_register_capwap_control(void)
               FT_UINT32, BASE_DEC, NULL, 0x0,
               NULL, HFILL }
         },
+        { &hf_capwap_msg_element_type_image_data_type,
+            { "Data Type", "capwap.control.message_element.image_data.type",
+              FT_UINT8, BASE_DEC, VALS(image_data_types), 0x0,
+              "Image Data Type", HFILL }
+        },
+        { &hf_capwap_msg_element_type_image_data_data,
+            { "Data", "capwap.control.message_element.image_data.data",
+              FT_BYTES, BASE_NONE, NULL, 0x0,
+              "Data bytes", HFILL }
+        },
         { &hf_capwap_msg_element_type_image_identifier_vendor,
             { "Vendor Identifier", "capwap.control.message_element.image_identifier.vendor",
               FT_UINT32, BASE_DEC, NULL, 0x0,
@@ -3972,6 +4037,16 @@ proto_register_capwap_control(void)
             { "Image Version", "capwap.control.message_element.image_identifier.data",
               FT_STRING, BASE_NONE, NULL, 0x0,
               "Expected software version to be run on the WTP", HFILL }
+        },
+        { &hf_capwap_msg_element_type_image_information_file_size,
+            { "File Size", "capwap.control.message_element.image_information.file_size",
+              FT_UINT32, BASE_DEC, NULL, 0x0,
+              "Size of the image file in bytes to be transferred from AC to WTP", HFILL }
+        },
+        { &hf_capwap_msg_element_type_image_information_hash,
+            { "Hash", "capwap.control.message_element.image_information.hash",
+              FT_BYTES, BASE_NONE, NULL, 0x0,
+              "MD5 hash of the image", HFILL }
         },
         { &hf_capwap_msg_element_type_location_data,
             { "Location Data", "capwap.control.message_element.location_data",

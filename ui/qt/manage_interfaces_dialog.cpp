@@ -29,7 +29,6 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #endif
-#include "ui/iface_lists.h"
 #include "ui/preference_utils.h"
 #include "ui/ws_ui_util.h"
 #include <wsutil/utf8_entities.h>
@@ -37,6 +36,8 @@
 #include <ui/qt/utils/qt_ui_utils.h>
 
 #include "main_application.h"
+#include <ui/qt/main_window.h>
+#include <ui/qt/manager/interface_list_manager.h>
 
 #include <QDebug>
 
@@ -172,12 +173,12 @@ ManageInterfacesDialog::ManageInterfacesDialog(QWidget *parent) :
     loadGeometry();
     setAttribute(Qt::WA_DeleteOnClose, true);
 
-    ui->addPipe->setStockIcon("list-add");
-    ui->delPipe->setStockIcon("list-remove");
-    ui->addRemote->setStockIcon("list-add");
-    ui->delRemote->setStockIcon("list-remove");
+    ui->addPipe->setIconByName("list-add");
+    ui->delPipe->setIconByName("list-remove");
+    ui->addRemote->setIconByName("list-add");
+    ui->delRemote->setIconByName("list-remove");
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     ui->addPipe->setAttribute(Qt::WA_MacSmallSize, true);
     ui->delPipe->setAttribute(Qt::WA_MacSmallSize, true);
     ui->addRemote->setAttribute(Qt::WA_MacSmallSize, true);
@@ -239,7 +240,6 @@ ManageInterfacesDialog::ManageInterfacesDialog(QWidget *parent) :
 #endif
 
     connect(ui->tabWidget, SIGNAL(currentChanged(int)), this, SLOT(updateWidgets()));
-    connect(this, SIGNAL(ifsChanged()), parent, SIGNAL(ifsChanged()));
 
 #ifdef HAVE_PCAP_REMOTE
     connect(this, SIGNAL(remoteAdded(GList*, remote_options*)), this, SLOT(addRemoteInterfaces(GList*, remote_options*)));
@@ -262,8 +262,9 @@ ManageInterfacesDialog::~ManageInterfacesDialog()
         remoteAccepted();
 #endif
         prefs_main_write();
-        mainApp->refreshLocalInterfaces();
-        emit ifsChanged();
+        MainWindow *mainWindow = mainApp->mainWindow();
+        if (mainWindow && mainWindow->interfaceListManager())
+            mainWindow->interfaceListManager()->requestRefresh();
     }
 
     delete ui;
@@ -447,7 +448,7 @@ void ManageInterfacesDialog::updateRemoteInterfaceList(capture_options* capture_
             auth_str = ws_strdup_printf("%s:%s", roptions->remote_host_opts.auth_username,
                                        roptions->remote_host_opts.auth_password);
         }
-        caps = capture_get_if_capabilities(capture_opts->app_name, if_string, monitor_mode, auth_str, NULL, NULL, main_window_update);
+        caps = capture_get_if_capabilities(if_string, monitor_mode, auth_str, NULL, NULL, main_window_update);
         g_free(auth_str);
         for (; (curr_addr = g_slist_nth(if_info->addrs, ips)) != NULL; ips++) {
             address addr_str;

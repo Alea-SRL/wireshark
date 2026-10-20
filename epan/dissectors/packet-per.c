@@ -1157,21 +1157,27 @@ dissect_per_relative_oid_str(tvbuff_t *tvb, uint32_t offset, asn1_ctx_t *actx, p
 uint32_t
 dissect_per_boolean(tvbuff_t *tvb, uint32_t offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, bool *bool_val)
 {
-	uint8_t ch, mask;
+	uint8_t ch;
 	bool value;
-	header_field_info *hfi;
 
 DEBUG_ENTRY("dissect_per_boolean");
 
-	ch=tvb_get_uint8(tvb, offset>>3);
-	mask=1<<(7-(offset&0x07));
-	if(ch&mask){
-		value=1;
-	} else {
-		value=0;
+	ch = tvb_get_uint8(tvb, offset >> 3);
+	value = (ch >> (7 - (offset & 0x07))) & 1;
+
+	if (hf_index <= 0) {
+		/* Fast path: no tree output needed, skip formatting overhead */
+		actx->created_item = NULL;
+		if (bool_val)
+			*bool_val = value;
+		return offset + 1;
 	}
-	if(hf_index > 0){
+
+	{
+		uint8_t mask = 1 << (7 - (offset & 0x07));
 		char bits[10];
+		header_field_info *hfi;
+
 		bits[0] = mask&0x80?'0'+value:'.';
 		bits[1] = mask&0x40?'0'+value:'.';
 		bits[2] = mask&0x20?'0'+value:'.';
@@ -1187,8 +1193,6 @@ DEBUG_ENTRY("dissect_per_boolean");
 		actx->created_item = proto_tree_add_boolean_format(tree, hf_index, tvb, offset>>3, 1, value,
 								   "%s %s: %s", bits, hfi->name,
 								   value?"True":"False");
-	} else {
-		actx->created_item = NULL;
 	}
 
 	if(bool_val){
@@ -1538,7 +1542,7 @@ DEBUG_ENTRY("dissect_per_constrained_integer_64b");
 		/* range=1000000; */
 		range = max-min;
 		if (range==65536)
-			range++; /* make it fall trough? */
+			range++; /* make it fall through? TODO: can't get here.. */
 	} else {
 		/* Copied from the 32 bit version, assuming the same problem occurs
 		 * at 64 bit boundary.
@@ -2432,7 +2436,7 @@ DEBUG_ENTRY("dissect_per_bit_string");
 uint32_t dissect_per_bit_string_containing_pdu_new(tvbuff_t *tvb, uint32_t offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, int min_len, int max_len, bool has_extension, dissector_t type_cb)
 {
 	tvbuff_t *val_tvb = NULL;
-	proto_tree *subtree = tree;
+	proto_tree *subtree;
 
 	offset = dissect_per_bit_string(tvb, offset, actx, tree, hf_index, min_len, max_len, has_extension, NULL, 0, &val_tvb, NULL);
 
@@ -2587,7 +2591,7 @@ DEBUG_ENTRY("dissect_per_octet_string");
 uint32_t dissect_per_octet_string_containing_pdu_new(tvbuff_t *tvb, uint32_t offset, asn1_ctx_t *actx, proto_tree *tree, int hf_index, int min_len, int max_len, bool has_extension, dissector_t type_cb)
 {
 	tvbuff_t *val_tvb = NULL;
-	proto_tree *subtree = tree;
+	proto_tree *subtree;
 
 	offset = dissect_per_octet_string(tvb, offset, actx, tree, hf_index, min_len, max_len, has_extension, &val_tvb);
 

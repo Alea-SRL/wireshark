@@ -26,6 +26,7 @@
 #include <wsutil/wslog.h>
 #include <wsutil/ws_assert.h>
 #include <wsutil/report_message.h>
+#include <wsutil/utf8_entities.h>
 
 #include <wiretap/merge.h>
 
@@ -43,6 +44,7 @@
 #include <epan/strutil.h>
 #include <epan/addr_resolv.h>
 #include <epan/color_filters.h>
+#include <epan/tag_rules.h>
 #include <epan/secrets.h>
 
 #include <epan/cfile.h>
@@ -242,6 +244,13 @@ ws_epan_new(capture_file *cf)
         cap_file_provider_get_process_id,
         cap_file_provider_get_process_name,
         cap_file_provider_get_process_uuid,
+        cap_file_provider_get_process_path,
+        cap_file_provider_get_process_cmdline,
+        cap_file_provider_get_process_parent_id,
+        cap_file_provider_get_process_user_id,
+        cap_file_provider_get_process_user_name,
+        cap_file_provider_get_process_start_time,
+        cap_file_provider_find_process_info,
     };
 
     return epan_new(&cf->provider, &funcs);
@@ -387,9 +396,6 @@ cf_close(capture_file *cf)
     /* no open_routine type */
     cf->open_type = WTAP_TYPE_AUTO;
 
-    /* Clean up the record information. */
-    wtap_rec_cleanup(&cf->rec);
-
     /* Clear the packet list. */
     packet_list_freeze();
     packet_list_clear();
@@ -406,6 +412,13 @@ cf_close(capture_file *cf)
         cf->provider.frames_modified_blocks = NULL;
     }
     cf_unselect_packet(cf);   /* nothing to select */
+
+    /* Clean up the record information. This must come after freeing the
+     * dissection of the selected packet, which points into the record's
+     * data (e.g., the addresses in its packet_info), as clearing the
+     * packet list above can update the UI from that dissection. */
+    wtap_rec_cleanup(&cf->rec);
+
     cf->first_displayed = 0;
     cf->last_displayed = 0;
 
@@ -463,13 +476,17 @@ calc_progbar_val(capture_file *cf, int64_t size, int64_t file_pos, char *status_
     progbar_val = (float) file_pos / (float) size;
     if (progbar_val > 1.0f) {
 
-        /*  The file probably grew while we were reading it.
-         *  Update file size, and try again.
-         */
-        size = wtap_file_size(cf->provider.wth, NULL);
+        if (cf) {
+            /*  The file probably grew while we were reading it.
+             *  Update file size, and try again.
+             *
+             *  (Don't bother to do this for certain cases like merging.)
+             */
+            size = wtap_file_size(cf->provider.wth, NULL);
 
-        if (size >= 0)
-            progbar_val = (float) file_pos / (float) size;
+            if (size >= 0)
+                progbar_val = (float) file_pos / (float) size;
+        }
 
         /*  If it's still > 1, either "wtap_file_size()" failed (in which
          *  case there's not much we can do about it), or the file
@@ -480,9 +497,12 @@ calc_progbar_val(capture_file *cf, int64_t size, int64_t file_pos, char *status_
             progbar_val = 1.0f;
     }
 
+    char *pos_formatted = format_size_wmem(NULL, file_pos, FORMAT_SIZE_UNIT_BYTES, FORMAT_SIZE_PREFIX_IEC);
+    char *size_formatted = format_size_wmem(NULL, size, FORMAT_SIZE_UNIT_BYTES, FORMAT_SIZE_PREFIX_IEC);
     snprintf(status_str, status_size,
-            "%" PRId64 "KB of %" PRId64 "KB",
-            file_pos / 1024, size / 1024);
+            "%s of %s", pos_formatted, size_formatted);
+    g_free(pos_formatted);
+    g_free(size_formatted);
 
     return progbar_val;
 }
@@ -604,6 +624,10 @@ cf_read(capture_file *cf, bool reloading)
         cksum = g_checksum_new(G_CHECKSUM_SHA256);
     }
 
+    /* Find how many DSBs we had at the start of the file, before the
+     * first packet. */
+    unsigned num_dsbs = wtap_file_get_num_dsbs(cf->provider.wth);
+
     g_timer_start(prog_timer);
 
     wtap_rec_init(&rec, DEFAULT_INIT_BUFFER_SIZE_2048);
@@ -677,7 +701,6 @@ cf_read(capture_file *cf, bool reloading)
             }
             add_new_record_to_record_list(cf, &rec, cf->dfcode, &edt, cinfo,
                                           data_offset, &frame_dup_cache, cksum);
-            wtap_rec_reset(&rec);
         }
     }
     CATCH(OutOfMemoryError) {
@@ -693,6 +716,17 @@ cf_read(capture_file *cf, bool reloading)
 #endif
     }
     ENDTRY;
+
+    /* Did we encounter any DSBs in the middle of the file? */
+    if (wtap_file_get_num_dsbs(cf->provider.wth) != num_dsbs) {
+        /* Yes, so we have unsaved changes (saving the file will move
+         * the DSBs to the start.) */
+        cf->unsaved_changes = true;
+        /* As a DSB in the middle of the file could be after the
+         * relevant packets, so queue a redissection. */
+        /* XXX - Add a pref, either advanced or under Protocols? */
+        cf->redissection_queued = RESCAN_REDISSECT;
+    }
 
     // If we're ignoring duplicate frames, clear the data structures.
     // We really could look at prefs.ignore_dup_frames here, but it's even
@@ -864,6 +898,9 @@ cf_continue_tail(capture_file *cf, volatile int to_read, wtap_rec *rec,
 
     epan_dissect_init(&edt, cf->epan, create_proto_tree, false);
 
+    /* Find how many DSBs we have before reading new packets. */
+    unsigned num_dsbs = wtap_file_get_num_dsbs(cf->provider.wth);
+
     TRY {
         int64_t data_offset = 0;
         column_info *cinfo;
@@ -890,7 +927,6 @@ cf_continue_tail(capture_file *cf, volatile int to_read, wtap_rec *rec,
                                           frame_cksum);
             to_read--;
         }
-        wtap_rec_reset(rec);
     }
     CATCH(OutOfMemoryError) {
         simple_message_box(ESD_TYPE_ERROR, NULL,
@@ -906,6 +942,15 @@ cf_continue_tail(capture_file *cf, volatile int to_read, wtap_rec *rec,
 #endif
     }
     ENDTRY;
+
+    /* Did we encounter any DSBs in the middle of the packets? */
+    if (wtap_file_get_num_dsbs(cf->provider.wth) != num_dsbs) {
+        /* Yes, so we have unsaved changes (saving the file will move
+         * the DSBs to the start.) */
+        cf->unsaved_changes = true;
+
+        /* XXX - Should we queue a redissection here? */
+    }
 
     /* Update the file encapsulation; it might have changed based on the
        packets we've read. */
@@ -994,6 +1039,9 @@ cf_finish_tail(capture_file *cf, wtap_rec *rec, int *err,
 
     epan_dissect_init(&edt, cf->epan, create_proto_tree, false);
 
+    /* Find how many DSBs we have before reading new packets. */
+    unsigned num_dsbs = wtap_file_get_num_dsbs(cf->provider.wth);
+
     wtap_cleareof(cf->provider.wth);
     while ((wtap_read(cf->provider.wth, rec, err, &err_info, &data_offset))) {
         if (cf->state == FILE_READ_ABORTED) {
@@ -1005,7 +1053,6 @@ cf_finish_tail(capture_file *cf, wtap_rec *rec, int *err,
         add_new_record_to_record_list(cf, rec, cf->dfcode, &edt, cinfo,
                                       data_offset, frame_dup_cache,
                                       frame_cksum);
-        wtap_rec_reset(rec);
     }
 
     epan_dissect_cleanup(&edt);
@@ -1033,6 +1080,15 @@ cf_finish_tail(capture_file *cf, wtap_rec *rec, int *err,
     /* Allow the protocol dissectors to free up memory that they
      * don't need after the sequential run-through of the packets. */
     postseq_cleanup_all_protocols();
+
+    /* Did we encounter any DSBs in the middle of the packets? */
+    if (wtap_file_get_num_dsbs(cf->provider.wth) != num_dsbs) {
+        /* Yes, so we have unsaved changes (saving the file will move
+         * the DSBs to the start.) */
+        cf->unsaved_changes = true;
+
+        /* XXX - Should we queue a redissection here? */
+    }
 
     /* Update the file encapsulation; it might have changed based on the
        packets we've read. */
@@ -1428,19 +1484,9 @@ merge_callback(merge_event event, int num _U_,
                     for (i = 0; i < in_file_count; i++)
                         file_pos += wtap_read_so_far(in_files[i].wth);
 
-                    progbar_val = (float) file_pos / (float) cb_data->f_len;
-                    if (progbar_val > 1.0f) {
-                        /* Some file probably grew while we were reading it.
-                           That "shouldn't happen", so we'll just clip the progress
-                           value at 1.0. */
-                        progbar_val = 1.0f;
-                    }
-
                     if (cb_data->progbar != NULL) {
                         char status_str[STATUS_LEN];
-                        snprintf(status_str, sizeof(status_str),
-                                "%" PRId64 "KB of %" PRId64 "KB",
-                                file_pos / 1024, cb_data->f_len / 1024);
+                        progbar_val = calc_progbar_val(NULL, cb_data->f_len, file_pos, status_str, sizeof(status_str));
                         update_progress_dlg(cb_data->progbar, progbar_val, status_str);
                     }
                     g_timer_start(cb_data->prog_timer);
@@ -1965,7 +2011,6 @@ rescan_packets(capture_file *cf, const char *action, const char *action_item, bo
            on the next pass through the loop. */
         prev_frame_num = fdata->num;
         prev_frame = fdata;
-        wtap_rec_reset(&rec);
     }
 
     epan_dissect_cleanup(&edt);
@@ -2084,6 +2129,10 @@ rescan_packets(capture_file *cf, const char *action, const char *action_item, bo
  * Scan through all frame data and recalculate the ref time
  * without rereading the file.
  * XXX - do we need a progress bar or is this fast enough?
+ * XXX - if the filter depends on relative time, we might need to rescan.
+ * Some taps use the relative time too, so we might need a retap.
+ * We might even need to redissect, depending on what dissectors do with
+ * pinfo->rel_ts.
  */
 void
 cf_reftime_packets(capture_file* cf)
@@ -2190,7 +2239,6 @@ process_specified_records(capture_file *cf, packet_range_t *range,
         void *callback_args,
         bool show_progress_bar)
 {
-    uint32_t         framenum;
     frame_data      *fdata;
     wtap_rec         rec;
     psp_return_t     ret     = PSP_FINISHED;
@@ -2200,7 +2248,8 @@ process_specified_records(capture_file *cf, packet_range_t *range,
     int              progbar_count;
     float            progbar_val;
     char             progbar_status_str[STATUS_LEN];
-    range_process_e  process_this;
+    packet_range_t   all_range;
+    packet_range_iter_t iter;
 
     wtap_rec_init(&rec, DEFAULT_INIT_BUFFER_SIZE_2048);
 
@@ -2226,13 +2275,15 @@ process_specified_records(capture_file *cf, packet_range_t *range,
 
     cf->stop_flag = false;
 
-    if (range != NULL)
-        packet_range_process_init(range);
+    if (range == NULL) {
+        packet_range_init(&all_range, cf);
+        range = &all_range;
+    }
 
-    /* Iterate through all the packets, printing the packets that
-       were selected by the current display filter.  */
-    for (framenum = 1; framenum <= cf->count; framenum++) {
-        fdata = frame_data_sequence_find(cf->provider.frames, framenum);
+    /* Iterate through all the packets, calling the callback (e.g., printing)
+       on all the packets specified by the range. */
+    packet_range_iter_init(&iter, range);
+    while ((fdata = packet_range_iter_next(&iter))) {
 
         /* Create the progress bar if necessary.
            We check on every iteration of the loop, so that it takes no
@@ -2275,18 +2326,6 @@ process_specified_records(capture_file *cf, packet_range_t *range,
 
         progbar_count++;
 
-        if (range != NULL) {
-            /* do we have to process this packet? */
-            process_this = packet_range_process_packet(range, fdata);
-            if (process_this == range_process_next) {
-                /* this packet uninteresting, continue with next one */
-                continue;
-            } else if (process_this == range_processing_finished) {
-                /* all interesting packets processed, stop the loop */
-                break;
-            }
-        }
-
         /* Get the packet */
         if (!cf_read_record(cf, fdata, &rec)) {
             /* Attempt to get the packet failed. */
@@ -2299,7 +2338,10 @@ process_specified_records(capture_file *cf, packet_range_t *range,
             ret = PSP_FAILED;
             break;
         }
-        wtap_rec_reset(&rec);
+    }
+
+    if (range == &all_range) {
+        packet_range_cleanup(range);
     }
 
     /* We're done printing the packets; destroy the progress bar if
@@ -2399,7 +2441,6 @@ cf_retap_packets(capture_file *cf)
     /* Iterate through the list of packets, dissecting all packets and
        re-running the taps. */
     packet_range_init(&range, cf);
-    packet_range_process_init(&range);
 
     if (cf->state == FILE_READ_IN_PROGRESS) {
         /* We're not done with the sequential read of the file and might
@@ -2818,6 +2859,7 @@ typedef struct {
     epan_dissect_t edt;
     print_args_t *print_args;
     json_dumper jdumper;
+    GPtrArray *index;
 } write_packet_callback_args_t;
 
 static bool
@@ -2987,7 +3029,7 @@ write_csv_packet(capture_file *cf, frame_data *fdata, wtap_rec *rec,
     epan_dissect_fill_in_columns(&args->edt, false, true);
 
     /* Write out the column information. */
-    write_csv_columns(&args->edt, args->fh);
+    write_csv_columns_with_args(&args->edt, args->fh, args->print_args->csv_args);
 
     epan_dissect_reset(&args->edt);
 
@@ -3006,7 +3048,11 @@ cf_write_csv_packets(capture_file *cf, print_args_t *print_args)
     if (fh == NULL)
         return CF_PRINT_OPEN_ERROR; /* attempt to open destination failed */
 
-    write_csv_column_titles(&cf->cinfo, fh);
+    if (print_args->csv_args.print_bom) {
+        fputs(UTF8_BOM, fh);
+    }
+    write_csv_column_titles_with_args(&cf->cinfo, fh, print_args->csv_args);
+
     if (ferror(fh)) {
         fclose(fh);
         return CF_PRINT_WRITE_ERROR;
@@ -3056,7 +3102,7 @@ carrays_write_packet(capture_file *cf, frame_data *fdata, wtap_rec *rec,
     write_packet_callback_args_t *args = (write_packet_callback_args_t *)argsp;
 
     epan_dissect_run(&args->edt, cf->cd_t, rec, fdata, NULL);
-    write_carrays_hex_data(fdata->num, args->fh, &args->edt);
+    write_carrays_hex_data_with_args(fdata->num, args->fh, &args->edt, args->index, args->print_args->carrays_args);
     epan_dissect_reset(&args->edt);
 
     return !ferror(args->fh);
@@ -3081,6 +3127,8 @@ cf_write_carrays_packets(capture_file *cf, print_args_t *print_args)
 
     callback_args.fh = fh;
     callback_args.print_args = print_args;
+    callback_args.index = g_ptr_array_new_with_free_func(g_free);
+    write_carrays_preamble(fh, callback_args.index, print_args->carrays_args);
     epan_dissect_init(&callback_args.edt, cf->epan, true, true);
 
     /* Iterate through the list of packets, printing the packets we were
@@ -3091,6 +3139,8 @@ cf_write_carrays_packets(capture_file *cf, print_args_t *print_args)
             carrays_write_packet, &callback_args, true);
 
     epan_dissect_cleanup(&callback_args.edt);
+    write_carrays_finale(fh, callback_args.index, print_args->carrays_args);
+    g_ptr_array_unref(callback_args.index);
 
     switch (ret) {
         case PSP_FINISHED:
@@ -3143,7 +3193,7 @@ cf_write_json_packets(capture_file *cf, print_args_t *print_args)
     if (fh == NULL)
         return CF_PRINT_OPEN_ERROR; /* attempt to open destination failed */
 
-    callback_args.jdumper = write_json_preamble(fh);
+    callback_args.jdumper = write_json_preamble(fh, print_args->json_compact);
     if (ferror(fh)) {
         fclose(fh);
         return CF_PRINT_WRITE_ERROR;
@@ -4693,7 +4743,6 @@ find_packet(capture_file *cf, ws_match_function match_function,
                 new_fd = fdata;
                 break;
             }
-            wtap_rec_reset(&rec);
         }
 
         if (fdata == start_fd) {
@@ -4763,10 +4812,11 @@ cf_goto_frame(capture_file *cf, unsigned fnumber, bool exact)
         }
         if (fdata->prev_dis_num == 0) {
             /* There is no previous displayed frame, so this frame is
-             * before the first displayed frame. Go to the first line,
-             * which is the closest frame.
+             * before the first displayed frame, which is the closest frame.
+             * (This isn't necessarily the first row, if the packet list is
+             * sorted.)
              */
-            fdata = NULL; /* This will select the first row. */
+            fdata = frame_data_sequence_find(cf->provider.frames, cf->first_displayed);
             statusbar_push_temporary_msg("Packet number %u isn't displayed, going to the first displayed packet, %u.", fnumber, cf->first_displayed);
         } else {
             uint32_t delta = fnumber - fdata->prev_dis_num;
@@ -4909,6 +4959,8 @@ cf_select_packet(capture_file *cf, frame_data *fdata)
         color_filters_prime_edt(cf->edt);
         cf->current_frame->need_colorize = 1;
     }
+    if (tag_rules_used())
+        tag_rules_prime_edt(cf->edt);
 
     epan_dissect_run(cf->edt, cf->cd_t, &cf->rec, cf->current_frame, NULL);
 
@@ -5499,7 +5551,6 @@ rescan_file(capture_file *cf, const char *fname, bool is_tempfile)
         if (rec.rec_type == REC_TYPE_PACKET) {
             cf_add_encapsulation_type(cf, rec.rec_header.packet_header.pkt_encap);
         }
-        wtap_rec_reset(&rec);
     }
     wtap_rec_cleanup(&rec);
 
@@ -5575,6 +5626,9 @@ cf_save_records(capture_file *cf, const char *fname, unsigned save_format,
     addr_lists = get_addrinfo_list();
 
     if (save_format == cf->cd_t && compression_type == cf->compression_type
+            /* The input frame does not record its Zstandard level. Rewrite
+             * to honor the configured level rather than copying raw bytes. */
+            && compression_type != WS_FILE_ZSTD_COMPRESSED
             && !discard_comments && !cf->unsaved_changes
             && (wtap_addrinfo_list_empty(addr_lists) || wtap_file_type_subtype_supports_block(save_format, WTAP_BLOCK_NAME_RESOLUTION) == BLOCK_NOT_SUPPORTED)) {
         /* We're saving in the format it's already in, and we're not discarding
@@ -5670,6 +5724,7 @@ cf_save_records(capture_file *cf, const char *fname, unsigned save_format,
 
         /* Use the snaplen from cf (XXX - does wtap_dump_params_init handle that?) */
         params.snaplen = cf->snap;
+        params.zstd_compression_level = prefs.capture_zstd_compression_level;
 
         if (file_exists(fname)) {
             /* We're overwriting an existing file; write out to a new file,
@@ -5912,7 +5967,6 @@ cf_export_specified_packets(capture_file *cf, const char *fname,
     int                          encap;
 
     callback_args.export = true;
-    packet_range_process_init(range);
 
     /* We're writing out specified packets from the specified capture
        file to another file.  Even if all captured packets are to be
@@ -5927,6 +5981,7 @@ cf_export_specified_packets(capture_file *cf, const char *fname,
 
     /* Use the snaplen from cf (XXX - does wtap_dump_params_init handle that?) */
     params.snaplen = cf->snap;
+    params.zstd_compression_level = prefs.capture_zstd_compression_level;
 
     if (file_exists(fname)) {
         /* We're overwriting an existing file; write out to a new file,
@@ -5956,12 +6011,7 @@ cf_export_specified_packets(capture_file *cf, const char *fname,
     wtap_dump_set_addrinfo_list(pdh, get_addrinfo_list());
 
     /* Iterate through the list of packets, processing the packets we were
-       told to process.
-
-       XXX - we've already called "packet_range_process_init(range)", but
-       "process_specified_records()" will do it again.  Fortunately,
-       that's harmless in this case, as we haven't done anything to
-       "range" since we initialized it. */
+       told to process. */
     callback_args.pdh = pdh;
     callback_args.fname = fname;
     callback_args.file_type = save_format;

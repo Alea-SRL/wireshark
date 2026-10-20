@@ -11,13 +11,11 @@
 
 #include <ui/qt/widgets/interface_toolbar_lineedit.h>
 #include <ui/qt/widgets/stock_icon_tool_button.h>
-#include "epan/prefs.h"
-#include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/theme_manager.h>
+#include <ui/qt/utils/font_manager.h>
+#include <ui/qt/utils/themes/contrast_adapt_icon.h>
 
 #include <QStyle>
-
-// To do:
-// - Make a narrower apply button
 
 InterfaceToolbarLineEdit::InterfaceToolbarLineEdit(QWidget *parent, QString validation_regex, bool is_required) :
     QLineEdit(parent),
@@ -25,18 +23,12 @@ InterfaceToolbarLineEdit::InterfaceToolbarLineEdit(QWidget *parent, QString vali
     is_required_(is_required),
     text_edited_(false)
 {
-    apply_button_ = new StockIconToolButton(this, "x-filter-apply");
+    apply_button_ = new StockIconToolButton(this);
+    apply_button_->setIcon(ContrastAdaptIcon("filter-apply"));
     apply_button_->setCursor(Qt::ArrowCursor);
     apply_button_->setEnabled(false);
     apply_button_->setToolTip(tr("Apply changes"));
-    apply_button_->setIconSize(QSize(24, 14));
-    apply_button_->setStyleSheet(
-            "QToolButton {"
-            "  border: none;"
-            "  background: transparent;" // Disables platform style on Windows.
-            "  padding: 0 0 0 0;"
-            "}"
-            );
+    updateApplyButtonZoom();
 
     updateStyleSheet(isValid());
 
@@ -44,6 +36,22 @@ InterfaceToolbarLineEdit::InterfaceToolbarLineEdit(QWidget *parent, QString vali
     connect(this, &InterfaceToolbarLineEdit::textEdited, this, &InterfaceToolbarLineEdit::validateEditedText);
     connect(this, &InterfaceToolbarLineEdit::returnPressed, this, &InterfaceToolbarLineEdit::applyEditedText);
     connect(apply_button_, &StockIconToolButton::clicked, this, &InterfaceToolbarLineEdit::applyEditedText);
+    connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, [this]() {
+        updateStyleSheet(isValid());
+    });
+    connect(FontManager::instance(), &FontManager::zoomChanged, this, [this]() {
+        updateApplyButtonZoom();
+        updateStyleSheet(isValid());
+        updateApplyButtonGeometry();
+    });
+}
+
+void InterfaceToolbarLineEdit::updateApplyButtonZoom()
+{
+    // The apply icon is 21x14 at zoom 1.0 and scales with the application zoom.
+    const qreal factor = FontManager::zoomFactor();
+    apply_button_->setIconSize(QSize(qMax(1, qRound(21 * factor)),
+                                     qMax(1, qRound(14 * factor))));
 }
 
 void InterfaceToolbarLineEdit::validateText()
@@ -99,34 +107,32 @@ void InterfaceToolbarLineEdit::updateStyleSheet(bool is_valid)
     int frameWidth = style()->pixelMetric(QStyle::PM_DefaultFrameWidth);
     QSize apsz = apply_button_->sizeHint();
 
-    QString style_sheet = QStringLiteral(
-            "InterfaceToolbarLineEdit {"
-            "  padding-right: %1px;"
-            "  background-color: %2;"
-            "}"
-            )
-            .arg(apsz.width() + frameWidth)
-            .arg(is_valid || !isEnabled() ? QString("") : ColorUtils::fromColorT(prefs.gui_filter_invalid_bg).name());
+    QString style_sheet =
+            ThemeManager::styleSheet(QStringLiteral("widgets/interface-toolbar-lineedit"));
 
-#ifdef Q_OS_MAC
     style_sheet += QStringLiteral(
             "InterfaceToolbarLineEdit {"
-            "  border: 1px solid palette(%1);"
-            "  border-radius: 3px;"
+            "  padding-right: %1px;"
             "}"
-            ).arg(ColorUtils::themeIsDark() ? QStringLiteral("light") : QStringLiteral("dark"));
-#endif
+            )
+            .arg(apsz.width() + 2 * frameWidth);
 
     setStyleSheet(style_sheet);
+    ThemeManager::setValidationState(this,
+            is_valid || !isEnabled() ? QString() : QStringLiteral("invalid"));
 }
 
-void InterfaceToolbarLineEdit::resizeEvent(QResizeEvent *)
+void InterfaceToolbarLineEdit::updateApplyButtonGeometry()
 {
     int frameWidth = style()->pixelMetric(QStyle::PM_DefaultFrameWidth);
     QSize apsz = apply_button_->sizeHint();
 
-    apply_button_->move(contentsRect().right() - frameWidth - apsz.width() + 2,
-                        contentsRect().top());
-    apply_button_->setMinimumHeight(contentsRect().height());
-    apply_button_->setMaximumHeight(contentsRect().height());
+    apply_button_->move(contentsRect().right() - frameWidth - apsz.width(),
+                        contentsRect().top() + frameWidth);
+    apply_button_->setFixedSize(apsz.width(), contentsRect().height() - 2 * frameWidth);
+}
+
+void InterfaceToolbarLineEdit::resizeEvent(QResizeEvent *)
+{
+    updateApplyButtonGeometry();
 }

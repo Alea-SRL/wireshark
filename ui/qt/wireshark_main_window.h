@@ -42,6 +42,7 @@
 
 #include "ui/ws_ui_util.h"
 #include "ui/iface_toolbar.h"
+
 #ifdef HAVE_LIBPCAP
 #include "ui/capture_opts.h"
 #endif
@@ -63,7 +64,7 @@
 #include "capture_file_dialog.h"
 #include "capture_file_properties_dialog.h"
 #include <ui/qt/utils/field_information.h>
-#include <ui/qt/widgets/display_filter_combo.h>
+#include <ui/qt/widgets/display_filter_entry.h>
 #include "main_window.h"
 #include "rtp_stream_dialog.h"
 #include "rtp_analysis_dialog.h"
@@ -73,6 +74,7 @@ class AccordionFrame;
 class DataSourceTab;
 class CaptureOptionsDialog;
 class DisStreamDialog;
+class InPacketSearch;
 class PrintDialog;
 class FileSetDialog;
 class FilterDialog;
@@ -139,12 +141,6 @@ public:
      * @return Pointer to the newly created QMenu; caller takes ownership.
      */
     QMenu *createPopupMenu() override;
-
-    /**
-     * @brief Returns a pointer to the current capture file object.
-     * @return Pointer to the internal CaptureFile instance.
-     */
-    CaptureFile *captureFile() { return &capture_file_; }
 
     /**
      * @brief Rebuilds the Lua funnel statistics menus from registered funnel entries.
@@ -268,6 +264,7 @@ private:
     QActionGroup              *time_precision_actions_;/**< Action group for timestamp precision actions. */
     FunnelStatistics          *funnel_statistics_;     /**< Lua funnel statistics manager. */
     QAction                   *action_telephony_dis_streams_; /**< Telephony → DIS Streams menu action. */
+    QAction                   *action_telephony_imsi_list_; /**< Telephony → IMSI List menu action. */
     QList<QPair<QAction *, bool>> freeze_actions_;     /**< Actions whose enabled state is saved and restored around freeze/thaw. */
     QPointer<QWidget>          freeze_focus_;          /**< Widget to restore focus to after thawing. */
     QMap<QAction *, ts_type>   td_actions;             /**< Map from timestamp-display menu actions to ts_type values. */
@@ -286,7 +283,7 @@ private:
     CaptureOptionsDialog      *capture_options_dialog_;  /**< Modeless capture options dialog. */
     info_data_t                info_data_;               /**< Live capture statistics updated during capture. */
 #endif
-
+    InPacketSearch *in_packet_search_; /**< In-packet search for the main-window proto tree. */
     QPoint dragStartPosition; /**< Mouse position recorded at the start of a drag operation. */
 
     QPointer<TLSKeylogDialog> tlskeylog_dialog_; /**< Modeless TLS keylog dialog; null when not open. */
@@ -368,6 +365,9 @@ private:
 
     /** @brief Loads and assigns icons to the main toolbar actions. */
     void initMainToolbarIcons();
+
+    /** @brief Sizes the main toolbar icons for the current zoom level. */
+    void updateMainToolbarIconSize();
 
     /** @brief Connects show/hide actions for main UI panels (packet list, tree, bytes). */
     void initShowHideMainWidgets();
@@ -570,12 +570,6 @@ public slots:
      */
     bool openCaptureFile(QString cf_path = QString(), QString display_filter = QString()) { return openCaptureFile(cf_path, display_filter, WTAP_TYPE_AUTO); }
 
-    /**
-     * @brief Applies a new display filter to the open capture file.
-     * @param new_filter New filter expression; empty string shows all packets.
-     * @param force      @c true to reapply even if the filter is unchanged.
-     */
-    void filterPackets(QString new_filter = QString(), bool force = false) override;
 
     /** @brief Repositions and resizes toolbars according to current layout settings. */
     void layoutToolbars();
@@ -706,7 +700,24 @@ public slots:
      */
     void rtpStreamsDialogDeselectRtpStreams(QVector<rtpstream_id_t *> stream_ids);
 
+protected slots:
+    /**
+     * @brief Applies a new display filter to the open capture file.
+     * @param new_filter New filter expression; empty string shows all packets.
+     * @param force      @c true to reapply even if the filter is unchanged.
+     */
+    void applyFilter(QString new_filter = QString(), bool force = false) override;
+
 private slots:
+    /**
+     * @brief Runs the post-initialization setup once the application is ready.
+     *
+     * Invoked via MainApplication::whenInitialized(). Groups the menu/feature
+     * setup that can only run after appInitialized() into one ordered sequence,
+     * instead of one connection per step.
+     */
+    void onAppInitialized();
+
     /**
      * @brief Dispatches capture lifecycle events to the appropriate UI update methods.
      * @param ev The capture event to handle.
@@ -1058,11 +1069,11 @@ private slots:
     /** @brief Applies current name-resolution preference changes to the packet list. */
     void setNameResolution();
 
-    /** @brief Adjusts the text zoom level in the packet details and bytes panes. */
-    void zoomText();
-
     /** @brief Opens the Coloring Rules management dialog. */
     void showColoringRulesDialog();
+
+    /** @brief Opens the Tagging Rules management dialog. */
+    void showTaggingRulesDialog();
 
     /**
      * @brief Colorizes packets matching the current conversation, optionally
@@ -1176,11 +1187,16 @@ private slots:
     /** @brief Opens the Endpoints statistics dialog. */
     void showEndpointsDialog();
 
+    /** @brief Opens the Distribution statistics dialog. */
+    void showDistributionDialog(const QString &abbreviation);
+    void showDistributionDialog();
+
     /**
      * @brief Opens a TCP stream graph dialog for the given graph type.
      * @param graph_type TCP stream graph type constant (e.g. time-sequence, throughput).
      */
     void openTcpStreamDialog(int graph_type);
+    void openTcpDedupDialog();
 
     /** @brief Opens the SCTP All Associations dialog. */
     void openSCTPAllAssocsDialog();

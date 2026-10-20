@@ -28,7 +28,6 @@ class SyntaxLineEdit : public QLineEdit
 {
     Q_OBJECT
     Q_PROPERTY(SyntaxState syntaxState READ syntaxState)
-    Q_ENUMS(SyntaxState)
 
 public:
     /**
@@ -47,6 +46,7 @@ public:
         Deprecated, /**< The current text is valid but uses a deprecated construct. */
         Valid       /**< The current text passes validation. */
     };
+    Q_ENUM(SyntaxState)
 
     /**
      * @brief Returns the current syntax validation state.
@@ -207,7 +207,7 @@ protected:
      * @param event The event to inspect.
      * @return @c true if the event was consumed; @c false to pass it on.
      */
-    virtual bool event(QEvent *event);
+    virtual bool event(QEvent *event) override;
 
     /**
      * @brief Handles key press events while the completer popup is visible,
@@ -226,13 +226,13 @@ protected:
      * @brief Hides the completer popup when the widget loses focus.
      * @param event The focus-out event.
      */
-    virtual void focusOutEvent(QFocusEvent *event);
+    virtual void focusOutEvent(QFocusEvent *event) override;
 
     /**
      * @brief Paints the widget, overlaying a state-appropriate background colour.
      * @param event The paint event.
      */
-    virtual void paintEvent(QPaintEvent *event);
+    virtual void paintEvent(QPaintEvent *event) override;
 
 private:
     SyntaxState syntax_state_;              /**< Current validation state. */

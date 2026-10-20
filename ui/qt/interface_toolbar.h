@@ -10,9 +10,11 @@
 #ifndef INTERFACE_TOOLBAR_H
 #define INTERFACE_TOOLBAR_H
 
+#include <wireshark.h>
+
 #include "ui/iface_toolbar.h"
 #include "funnel_text_dialog.h"
-#include "interface_toolbar_reader.h"
+#include "capture_event.h"
 
 #include <QFrame>
 #include <QList>
@@ -29,11 +31,8 @@ class InterfaceToolbar;
  */
 struct interface_values
 {
-    /** The thread reading from the interface control pipe. */
-    QThread *reader_thread;
-
-    /** File descriptor for writing control messages to the interface. */
-    int out_fd;
+    /** Pointer to the queue to send the toolbar message to. Ref counted. */
+    GAsyncQueue *control_out_queue;
 
     /** Map of control numbers to their current byte array values. */
     QMap<int, QByteArray> value;
@@ -90,7 +89,7 @@ public:
      * @param ifname The interface name to check.
      * @return True if the interface is managed here, false otherwise.
      */
-    bool hasInterface(QString ifname);
+    bool hasInterface(QString ifname) const;
 
 public slots:
     /**
@@ -107,6 +106,12 @@ public slots:
      */
     void controlReceived(QString ifname, int num, int command, QByteArray message);
 
+    /**
+     * @brief Slot triggered when the current CaptureFile has an Event
+     * @param ev The CaptureEvent
+     */
+    void captureEventHandler(CaptureEvent ev);
+
 signals:
     /**
      * @brief Signal emitted to request the reader threads to close.
@@ -114,13 +119,6 @@ signals:
     void closeReader();
 
 private slots:
-    /**
-     * @brief Starts the background reader thread for a specific interface.
-     * @param ifname The name of the interface.
-     * @param control_in Pointer to the input control pipe/handle.
-     */
-    void startReaderThread(QString ifname, void *control_in);
-
     /**
      * @brief Updates the states of the toolbar widgets based on current values.
      */

@@ -24,6 +24,7 @@
 #include "wsutil/strtoi.h"
 #include "wsutil/epochs.h"
 #include "wsutil/nstime.h"
+#include "wsutil/win32-utils.h"
 #include "etw_message.h"
 #include "etw_ndiscap.h"
 
@@ -49,7 +50,7 @@ extern BOOL g_event_enable_silos;
 extern BOOL g_event_property_source_container_tracking;
 extern BOOL g_debug_parsers;
 
-//Microsoft-Windows-Wmbclass-Opn
+// Microsoft-Windows-Wmbclass-Opn
 const GUID mbb_provider = { 0xA42FE227, 0xA7BF, 0x4483, {0xA5, 0x02, 0x6B, 0xCD, 0xA4, 0x28, 0xCD, 0x96} };
 // Microsoft-Windows-NDIS-PacketCapture
 const GUID ndis_capture_provider = { 0x2ed6006e, 0x4729, 0x4609, {0xb4, 0x23, 0x3e, 0xe7, 0xbc, 0xd6, 0x78, 0xef} };
@@ -65,6 +66,8 @@ const GUID wininet_capture_provider = { 0xa70ff94f, 0x570b, 0x4979, { 0xba, 0x5c
 const GUID webio_provider = { 0x50B3E73C, 0x9370, 0x461D, { 0xBB, 0x9F, 0x26, 0xF3, 0x2D, 0x68, 0x88, 0x7D} };
 // Microsoft-Windows-LDAP-Client
 const GUID ldap_client_provider = { 0x099614A5, 0x5DD7, 0x4788, { 0x8B, 0xC9, 0xE2, 0x9F, 0x43, 0xDB, 0x28, 0xFC } };
+// Microsoft-Windows-BTH-BTHPORT
+const GUID bth_bthport_provider = { 0x8A1F9517, 0x3A8C, 0x4A9E, { 0xA0, 0x18, 0x4F, 0x17, 0xA2, 0x00, 0xF2, 0x77 } };
 
 
 EXTERN_C const GUID DECLSPEC_SELECTANY EventTraceGuid = { 0x68fdd900, 0x4a3e, 0x11d1, {0x84, 0xf4, 0x00, 0x00, 0xf8, 0x04, 0x64, 0xe3} };
@@ -173,14 +176,15 @@ static const struct ws_option longopts[] = {
 
 // We reimplement the scenarios from the defunct MessageAnalyzer :)
 const struct _SCENARIO g_scenarios[] = {
-    { SCENARIO_KEY L"PacketCapture", { { 0xA42FE227, 0xA7BF, 0x4483, { 0xA5, 0x02, 0x6B, 0xCD, 0xA4, 0x28, 0xCD, 0x96 } }, 0xffffffffffffffff, 5 } },
+    { SCENARIO_KEY L"PacketCapture", { { 0x2ed6006e, 0x4729, 0x4609, { 0xb4, 0x23, 0x3e, 0xe7, 0xbc, 0xd6, 0x78, 0xef } }, 0xffffffffffffffff, 5 } },
     { SCENARIO_KEY L"NdisWanPacketCapture", { { 0xD84521F7, 0x2235, 0x4237, {0xA7, 0xC0, 0x14, 0xE3, 0xA9, 0x67, 0x62, 0x86 } }, 0xffffffffffffffff, 5 } },
-    { SCENARIO_KEY L"Wbmclass-Opn", { { 0x2ed6006e, 0x4729, 0x4609, { 0xb4, 0x23, 0x3e, 0xe7, 0xbc, 0xd6, 0x78, 0xef } }, 0xffffffffffffffff, 5 } },
+    { SCENARIO_KEY L"Wbmclass-Opn", { { 0xA42FE227, 0xA7BF, 0x4483, { 0xA5, 0x02, 0x6B, 0xCD, 0xA4, 0x28, 0xCD, 0x96 } }, 0xffffffffffffffff, 5 } },
     { SCENARIO_KEY L"WinINet-Capture", { { 0xa70ff94f, 0x570b, 0x4979, { 0xba, 0x5c, 0xe5, 0x9c, 0x9f, 0xea, 0xb6, 0x1b } }, 0xffffffffffffffff, 5 } },
     { SCENARIO_KEY L"WebIO-Capture", { { 0x50B3E73C, 0x9370, 0x461D, { 0xBB, 0x9F, 0x26, 0xF3, 0x2D, 0x68, 0x88, 0x7D} }, 0x0000020400000000, 5 } },
     { SCENARIO_KEY L"SASL-LDAP-Capture", { { 0x099614a5, 0x5dd7, 0x4788, { 0x8b, 0xc9, 0xe2, 0x9f, 0x43, 0xdb, 0x28, 0xfc } }, 0x0000000002010800, 5 } },
     { SCENARIO_KEY L"SMBClient-Capture", { { 0x988c59c5, 0x0a1c, 0x45b6, { 0xa5, 0x55, 0x0c, 0x62, 0x27, 0x6e, 0x32, 0x7d } }, 0x0800C40300000000, 5 } },
     { SCENARIO_KEY L"SMBServer-Capture", { { 0xd48ce617, 0x33a2, 0x4bc3, { 0xa5, 0xc7, 0x11, 0xaa, 0x4f, 0x29, 0x61, 0x9e } }, 0x0800040300000000, 5 } },
+    { SCENARIO_KEY L"BTH-BTHPORT", { { 0x8A1F9517, 0x3A8C, 0x4A9E, { 0xA0, 0x18, 0x4F, 0x17, 0xA2, 0x00, 0xF2, 0x77 } }, 0x8000000000000000, 5 } },
     { 0, 0 }
 };
 
@@ -209,6 +213,7 @@ static void etw_dump_write_general_event(PEVENT_RECORD ev, ULARGE_INTEGER timest
 static void etw_dump_write_wininet_event(PEVENT_RECORD ev, ULARGE_INTEGER timestamp);
 static void etw_dump_write_webio_event(PEVENT_RECORD ev, ULARGE_INTEGER timestamp);
 static void etw_dump_write_ldap_event(PEVENT_RECORD ev, ULARGE_INTEGER timestamp);
+static void etw_dump_write_bthport_event(PEVENT_RECORD ev, ULARGE_INTEGER timestamp);
 static wtap_dumper* etw_dump_open(const char* pcapng_filename, int* err, char** err_info);
 
 static DWORD GetPropertyValue(WCHAR* ProviderId, EVT_PUBLISHER_METADATA_PROPERTY_ID PropertyId, PEVT_VARIANT* Value)
@@ -373,6 +378,7 @@ wtap_open_return_val etw_dump(const char* etl_filename, const char* pcapng_filen
 
                     if (!found)
                     {
+                        *err = ERROR_INVALID_PARAMETER;
                         *err_info = ws_strdup_printf("Unknown scenario: %s", provider_id);
                         return WTAP_OPEN_ERROR;
                     }
@@ -406,7 +412,7 @@ wtap_open_return_val etw_dump(const char* etl_filename, const char* pcapng_filen
                     }
                     else
                     {
-                        *err_info = ws_strdup_printf("Cannot convert provider %s to a GUID, err is 0x%x", ws_optarg, *err);
+                        *err_info = ws_strdup_printf("Cannot convert provider %s to a GUID: %s", ws_optarg, win32strerror(*err));
                         return WTAP_OPEN_ERROR;
                     }
 
@@ -508,7 +514,7 @@ wtap_open_return_val etw_dump(const char* etl_filename, const char* pcapng_filen
                 &super_trace_properties.prop);
             if (*err != ERROR_SUCCESS)
             {
-                *err_info = ws_strdup_printf("StartTrace failed with 0x%x", *err);
+                *err_info = ws_strdup_printf("StartTrace failed: %s", win32strerror(*err));
                 returnVal = WTAP_OPEN_ERROR;
                 break;
             }
@@ -530,7 +536,7 @@ wtap_open_return_val etw_dump(const char* etl_filename, const char* pcapng_filen
                     &trace_params);
                 if (*err != ERROR_SUCCESS)
                 {
-                    *err_info = ws_strdup_printf("EnableTraceEx failed with 0x%x", *err);
+                    *err_info = ws_strdup_printf("EnableTraceEx2 failed: %s", win32strerror(*err));
                     returnVal = WTAP_OPEN_ERROR;
                     break;
                 }
@@ -540,7 +546,7 @@ wtap_open_return_val etw_dump(const char* etl_filename, const char* pcapng_filen
         trace_handle = OpenTrace(&log_file);
         if (trace_handle == INVALID_PROCESSTRACE_HANDLE) {
             *err = GetLastError();
-            *err_info = ws_strdup_printf("OpenTrace failed with 0x%x", *err);
+            *err_info = ws_strdup_printf("OpenTrace failed: %s", win32strerror(*err));
             returnVal = WTAP_OPEN_NOT_MINE;
             break;
         }
@@ -555,7 +561,7 @@ wtap_open_return_val etw_dump(const char* etl_filename, const char* pcapng_filen
         *err = ProcessTrace(&trace_handle, 1, 0, 0);
         if (*err != ERROR_SUCCESS) {
             returnVal = WTAP_OPEN_ERROR;
-            *err_info = ws_strdup_printf("ProcessTrace failed with 0x%x", *err);
+            *err_info = ws_strdup_printf("ProcessTrace failed: %s", win32strerror(*err));
             break;
         }
 
@@ -667,9 +673,9 @@ static void WINAPI event_callback(PEVENT_RECORD ev)
         etw_dump_write_ndiscap_event(ev, timestamp);
     }
     else if ((IsEqualGUID(&ev->EventHeader.ProviderId, &smbclient_provider) ||
-        IsEqualGUID(&ev->EventHeader.ProviderId, &smbserver_provider)) &&
+        IsEqualGUID(&ev->EventHeader.ProviderId, &smbserver_provider)) && (
         ev->EventHeader.EventDescriptor.Id == 40000 ||
-        ev->EventHeader.EventDescriptor.Id == 2000)
+        ev->EventHeader.EventDescriptor.Id == 2000))
     {
         etw_dump_write_smb_event(ev, timestamp);
     }
@@ -694,6 +700,11 @@ static void WINAPI event_callback(PEVENT_RECORD ev)
         ev->EventHeader.EventDescriptor.Id == 17))
     {
         etw_dump_write_ldap_event(ev, timestamp);
+    }
+    else if (IsEqualGUID(&ev->EventHeader.ProviderId, &bth_bthport_provider) && (
+        (ev->EventHeader.EventDescriptor.Keyword & 0x8000000000000000L) != 0))
+    {
+        etw_dump_write_bthport_event(ev, timestamp);
     }
     /* Write any event form other providers other than above */
     else
@@ -841,7 +852,7 @@ static ULONG wtap_etl_rec_build(
     if (ctx->tlv_count != 0)
     {
         tlvs = g_malloc(sizeof(WTAP_ETL_TLV) * ctx->tlv_count);
-        SecureZeroMemory(tlvs, sizeof(tlvs));
+        SecureZeroMemory(tlvs, sizeof(WTAP_ETL_TLV) * ctx->tlv_count);
     }
 
     // Used while building
@@ -1137,7 +1148,7 @@ static void etw_dump_write_smb_event(PEVENT_RECORD ev, ULARGE_INTEGER timestamp)
 
         if (ev->EventHeader.EventDescriptor.Keyword & 0x40000000) /* PacketStart */
         {
-            // Beggining of the buffer
+            // Beginning of the buffer
             frag = etw_frag_get(ev, true);
             if (frag == NULL) goto end;
 
@@ -1406,20 +1417,25 @@ static void etw_dump_write_ldap_event(PEVENT_RECORD ev, ULARGE_INTEGER timestamp
     DataDescriptor.ArrayIndex = ULONG_MAX;
     status = TdhGetPropertySize(ev, 0, NULL, 1, &DataDescriptor, &Length);
     if (status != NO_ERROR) goto end;
+    if (Length == 0) goto end;
     Message = g_malloc(Length);
     status = TdhGetProperty(ev, 0, NULL, 1, &DataDescriptor, Length, Message);
     if (status != NO_ERROR) goto end;
 
     // "Message" contains text and a hexdump of the data. We need to parse it
     // and reassemble it. Let's use the ThreadId as the identifying key.
+    // NOTE: a malformed event can make TDH return a "Message" that is shorter
+    // than the prefixes below and that isn't NUL-terminated, so every access
+    // must be bounded by 'Length'.
 
-    if (strncmp(Message, "Data", 4) == 0 || strncmp(Message, "Unencrypted", 11) == 0)
+    if ((Length >= 4 && memcmp(Message, "Data", 4) == 0) ||
+        (Length >= 11 && memcmp(Message, "Unencrypted", 11) == 0))
     {
-        // Beggining of the buffer
+        // Beginning of the buffer
 
         frag = etw_frag_get(ev, true);
     }
-    else if (strncmp(Message, "End", 3) == 0)
+    else if (Length >= 3 && memcmp(Message, "End", 3) == 0)
     {
         // End of the buffer
 
@@ -1442,23 +1458,81 @@ static void etw_dump_write_ldap_event(PEVENT_RECORD ev, ULARGE_INTEGER timestamp
         frag = etw_frag_get(ev, false);
         if (frag == NULL) goto end;
 
-        // Replace "Message" in place
-        int i = 0;
-        while (i < 16)
+        // Decode the hexdump ("XX XX ... XX") into a bounded local buffer
+        BYTE decoded[16];
+        int i;
+
+        for (i = 0; i < 16; i++)
         {
-            if (Message[i * 3] == 0x20)
+            DWORD off = (DWORD)i * 3;
+            int hi, lo;
+
+            if (off >= Length || Message[off] == 0x20)
                 break;
-            if (sscanf(&Message[i * 3], "%2hhx", &Message[i]) != 1)
+            if (off + 1 >= Length)
                 goto end;
-            i++;
+
+            hi = g_ascii_xdigit_value((char)Message[off]);
+            lo = g_ascii_xdigit_value((char)Message[off + 1]);
+            if (hi < 0 || lo < 0)
+                goto end;
+
+            decoded[i] = (BYTE)((hi << 4) | lo);
         }
 
-        g_byte_array_append(frag->buf, Message, i);
+        g_byte_array_append(frag->buf, decoded, i);
     }
 
 end:
     if (Message)
         g_free(Message);
+}
+
+static void etw_dump_write_bthport_event(PEVENT_RECORD ev, ULARGE_INTEGER timestamp)
+{
+    WTAP_ETL_RECORD* etl_record = NULL;
+    ULONG total_packet_length = 0;
+    PROPERTY_DATA_DESCRIPTOR DataDescriptor = { 0 };
+    DWORD DataLen = 0;
+    DWORD Type = 0;
+    ULONG status;
+    BYTE* Buffer = NULL;
+    PWTAP_ETL_RECORD_CONTEXT ctx = ctx_init();
+
+    // Get "BIP_DataLen" property
+    DataDescriptor.PropertyName = (ULONGLONG)&L"BIP_DataLen";
+    DataDescriptor.ArrayIndex = ULONG_MAX;
+    status = TdhGetProperty(ev, 0, NULL, 1, &DataDescriptor, sizeof(DWORD), (PBYTE)&DataLen);
+    if (status != NO_ERROR) goto end;
+    Buffer = g_malloc(DataLen + 1);
+    if (DataLen == 0) goto end;
+
+    // Get "BIP_Data" property
+    DataDescriptor.PropertyName = (ULONGLONG)&L"BIP_Data";
+    DataDescriptor.ArrayIndex = ULONG_MAX;
+    status = TdhGetProperty(ev, 0, NULL, 1, &DataDescriptor, DataLen, Buffer + 1);
+    if (status != NO_ERROR) goto end;
+
+    // Get "BIP_Type" property
+    DataDescriptor.PropertyName = (ULONGLONG)&L"BIP_Type";
+    DataDescriptor.ArrayIndex = ULONG_MAX;
+    status = TdhGetProperty(ev, 0, NULL, 1, &DataDescriptor, sizeof(DWORD), (PBYTE)&Type);
+    if (status != NO_ERROR) goto end;
+
+    Buffer[0] = (Type & 0xFF);  // We create a HCI H4 packet by adding the type here
+    ctx_add_tlv_user_data(ctx, Buffer, DataLen + 1);
+
+    // Dump
+    total_packet_length = wtap_etl_rec_build(&etl_record, ev, ctx);
+    wtap_etl_rec_dump((char*)etl_record, total_packet_length, total_packet_length, 0, true, timestamp, WTAP_ENCAP_ETW, NULL, 0);
+
+    g_free(etl_record);
+
+end:
+    ctx_free(ctx);
+
+    if (Buffer)
+        g_free(Buffer);
 }
 
 static void etw_dump_write_general_event(PEVENT_RECORD ev, ULARGE_INTEGER timestamp)

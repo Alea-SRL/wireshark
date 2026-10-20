@@ -15,6 +15,7 @@
 #include <epan/column.h>
 #include <wsutil/filesystem.h>
 #include <wsutil/wslog.h>
+#include <wsutil/process_lookup.h>
 #include <epan/prefs.h>
 #include <epan/prefs-int.h>
 #include <epan/packet.h>
@@ -28,8 +29,31 @@
 #endif
 #include "ui/capture_globals.h"
 
+#include "extcap.h"
+
 #include "ui/preference_utils.h"
 #include "ui/simple_dialog.h"
+
+void
+capture_opts_set_process_info(capture_options* capture_opts _U_, capture_process_info_e level _U_)
+{
+#ifdef HAVE_LIBPCAP
+    capture_opts->process_info = PROCESS_INFO_NONE;
+    /* Stratoshark captures system calls, which have no sockets to look up. */
+    if (!capture_opts->use_pcapng || !ws_process_lookup_supported() || !application_flavor_is_wireshark())
+        return;
+    switch (level) {
+    case CAPTURE_PROCESS_INFO_BASIC:
+        capture_opts->process_info = PROCESS_INFO_BASIC;
+        break;
+    case CAPTURE_PROCESS_INFO_FULL:
+        capture_opts->process_info = PROCESS_INFO_FULL;
+        break;
+    default:
+        break;
+    }
+#endif /* HAVE_LIBPCAP */
+}
 
 /* Fill in capture options with values from the preferences */
 void
@@ -41,9 +65,26 @@ prefs_to_capture_opts(capture_options* capture_opts _U_)
     capture_opts->default_options.promisc_mode = prefs.capture_prom_mode;
     capture_opts->default_options.monitor_mode = prefs.capture_monitor_mode;
     capture_opts->use_pcapng                   = prefs.capture_pcap_ng;
+    capture_opts_set_process_info(capture_opts, prefs.capture_process_info);
     capture_opts->show_info                    = prefs.capture_show_info;
     capture_opts->real_time_mode               = prefs.capture_real_time;
     capture_opts->update_interval              = prefs.capture_update_interval;
+
+    /* An empty preference means "no preference". Leave the temporary
+       directory unset so the system default applies, which is what
+       create_tempfile() does when handed a null directory. This runs
+       again whenever the preferences change; a directory given with
+       --temp-dir is a choice for this run, and a change to the
+       preferences does not replace it. */
+    if (capture_opts->temp_dir == NULL || capture_opts->temp_dir_from_prefs) {
+        g_free(capture_opts->temp_dir);
+        capture_opts->temp_dir = NULL;
+        capture_opts->temp_dir_from_prefs = false;
+        if (prefs.capture_temp_dir != NULL && prefs.capture_temp_dir[0] != '\0') {
+            capture_opts->temp_dir = g_strdup(prefs.capture_temp_dir);
+            capture_opts->temp_dir_from_prefs = true;
+        }
+    }
 #endif /* HAVE_LIBPCAP */
 }
 
@@ -73,6 +114,23 @@ prefs_main_write(void)
         /* Write recent and recent_common files out to ensure sync with prefs. */
         write_profile_recent();
         write_recent();
+    }
+}
+
+/* Save the preferences for one module, in the file that holds them. */
+static void
+prefs_module_write(const char * module_name)
+{
+    if ( g_strcmp0(module_name, "extcap") == 0 )
+    {
+        /* Extcap preferences have a file of their own, so we don't have to
+         * rewrite every preference we have just because an extcap's arguments
+         * changed. */
+        extcap_write_preferences();
+    }
+    else
+    {
+        prefs_main_write();
     }
 }
 
@@ -111,7 +169,7 @@ prefs_store_ext(const char * module_name, const char *pref_name, const char *pre
     unsigned int changed_flags = prefs_store_ext_helper(module_name, pref_name, pref_value);
     if ( changed_flags )
     {
-        prefs_main_write();
+        prefs_module_write(module_name);
         prefs_apply_all();
         prefs_to_capture_opts(&global_capture_opts);
         return changed_flags;
@@ -148,7 +206,7 @@ prefs_store_ext_multiple(const char * module, GHashTable * pref_values)
 
     if ( pref_changed )
     {
-        prefs_main_write();
+        prefs_module_write(module);
         prefs_apply_all();
         prefs_to_capture_opts(&global_capture_opts);
     }

@@ -327,7 +327,7 @@ dissect_rdp_drdynvc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, 
 {
 	proto_item *item;
 	proto_tree *tree;
-	int offset = 0;
+	unsigned offset = 0;
 	uint8_t cbIdSpCmd, cmdId;
 	uint8_t cbId, Len;
 	bool haveChannelId, havePri, haveLen;
@@ -538,8 +538,10 @@ dissect_rdp_drdynvc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, 
 						pendingPacket->currentPacket = wmem_array_sized_new(wmem_file_scope(), 1, fullPduLen);
 						wmem_array_append(pendingPacket->currentPacket, tvb_get_ptr(input, offset2, payloadLen), payloadLen);
 					} else {
+#if 0
 						if (pendingPacket->pendingLen || pendingPacket->chunks)
-							printf("(%d) looks like we have a non completed packet...\n", pinfo->num);
+							printf("(%u) looks like we have a non completed packet...\n", pinfo->num);
+#endif
 						if (pendingPacket->chunks)
 							wmem_destroy_array(pendingPacket->chunks);
 						memset(pendingPacket, 0, sizeof(*pendingPacket));
@@ -621,7 +623,9 @@ dissect_rdp_drdynvc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, 
 						/* we have a fragmented packet in progress */
 						if ((uint32_t)payloadLen > pendingPacket->pendingLen) {
 							// TODO: error
-							printf("num=%d error payload too big\n", pinfo->num);
+#if 0
+							printf("num=%u error payload too big\n", pinfo->num);
+#endif
 							return offset;
 						}
 

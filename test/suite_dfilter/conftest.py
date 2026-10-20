@@ -2,11 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-import subprocesstest
-from subprocesstest import count_output
-import pytest
 import logging
 
+import pytest
+import subprocesstest
+from subprocesstest import count_output
+
+logger = logging.getLogger('make-wsluarm')
 
 @pytest.fixture
 def dfilter_cmd(cmd_tshark, capture_file, request):
@@ -20,7 +22,7 @@ def dfilter_cmd(cmd_tshark, capture_file, request):
         if frame_number:
             cmd.extend([
                 "-2",       # two-pass mode
-                "--selected-frame={}".format(frame_number)
+                f"--selected-frame={frame_number}"
             ])
         if read_filter:
             cmd.extend([
@@ -45,10 +47,6 @@ def dfilter_cmd(cmd_tshark, capture_file, request):
             ])
         return cmd
     return wrapped
-
-@pytest.fixture(scope='session')
-def cmd_dftest(program):
-    return program('dftest')
 
 @pytest.fixture
 def dftest_cmd(cmd_dftest):
@@ -82,7 +80,7 @@ def checkDFLog(dftest_cmd_log, dfilter_env):
                                 universal_newlines=True,
                                 env=dfilter_env)
         if proc.stderr:
-            logging.debug(proc.stderr)
+            logger.debug(proc.stderr)
     return checkDFLog_real
 
 @pytest.fixture
@@ -94,7 +92,7 @@ def checkDFilterCount(dfilter_cmd, dfilter_env):
                                          universal_newlines=True,
                                          env=dfilter_env)
         if proc.stderr:
-            logging.debug(proc.stderr)
+            logger.debug(proc.stderr)
         assert count_output(proc.stdout) == expected_count
     return checkDFilterCount_real
 
@@ -107,7 +105,7 @@ def checkDFilterCountWithSelectedFrame(dfilter_cmd, dfilter_env):
                                          universal_newlines=True,
                                          env=dfilter_env)
         if proc.stderr:
-            logging.debug(proc.stderr)
+            logger.debug(proc.stderr)
         assert count_output(proc.stdout) == expected_count
     return checkDFilterCount_real
 
@@ -120,7 +118,7 @@ def checkDFilterCountReadFilter(dfilter_cmd, dfilter_env):
                                          universal_newlines=True,
                                          env=dfilter_env)
         if proc.stderr:
-            logging.debug(proc.stderr)
+            logger.debug(proc.stderr)
         assert count_output(proc.stdout) == expected_count
     return checkDFilterCount_real
 
@@ -133,7 +131,7 @@ def checkDFilterFail(dftest_cmd, dfilter_env):
                                 universal_newlines=True,
                                 env=dfilter_env)
         if proc.stderr:
-            logging.debug(proc.stderr)
+            logger.debug(proc.stderr)
         assert proc.returncode == 4
         assert error_message in proc.stderr
     return checkDFilterFail_real
@@ -147,7 +145,7 @@ def checkDFilterSucceed(dftest_cmd, dfilter_env):
                                 universal_newlines=True,
                                 env=dfilter_env)
         if proc.stderr:
-            logging.debug(proc.stderr)
+            logger.debug(proc.stderr)
         assert proc.returncode == 0
         if expect_stdout:
             assert expect_stdout in proc.stdout

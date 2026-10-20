@@ -2,14 +2,6 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="ja_JP">
 <context>
-    <name>Abbreviation</name>
-    <message>
-        <source></source>
-        <comment>for &quot;not applicable&quot;</comment>
-        <translation></translation>
-    </message>
-</context>
-<context>
     <name>AboutDialog</name>
     <message>
         <source>About Wireshark</source>
@@ -846,8 +838,22 @@ Off = logpoint only (matches the historical &quot;logpoints never pause&quot; co
         <translation>利用可能なキャプチャソース一覧を表示します。キャプチャするソースを1つ以上選択してください</translation>
     </message>
     <message>
+        <source>%1 / %2 interfaces</source>
+        <translation>%1 / %2 インターフェース</translation>
+    </message>
+    <message>
+        <source>%1 / %2</source>
+        <translation>%1 / %2</translation>
+    </message>
+    <message>
         <source>All interfaces shown</source>
         <translation>表示されているすべてのインターフェース</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n interface(s)</source>
+        <translation>
+            <numerusform>%n インターフェース</numerusform>
+        </translation>
     </message>
     <message numerus="yes">
         <source>%n interface(s) shown, %1 hidden</source>
@@ -1291,25 +1297,26 @@ Off = logpoint only (matches the historical &quot;logpoints never pause&quot; co
     </message>
 </context>
 <context>
-    <name>CaptureFilterCombo</name>
-    <message>
-        <source>Capture filter selector</source>
-        <translation>キャプチャフィルタ選択</translation>
-    </message>
-</context>
-<context>
-    <name>CaptureFilterEdit</name>
+    <name>CaptureFilterEntry</name>
     <message>
         <source>Capture filter entry</source>
         <translation>キャプチャフィルタエントリ</translation>
     </message>
     <message>
-        <source>Manage saved bookmarks.</source>
-        <translation>保存したブックマークを管理</translation>
+        <source>Saved Capture Filters</source>
+        <translation>保存したキャプチャフィルタ</translation>
     </message>
     <message>
-        <source>Apply this filter string to the display.</source>
-        <translation>このフィルタ文字列を表示に適用</translation>
+        <source>Save this filter</source>
+        <translation>このフィルタを保存</translation>
+    </message>
+    <message>
+        <source>Remove this filter</source>
+        <translation>このフィルタを削除</translation>
+    </message>
+    <message>
+        <source>Manage Capture Filters</source>
+        <translation>キャプチャフィルタ管理</translation>
     </message>
     <message>
         <source>Multiple filters selected. Override them here or leave this blank to preserve them.</source>
@@ -1324,18 +1331,6 @@ Off = logpoint only (matches the historical &quot;logpoints never pause&quot; co
         <source>Enter a capture filter %1</source>
         <translation>キャプチャフィルタ %1 を入力</translation>
     </message>
-    <message>
-        <source>Save this filter</source>
-        <translation>このフィルタを保存</translation>
-    </message>
-    <message>
-        <source>Remove this filter</source>
-        <translation>このフィルタを削除</translation>
-    </message>
-    <message>
-        <source>Manage Capture Filters</source>
-        <translation>キャプチャフィルタ管理</translation>
-    </message>
 </context>
 <context>
     <name>CaptureFilterSyntaxWorker</name>
@@ -1346,6 +1341,25 @@ Off = logpoint only (matches the historical &quot;logpoints never pause&quot; co
     <message>
         <source>Unable to check capture filter (BPF extensions require a live handle)</source>
         <translation>キャプチャフィルタをチェックできません(BPF拡張はライブハンドルを必要とします)</translation>
+    </message>
+</context>
+<context>
+    <name>CaptureFilterValidator</name>
+    <message>
+        <source>No interfaces selected</source>
+        <translation>インターフェースが選択されていません</translation>
+    </message>
+    <message>
+        <source>Unable to check capture filter</source>
+        <translation>キャプチャフィルタをチェックできません</translation>
+    </message>
+    <message>
+        <source>Unable to check capture filter (BPF extensions require a live handle)</source>
+        <translation>キャプチャフィルタをチェックできません(BPF拡張はライブハンドルを必要とします)</translation>
+    </message>
+    <message>
+        <source>Syntax checking unavailable</source>
+        <translation>文法チェックが利用できません</translation>
     </message>
 </context>
 <context>
@@ -1375,38 +1389,6 @@ Off = logpoint only (matches the historical &quot;logpoints never pause&quot; co
     <message>
         <source>Input</source>
         <translation>入力</translation>
-    </message>
-    <message>
-        <source>Interface</source>
-        <translation>インターフェース</translation>
-    </message>
-    <message>
-        <source>Traffic</source>
-        <translation>トラフィック</translation>
-    </message>
-    <message>
-        <source>Link-layer Header</source>
-        <translation>リンク層ヘッダ</translation>
-    </message>
-    <message>
-        <source>Promiscuous</source>
-        <translation>プロミスキャス</translation>
-    </message>
-    <message>
-        <source>Snaplen (B)</source>
-        <translation>キャプチャ長(バイト)</translation>
-    </message>
-    <message>
-        <source>Buffer (MB)</source>
-        <translation>バッファ(メガバイト)</translation>
-    </message>
-    <message>
-        <source>Monitor Mode</source>
-        <translation>モニタモード</translation>
-    </message>
-    <message>
-        <source>Capture Filter</source>
-        <translation>キャプチャフィルタ</translation>
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;You probably want to enable this. Usually a network card will only capture the traffic sent to its own network address. If you want to capture all traffic that the network card can &amp;quot;see&amp;quot;, mark this option. See the FAQ for some more details of capturing packets from a switched network.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
@@ -1530,10 +1512,6 @@ For example, use 1 hour to have a new file created every hour on the hour.</sour
         <translation>(時計の)時刻が特定の間隔になったら次のファイルに切り替えます。例えば、1時間に設定すると毎時１時間ごとに新しいファイルが作成されます</translation>
     </message>
     <message>
-        <source>Optimize</source>
-        <translation>最適化</translation>
-    </message>
-    <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Usually a wireless network card will only capture the traffic sent to and from its own network address, and only captures &lt;em&gt;user data&lt;/em&gt; traffic with &amp;quot;fake&amp;quot; Ethernet headers. If you want to capture all traffic that wireless network cards can &amp;quot;see&amp;quot;, or are interested in 802.11 management or control packets, or radio-layer information, mark this option. Monitor mode availability depends on the wireless card and driver. See the Wiki for some more details of capturing packets on WLAN networks.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;通常、無線 ネットワークカードは自身のネットワークアドレスに送受信されるトラフィックのみキャプチャして、&amp;quot;偽の&amp;quot; Ethernetヘッダで &lt;em&gt;ユーザデータ&lt;/em&gt; トラフィックのみ取得します。もし無線ネットワークカードが&amp;quot;見える&amp;quot;すべてのトラフィックをキャプチャしたい、802.11管理や制御パケットや無線の物理層のヘッダ情報に興味がある場合にはこのオプションをマークしてください。モニターモードが利用できるかは無線カードとドライバに依存します。無線ネットワークに関してのパケットキャプチャのさらなる詳細についてはWikiを参照ください。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
@@ -1576,6 +1554,22 @@ For example, use 1 hour to have a new file created every hour on the hour.</sour
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;File index number before the date and time. This is the historic Wireshark ordering.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;日付と時刻の前にファイルインデックスを示します。これは歴史的なWiresharkの順序です。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Create a new interface bookmark.</source>
+        <translation>新規インターフェースブックマークを作成</translation>
+    </message>
+    <message>
+        <source>Remove this interface bookmark.</source>
+        <translation>インターフェースブックマークを削除</translation>
+    </message>
+    <message>
+        <source>Processes:</source>
+        <translation>プロセス:</translation>
+    </message>
+    <message>
+        <source>Executable paths, command lines and user names will be stored in the capture file. A command line can contain a password.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;After capturing has switched to the next file and the given number of files has exceeded, the oldest file will be removed.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
@@ -1698,6 +1692,18 @@ For example, use 1 hour to have a new file created every hour on the hour.</sour
         <translation>開始</translation>
     </message>
     <message>
+        <source>Don&apos;t record processes</source>
+        <translation>プロセスを記録しない</translation>
+    </message>
+    <message>
+        <source>Record process IDs and names</source>
+        <translation>プロセスIDと名前を記録</translation>
+    </message>
+    <message>
+        <source>Record process IDs, names, paths, command lines and users</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Leave blank to use a temporary file</source>
         <translation>一時ファイルを使うため空白にしておきます</translation>
     </message>
@@ -1710,24 +1716,16 @@ For example, use 1 hour to have a new file created every hour on the hour.</sour
         <translation>一時ファイルのディレクトリを指定</translation>
     </message>
     <message>
-        <source>Extcap interface settings</source>
-        <translation>Extcapインターフェース設定</translation>
+        <source>Not supported on this platform.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>%1: %2</source>
-        <translation>%1: %2</translation>
+        <source>Process information can only be recorded in pcapng files.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Addresses</source>
-        <translation>アドレス</translation>
-    </message>
-    <message>
-        <source>Address</source>
-        <translation>アドレス</translation>
-    </message>
-    <message>
-        <source>no addresses</source>
-        <translation>アドレスがありません</translation>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Record which processes on this computer sent or received each packet, for the packets of TCP and UDP sockets. Which processes can be identified depends on your privileges, and the packets of very short-lived sockets can be missed.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Error</source>
@@ -1781,6 +1779,14 @@ For example, use 1 hour to have a new file created every hour on the hour.</sour
         <translation>pcapng形式でパケットをキャプチャします</translation>
     </message>
     <message>
+        <source>Record the processes that packets belong to:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;What to record, in pcapng files, of the processes on this computer that sent or received each packet. Executable paths, command lines and user names can be sensitive: a command line can contain a password.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Update the list of packets while capture is in progress. This can result in dropped packets on high-speed networks.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;キャプチャが進んでいる間パケット一覧を更新します。これにより、高速ネットワークにおいてはパケットが欠落することがありえます。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
@@ -1801,12 +1807,40 @@ For example, use 1 hour to have a new file created every hour on the hour.</sour
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;新しいパケットが更新される間隔。どのくらいの頻度でGUIが更新されるのとタイマの精度に影響します。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
+        <source>Temporary directory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Directory in which to write temporary capture files. Leave empty to use the system default. Overridden by the --temp-dir option.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Don&apos;t load interfaces on startup</source>
         <translation>起動時にインタフェースを読み込みません</translation>
     </message>
     <message>
         <source>Disable external capture interfaces</source>
         <translation>外部キャプチャインタフェースを無効にします</translation>
+    </message>
+    <message>
+        <source>Nothing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Process IDs and names</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Process IDs, names, paths, command lines and users</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Temporary Directory</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -2103,6 +2137,10 @@ For example, use 1 hour to have a new file created every hour on the hour.</sour
     <message>
         <source>Compress with &amp;LZ4</source>
         <translation>LZ4形式で圧縮(&amp;L)</translation>
+    </message>
+    <message>
+        <source>Compress with Zstandard</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -2804,17 +2842,6 @@ Relative to reference: n/a (outside reference range)</source>
     </message>
 </context>
 <context>
-    <name>DisplayFilterCombo</name>
-    <message>
-        <source>Display filter selector</source>
-        <translation>表示フィルタの選択</translation>
-    </message>
-    <message>
-        <source>Select from previously used filters.</source>
-        <translation>前に使ったフィルタから選択</translation>
-    </message>
-</context>
-<context>
     <name>DisplayFilterEdit</name>
     <message>
         <source>Display filter entry</source>
@@ -2880,6 +2907,45 @@ Relative to reference: n/a (outside reference range)</source>
         <source>Filter Button Preferences…</source>
         <oldsource>Filter Button Preferences...</oldsource>
         <translation>フィルタボタン設定…</translation>
+    </message>
+</context>
+<context>
+    <name>DisplayFilterEntry</name>
+    <message>
+        <source>Display filter entry</source>
+        <translation>表示フィルタエントリ</translation>
+    </message>
+    <message>
+        <source>Saved Display Filters</source>
+        <translation>保存した表示フィルタ</translation>
+    </message>
+    <message>
+        <source>Save this filter</source>
+        <translation>このフィルタを保存</translation>
+    </message>
+    <message>
+        <source>Remove this filter</source>
+        <translation>このフィルタを削除</translation>
+    </message>
+    <message>
+        <source>Manage Display Filters</source>
+        <translation>表示フィルタを管理</translation>
+    </message>
+    <message>
+        <source>Filter Button Preferences…</source>
+        <translation>フィルタボタン設定…</translation>
+    </message>
+    <message>
+        <source>Apply a display filter %1 &lt;%2/&gt;</source>
+        <translation>表示フィルタ %1 &lt;%2/&gt; を適用</translation>
+    </message>
+    <message>
+        <source>Display Filter Expression…</source>
+        <translation>表示フィルタ式...</translation>
+    </message>
+    <message>
+        <source>Left align buttons</source>
+        <translation>ボタンを左揃え</translation>
     </message>
 </context>
 <context>
@@ -2978,6 +3044,13 @@ Relative to reference: n/a (outside reference range)</source>
     </message>
 </context>
 <context>
+    <name>DisplayFilterValidator</name>
+    <message>
+        <source>&quot;%1&quot; is deprecated in favour of &quot;%2&quot;. See Help section 6.4.8 for details.</source>
+        <translation>&quot;%1&quot; は非推奨で &quot;%2&quot; が推奨されます。詳細はヘルプ 6.4.8をご覧ください</translation>
+    </message>
+</context>
+<context>
     <name>DissectorSyntaxLineEdit</name>
     <message>
         <source>Dissector entry</source>
@@ -3001,6 +3074,18 @@ Relative to reference: n/a (outside reference range)</source>
     <message>
         <source>Dissector Tables</source>
         <translation>ダイセクタテーブル</translation>
+    </message>
+    <message>
+        <source>Everywhere</source>
+        <translation>どこでも</translation>
+    </message>
+    <message>
+        <source>Only Name</source>
+        <translation>名前のみ</translation>
+    </message>
+    <message>
+        <source>Only Description</source>
+        <translation>説明のみ</translation>
     </message>
 </context>
 <context>
@@ -3036,6 +3121,29 @@ Relative to reference: n/a (outside reference range)</source>
     <message>
         <source>Selector Name</source>
         <translation>セレクタ名</translation>
+    </message>
+</context>
+<context>
+    <name>DistributionDialog</name>
+    <message>
+        <source>Field Values Distribution</source>
+        <translation>フィールド値の分布</translation>
+    </message>
+    <message>
+        <source>Field Value</source>
+        <translation>フィールド値</translation>
+    </message>
+    <message>
+        <source>Occurrences</source>
+        <translation>出現位置</translation>
+    </message>
+    <message>
+        <source>Percent</source>
+        <translation>パーセント</translation>
+    </message>
+    <message>
+        <source>Distribution:</source>
+        <translation>分布</translation>
     </message>
 </context>
 <context>
@@ -3077,7 +3185,7 @@ Relative to reference: n/a (outside reference range)</source>
         <translation>すべて</translation>
     </message>
     <message>
-        <source>Only Protocols</source>
+        <source>Only Protocol</source>
         <translation>プロトコルのみ</translation>
     </message>
     <message>
@@ -3085,16 +3193,20 @@ Relative to reference: n/a (outside reference range)</source>
         <translation>記述のみ</translation>
     </message>
     <message>
-        <source>Only enabled protocols</source>
-        <translation>有効にしたプロトコルのみ</translation>
+        <source>all</source>
+        <translation>すべて</translation>
     </message>
     <message>
-        <source>Only disabled protocols</source>
-        <translation>無効にしたプロトコルのみ</translation>
+        <source>enabled</source>
+        <translation>有効</translation>
     </message>
     <message>
-        <source>any protocol</source>
-        <translation>すべてのプロトコル</translation>
+        <source>disabled</source>
+        <translation>無効</translation>
+    </message>
+    <message>
+        <source>protocols</source>
+        <translation>プロトコル</translation>
     </message>
     <message>
         <source>non-heuristic protocols</source>
@@ -3113,7 +3225,7 @@ Relative to reference: n/a (outside reference range)</source>
     </message>
     <message>
         <source>Description</source>
-        <translation>記述</translation>
+        <translation>説明</translation>
     </message>
 </context>
 <context>
@@ -3605,6 +3717,10 @@ Relative to reference: n/a (outside reference range)</source>
         <source>%1 Select File</source>
         <translation>%1 ファイルを選択</translation>
     </message>
+    <message>
+        <source>%1 Select Folder</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ExtcapOptionsDialog</name>
@@ -3640,6 +3756,14 @@ Relative to reference: n/a (outside reference range)</source>
     <message>
         <source>The help for the extcap interface %1 cannot be found. Given file: %2</source>
         <translation>extcap インターフェース %1 のヘルプを見つけることができません。与えられたファイル: %2</translation>
+    </message>
+    <message>
+        <source>Bookmark</source>
+        <translation>ブックマーク</translation>
+    </message>
+    <message>
+        <source>Type a name to create a bookmark</source>
+        <translation>名前を入力してブックマークを作成します</translation>
     </message>
     <message>
         <source>Save parameters on capture start</source>
@@ -3789,6 +3913,45 @@ Relative to reference: n/a (outside reference range)</source>
     </message>
 </context>
 <context>
+    <name>FilterExpressionEdit</name>
+    <message>
+        <source>Saved Filters</source>
+        <translation>保存したフィルタ</translation>
+    </message>
+    <message>
+        <source>Save this filter</source>
+        <translation>このフィルタを保存</translation>
+    </message>
+    <message>
+        <source>Remove this filter</source>
+        <translation>このフィルタを削除</translation>
+    </message>
+    <message>
+        <source>Manage Saved Filters</source>
+        <translation>保存したフィルタを管理</translation>
+    </message>
+    <message>
+        <source>Filter Button Preferences…</source>
+        <translation>フィルタボタン設定…</translation>
+    </message>
+    <message>
+        <source>Manage saved filters</source>
+        <translation>保存したフィルタを管理</translation>
+    </message>
+    <message>
+        <source>Clear the filter</source>
+        <translation>フィルタをクリア</translation>
+    </message>
+    <message>
+        <source>Apply this filter</source>
+        <translation>このフィルタを適用</translation>
+    </message>
+    <message>
+        <source>Recent filters</source>
+        <translation>最近のフィルタ</translation>
+    </message>
+</context>
+<context>
     <name>FilterExpressionFrame</name>
     <message>
         <source>Frame</source>
@@ -3804,7 +3967,7 @@ Relative to reference: n/a (outside reference range)</source>
     </message>
     <message>
         <source>Enter a description for the filter button</source>
-        <translation>フィルタボタンの記述を入力します</translation>
+        <translation>フィルタボタンの説明を入力します</translation>
     </message>
     <message>
         <source>Filter:</source>
@@ -3872,6 +4035,13 @@ Relative to reference: n/a (outside reference range)</source>
     <message>
         <source>Filter Expression</source>
         <translation>フィルタ式</translation>
+    </message>
+</context>
+<context>
+    <name>FilterValidator</name>
+    <message>
+        <source>Invalid filter: %1</source>
+        <translation>無効なフィルタ: %1</translation>
     </message>
 </context>
 <context>
@@ -4039,6 +4209,14 @@ Relative to reference: n/a (outside reference range)</source>
         <translation>グローバルExtcapパス</translation>
     </message>
     <message>
+        <source>Personal Themes</source>
+        <translation>個人テーマ</translation>
+    </message>
+    <message>
+        <source>User-installed theme files (*.jsonc)</source>
+        <translation>ユーザーインストールテーマファイル (*.jsonc)</translation>
+    </message>
+    <message>
         <source>MaxMind DB path</source>
         <translation>MaxMind DB パス</translation>
     </message>
@@ -4085,11 +4263,6 @@ Relative to reference: n/a (outside reference range)</source>
 <context>
     <name>FollowStreamDialog</name>
     <message>
-        <source>Filter Out This Stream</source>
-        <oldsource>Hide this stream</oldsource>
-        <translation>このストリームを除外します</translation>
-    </message>
-    <message>
         <source>Print</source>
         <translation>印刷</translation>
     </message>
@@ -4132,6 +4305,14 @@ Relative to reference: n/a (outside reference range)</source>
     <message>
         <source>Raw</source>
         <translation>Raw (生データ)</translation>
+    </message>
+    <message>
+        <source>Prepare as Filter</source>
+        <translation>フィルタとして準備</translation>
+    </message>
+    <message>
+        <source>Apply as Filter</source>
+        <translation>フィルタとして適用</translation>
     </message>
     <message>
         <source>Save as…</source>
@@ -4294,61 +4475,16 @@ Relative to reference: n/a (outside reference range)</source>
         <translation>フォントの選択</translation>
     </message>
     <message>
-        <source>Colors:</source>
-        <translation>色:</translation>
+        <source>Theme</source>
+        <translation>テーマ</translation>
     </message>
     <message>
-        <source>System Default</source>
-        <translation>システム デフォルト</translation>
+        <source>Theme Author Information</source>
+        <translation>テーマ著者情報</translation>
     </message>
     <message>
-        <source>Solid</source>
-        <translation>Solid</translation>
-    </message>
-    <message>
-        <source>Sample ignored packet text</source>
-        <translation>無視されたパケットテキストのサンプル</translation>
-    </message>
-    <message>
-        <source>Sample marked packet text</source>
-        <translation>マークされたパケットテキストのサンプル</translation>
-    </message>
-    <message>
-        <source>Sample active selected item</source>
-        <translation>アクティブな選択済み項目サンプル</translation>
-    </message>
-    <message>
-        <source>Style:</source>
-        <translation>スタイル:</translation>
-    </message>
-    <message>
-        <source>Gradient</source>
-        <translation>勾配</translation>
-    </message>
-    <message>
-        <source>Sample inactive selected item</source>
-        <translation>非アクティブな選択済み項目サンプル</translation>
-    </message>
-    <message>
-        <source>Sample &quot;Follow Stream&quot; client text</source>
-        <translation>&quot;ストリーム追跡&quot;クライアントテキストのサンプル</translation>
-    </message>
-    <message>
-        <source>Sample &quot;Follow Stream&quot; server text</source>
-        <translation>&quot;ストリーム追跡&quot;サーバテキストのサンプル</translation>
-    </message>
-    <message>
-        <source>Sample valid filter</source>
-        <translation>有効フィルタのサンプル</translation>
-    </message>
-    <message>
-        <source>Sample invalid filter</source>
-        <translation>無効フィルタのサンプル</translation>
-    </message>
-    <message>
-        <source>Sample warning filter</source>
-        <oldsource>Sample deprecated filter</oldsource>
-        <translation>非推奨フィルタのサンプル</translation>
+        <source>Theme Description</source>
+        <translation>テーマ説明</translation>
     </message>
     <message>
         <source>Example GIF query packets have jumbo window sizes</source>
@@ -4360,16 +4496,28 @@ Relative to reference: n/a (outside reference range)</source>
         <translation>Geraldさんが作成したpangram すべての文字を１文字使う回文 Lazy badgers move unique waxy jellyfish packets.</translation>
     </message>
     <message>
-        <source>Color Scheme:</source>
-        <translation>配色:</translation>
+        <source>System</source>
+        <translation>システム</translation>
     </message>
     <message>
-        <source>Light Mode</source>
-        <translation>ライトモード</translation>
+        <source>Light</source>
+        <translation>ライト</translation>
     </message>
     <message>
-        <source>Dark Mode</source>
-        <translation>ダークモード</translation>
+        <source>Dark</source>
+        <translation>ダーク</translation>
+    </message>
+    <message>
+        <source>Appearance mode:</source>
+        <translation>外観モード</translation>
+    </message>
+    <message>
+        <source>Theme:</source>
+        <translation>テーマ:</translation>
+    </message>
+    <message>
+        <source>Theme by %1</source>
+        <translation>%1 によるテーマ</translation>
     </message>
     <message>
         <source>Font</source>
@@ -4516,6 +4664,10 @@ Relative to reference: n/a (outside reference range)</source>
         <translation>ホーバーハイライトを許可</translation>
     </message>
     <message>
+        <source>Annotations</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Add annotation…</source>
         <translation>注釈を追加…</translation>
     </message>
@@ -4526,6 +4678,10 @@ Relative to reference: n/a (outside reference range)</source>
     <message>
         <source>Remove annotation</source>
         <translation>注釈を削除</translation>
+    </message>
+    <message>
+        <source>Offset markers</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Start byte for offset</source>
@@ -4570,6 +4726,10 @@ Relative to reference: n/a (outside reference range)</source>
     <message>
         <source>…as EBCDIC</source>
         <translation>EBCDIC形式として…</translation>
+    </message>
+    <message>
+        <source>…as UTF-8</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Comment: %1</source>
@@ -5810,6 +5970,92 @@ Relative to reference: n/a (outside reference range)</source>
     </message>
 </context>
 <context>
+    <name>ImsiListDialog</name>
+    <message>
+        <source>IMSI List</source>
+        <translation>IMSIリスト</translation>
+    </message>
+    <message>
+        <source>&lt;small&gt;Select one or more IMSIs to view flow sequence or prepare a display filter.&lt;/small&gt;</source>
+        <translation>&lt;small&gt;一つ以上のIMSIを選択してシーケンスの流れをみたりフィルタを準備します&lt;/small&gt;</translation>
+    </message>
+    <message>
+        <source>Only show IMSIs matching the current display filter</source>
+        <translation>現在の表示フィルタにあうIMSIのみ表示します</translation>
+    </message>
+    <message>
+        <source>Limit to display filter</source>
+        <translation>表示フィルタに制限</translation>
+    </message>
+    <message>
+        <source>IMSI</source>
+        <translation>IMSI</translation>
+    </message>
+    <message>
+        <source>Packets</source>
+        <translation>パケット</translation>
+    </message>
+    <message>
+        <source>First Frame</source>
+        <translation>最初のフレーム</translation>
+    </message>
+    <message>
+        <source>Last Frame</source>
+        <translation>最後のフレーム</translation>
+    </message>
+    <message>
+        <source>Protocols</source>
+        <translation>プロトコル</translation>
+    </message>
+    <message>
+        <source>Prepare Filter</source>
+        <translation>フィルタを準備</translation>
+    </message>
+    <message>
+        <source>Prepare a display filter matching selected IMSIs.</source>
+        <translation>選択したIMSIにあう表示フィルタを準備</translation>
+    </message>
+    <message>
+        <source>&lt;small&gt;%1 IMSIs found. Double-click to filter.&lt;/small&gt;</source>
+        <translation>&lt;small&gt;%1 IMSIsが見つかりました。ダブルクリックしてフィルタします&lt;/small&gt;</translation>
+    </message>
+</context>
+<context>
+    <name>InPacketFindBar</name>
+    <message>
+        <source>String</source>
+        <translation>文字列</translation>
+    </message>
+    <message>
+        <source>Regular Expression</source>
+        <translation>正規表現</translation>
+    </message>
+    <message>
+        <source>Case sensitive</source>
+        <translation>大文字小文字を区別</translation>
+    </message>
+    <message>
+        <source>Find</source>
+        <translation>検索</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>キャンセル</translation>
+    </message>
+    <message>
+        <source>invalid pattern</source>
+        <translation>無効なパターン</translation>
+    </message>
+    <message>
+        <source>no matches</source>
+        <translation>合致なし</translation>
+    </message>
+    <message>
+        <source>%1 of %2</source>
+        <translation>%1 of %2</translation>
+    </message>
+</context>
+<context>
     <name>InfoBannerWidget</name>
     <message>
         <source>Tips and announcements</source>
@@ -5926,12 +6172,35 @@ Relative to reference: n/a (outside reference range)</source>
         <source>Hide Interface</source>
         <translation>インターフェースを隠す</translation>
     </message>
+    <message>
+        <source>Unknown</source>
+        <translation>不明</translation>
+    </message>
+    <message>
+        <source>Hide all &apos;%1&apos; interfaces</source>
+        <translation>すべての &apos;%1&apos; 印らーフェースを隠す</translation>
+    </message>
 </context>
 <context>
     <name>InterfaceSortFilterModel</name>
     <message>
         <source>No interfaces to be displayed. %1 interfaces hidden.</source>
         <translation>インターフェースは表示されません。 %1 インターフェース非表示</translation>
+    </message>
+</context>
+<context>
+    <name>InterfaceStatsWorker</name>
+    <message>
+        <source>The interface statistics stream stopped unexpectedly.</source>
+        <translation>インターフェース統計ストリームが予期せず停止しました</translation>
+    </message>
+    <message>
+        <source>Unable to start the interface statistics stream.</source>
+        <translation>インターフェース統計ストリームを開始できません</translation>
+    </message>
+    <message>
+        <source>This build has no packet capture support.</source>
+        <translation>このビルドはパケットキャプチャをサポートしていません</translation>
     </message>
 </context>
 <context>
@@ -6014,8 +6283,16 @@ Relative to reference: n/a (outside reference range)</source>
         <translation>モニタモード</translation>
     </message>
     <message>
+        <source>Optimize</source>
+        <translation>最適化</translation>
+    </message>
+    <message>
         <source>Capture Filter</source>
         <translation>キャプチャフィルタ</translation>
+    </message>
+    <message>
+        <source>Traffic</source>
+        <translation>トラフィック</translation>
     </message>
     <message>
         <source>Addresses</source>
@@ -7503,133 +7780,11 @@ Relative to reference: n/a (outside reference range)</source>
 </context>
 <context>
     <name>LuaDebuggerBreakpointsController</name>
-    <message>
-        <source>Location</source>
-        <translation>位置</translation>
-    </message>
-    <message>
-        <source>&lt;p&gt;&lt;b&gt;Hit-count summary&lt;/b&gt;&lt;/p&gt;&lt;p&gt;&lt;code&gt;≥N&lt;/code&gt; &amp;mdash; &lt;i&gt;from&lt;/i&gt; mode: pause from hit &lt;i&gt;N&lt;/i&gt; onwards.&lt;br/&gt;&lt;code&gt;×N&lt;/code&gt; &amp;mdash; &lt;i&gt;every&lt;/i&gt; mode: pause on hits &lt;i&gt;N&lt;/i&gt;, &lt;i&gt;2N&lt;/i&gt;, &lt;i&gt;3N&lt;/i&gt;, &amp;hellip;&lt;br/&gt;&lt;code&gt;@N&lt;/code&gt; &amp;mdash; &lt;i&gt;once&lt;/i&gt; mode: pause once on the &lt;i&gt;N&lt;/i&gt;th hit, then deactivate.&lt;/p&gt;&lt;p&gt;The cell starts with the running hit counter; if a gate is set it follows in parentheses, e.g. &lt;code&gt;3 (≥10)&lt;/code&gt;. With no hit gate the cell is just the counter.&lt;/p&gt;&lt;p&gt;Edit the &lt;i&gt;Location&lt;/i&gt; cell to set or change the gate (see the breakpoint-extras section).&lt;/p&gt;</source>
-        <translation>&lt;p&gt;&lt;b&gt;ヒット回数サマリ&lt;/b&gt;&lt;/p&gt;&lt;p&gt;&lt;code&gt;≥N&lt;/code&gt; &amp;mdash; &lt;i&gt;from&lt;/i&gt; モード: &lt;i&gt;N&lt;/i&gt; 回目以降のすべてのヒットで一時停止します。&lt;br/&gt;&lt;code&gt;×N&lt;/code&gt; &amp;mdash; &lt;i&gt;every&lt;/i&gt; モード:  &lt;i&gt;N&lt;/i&gt;, &lt;i&gt;2N&lt;/i&gt;, &lt;i&gt;3N&lt;/i&gt;...回目のヒットで一時停止します。 &lt;br/&gt;&lt;code&gt;@N&lt;/code&gt; &amp;mdash; &lt;i&gt;once&lt;/i&gt; モード:  &lt;i&gt;N&lt;/i&gt;回目のヒットで一度だけ一時停止し、その後ブレークポイントを無効化します。&lt;/p&gt;&lt;p&gt;セルは実行中のヒットカウンタで始まり、条件が設定されている場合は括弧内に表示されます（例: &lt;code&gt;3 (≥10)&lt;/code&gt; ヒット条件がない場合、セルにはカウンタのみ表示されます。&lt;/p&gt;&lt;p&gt;条件を編集するには &lt;i&gt;Location&lt;/i&gt;セルを編集してください（ブレークポイント拡張セクションを参照） &lt;/p&gt;</translation>
-    </message>
-    <message>
-        <source>Edit...</source>
-        <translation>編集...</translation>
-    </message>
-    <message>
-        <source>Open Source</source>
-        <translation>ソースを開く</translation>
-    </message>
-    <message>
-        <source>Reset Hit Count</source>
-        <translation>ヒット回数をリセット</translation>
-    </message>
-    <message>
-        <source>Remove</source>
-        <translation>削除</translation>
-    </message>
-    <message>
-        <source>Reset All Hit Counts</source>
-        <translation>すべてのヒット回数をリセット</translation>
-    </message>
-    <message>
-        <source>Remove All Breakpoints</source>
-        <translation>すべてのブレークポイントを削除</translation>
-    </message>
-    <message>
-        <source>Clear All Breakpoints</source>
-        <translation>すべてのブレークポイントをクリア</translation>
-    </message>
     <message numerus="yes">
         <source>Are you sure you want to remove %Ln breakpoint(s)?</source>
-        <translation>
-            <numerusform>%Ln 個のブレークポイントを削除してもよろしいですか？</numerusform>
+        <translation type="obsolete">
+            <numerusform>Are you sure you want to remove %Ln breakpoint?</numerusform>
         </translation>
-    </message>
-    <message>
-        <source>Location: %1:%2</source>
-        <translation>位置: %1:%2</translation>
-    </message>
-    <message>
-        <source>Condition: %1</source>
-        <translation>条件: %1</translation>
-    </message>
-    <message>
-        <source>pauses on hits %1, 2×%1, 3×%1, …</source>
-        <translation>%1、2×%1、3×%1、… 回目のヒットで一時停止</translation>
-    </message>
-    <message>
-        <source>pauses once on hit %1, then deactivates the breakpoint</source>
-        <translation>%1 回目のヒットで一度だけ一時停止し、その後ブレークポイントを無効化</translation>
-    </message>
-    <message>
-        <source>pauses on every hit from %1 onwards</source>
-        <translation>%1 回目以降のすべてのヒットで一時停止</translation>
-    </message>
-    <message>
-        <source>Hit Count: %1 / %2 (%3)</source>
-        <translation>ヒット回数: %1 / %2 (%3)</translation>
-    </message>
-    <message>
-        <source>Hits: %1</source>
-        <translation>ヒット: %1</translation>
-    </message>
-    <message>
-        <source>Log: %1</source>
-        <translation>ログ: %1</translation>
-    </message>
-    <message>
-        <source>(logpoint — also pauses)</source>
-        <translation>(ログポイント — 一時停止も行います)</translation>
-    </message>
-    <message>
-        <source>(logpoint — does not pause)</source>
-        <translation>(ログポイント — 一時停止しません)</translation>
-    </message>
-    <message>
-        <source>Condition error on last evaluation — treated as false (silent). Edit or reset the breakpoint to clear.</source>
-        <translation>前回の評価で条件エラーが発生しました — false として扱われます（サイレント）。解除するにはブレークポイントを編集またはリセットしてください</translation>
-    </message>
-    <message>
-        <source>Condition error: %1</source>
-        <translation>条件エラー: %1</translation>
-    </message>
-    <message>
-        <source>File not found: %1</source>
-        <translation>ファイルが見つかりません: %1</translation>
-    </message>
-    <message>
-        <source>&amp;Edit...</source>
-        <translation>編集(&amp;E)...</translation>
-    </message>
-    <message>
-        <source>&amp;Disable</source>
-        <translation>無効化(&amp;D)</translation>
-    </message>
-    <message>
-        <source>&amp;Enable</source>
-        <translation>有効化(&amp;E)</translation>
-    </message>
-    <message>
-        <source>&amp;Remove</source>
-        <translation>削除(&amp;R)</translation>
-    </message>
-    <message>
-        <source>No breakpoints
-%1: add or remove breakpoint on the current line in the editor</source>
-        <translation>ブレークポイントはありません
-%1: エディタの現在の行にブレークポイントを追加または削除</translation>
-    </message>
-    <message>
-        <source>All breakpoints are inactive — click to activate all
-%1: add or remove on the current line in the editor</source>
-        <translation>すべてのブレークポイントは無効です — クリックしてすべて有効化します
-%1: エディタの現在の行で追加または削除</translation>
-    </message>
-    <message>
-        <source>Click to deactivate all breakpoints
-%1: add or remove on the current line in the editor</source>
-        <translation>クリックしてすべてのブレークポイントを無効化します
-%1: エディタの現在の行で追加または削除</translation>
     </message>
 </context>
 <context>
@@ -7808,8 +7963,12 @@ Shift+クリック: 空行では無効なブレークポイントを追加
         <translation>評価</translation>
     </message>
     <message>
-        <source>Enter Lua expression (prefix with = to return value)</source>
-        <translation>Lua式を入力してください（戻り値を表示するには先頭に = を付けてください）</translation>
+        <source>&lt;b&gt;Lua Expression Evaluation&lt;/b&gt;&lt;br&gt;&lt;br&gt;Code runs in a protected environment: runtime errors are caught and shown in the output instead of propagating.&lt;br&gt;&lt;br&gt;&lt;b&gt;What works:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Read/modify global variables (&lt;code&gt;_G.x = 42&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Modify table contents (&lt;code&gt;my_table.field = 99&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Call functions and inspect return values&lt;/li&gt;&lt;/ul&gt;&lt;b&gt;Limitations:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Local variables cannot be modified directly (use &lt;code&gt;debug.setlocal()&lt;/code&gt;) unless there is an associated &lt;i&gt;assign&lt;/i&gt; method (&lt;code&gt;pinfo.src_port&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Long-running expressions are automatically aborted&lt;/li&gt;&lt;li&gt;&lt;b&gt;Warning:&lt;/b&gt; Changes to globals persist and can affect ongoing dissection&lt;/li&gt;&lt;/ul&gt;</source>
+        <translation>&lt;b&gt;Lua式の評価&lt;/b&gt;&lt;br&gt;&lt;br&gt;コードは保護された環境で実行されます。実行時エラーは伝播せず、捕捉されて出力に表示されます。&lt;br&gt;&lt;br&gt;&lt;b&gt;実行可能な動作:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;  グローバル変数の読み取り・変更 (&lt;code&gt;_G.x = 42&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;テーブル内容の変更 (&lt;code&gt;my_table.field = 99&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;&#xa0; 関数の呼び出しおよび戻り値の確認&lt;/li&gt;&lt;/ul&gt;&lt;b&gt;制限事項:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;  ローカル変数は直接変更できません ( &lt;code&gt;debug.setlocal()を使用するか&lt;/code&gt;&lt;i&gt;代入&lt;/i&gt; メソッドが関連付けられている場合を除く (&lt;code&gt;pinfo.src_port&lt;/code&gt;)&lt;/li&gt;)&lt;li&gt; 長時間実行される式は自動的に中断されます&lt;/li&gt;&lt;li&gt;&lt;b&gt;警告k:&lt;/b&gt; グローバル変数への変更は永続化され、進行中のディセクションに影響を与える可能性があります &lt;/li&gt;&lt;/ul&gt;</translation>
+    </message>
+    <message>
+        <source>Enter Lua expression</source>
+        <translation>Lua式を入力</translation>
     </message>
     <message>
         <source>Output</source>
@@ -7824,8 +7983,8 @@ Shift+クリック: 空行では無効なブレークポイントを追加
         <translation>クリア</translation>
     </message>
     <message>
-        <source>Clear input and output</source>
-        <translation>入出力をクリア</translation>
+        <source>Clear output</source>
+        <translation>出力をクリア</translation>
     </message>
     <message>
         <source>Settings</source>
@@ -7908,10 +8067,6 @@ Shift+クリック: 空行では無効なブレークポイントを追加
     <message>
         <source>Remove All Breakpoints (%1)</source>
         <translation>すべてのブレークポイントを削除 (%1)</translation>
-    </message>
-    <message>
-        <source>&lt;b&gt;Lua Expression Evaluation&lt;/b&gt;&lt;br&gt;&lt;br&gt;Code runs in a protected environment: runtime errors are caught and shown in the output instead of propagating.&lt;br&gt;&lt;br&gt;&lt;b&gt;Prefix with &lt;code&gt;=&lt;/code&gt;&lt;/b&gt; to return a value (e.g., &lt;code&gt;=my_var&lt;/code&gt;).&lt;br&gt;&lt;br&gt;&lt;b&gt;What works:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Read/modify global variables (&lt;code&gt;_G.x = 42&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Modify table contents (&lt;code&gt;my_table.field = 99&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Call functions and inspect return values&lt;/li&gt;&lt;/ul&gt;&lt;b&gt;Limitations:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Local variables cannot be modified directly (use &lt;code&gt;debug.setlocal()&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;Long-running expressions are automatically aborted&lt;/li&gt;&lt;li&gt;&lt;b&gt;Warning:&lt;/b&gt; Changes to globals persist and can affect ongoing dissection&lt;/li&gt;&lt;/ul&gt;</source>
-        <translation>&lt;b&gt;Lua式の評価&lt;/b&gt;&lt;br&gt;&lt;br&gt;コードは保護された環境で実行されます。実行時エラーは伝播せず、捕捉されて出力に表示されます。&lt;br&gt;&lt;br&gt;&lt;b&gt;値を返すには&lt;code&gt;=&lt;/code&gt;&lt;/b&gt;を先頭につけてください。(例&lt;code&gt;=my_var&lt;/code&gt;).&lt;br&gt;&lt;br&gt;&lt;b&gt;での動作:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;グローバル変数の読み取り/変更 (&lt;code&gt;_G.x = 42&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;テーブル内容の修正 (&lt;code&gt;my_table.field = 99&lt;/code&gt;)&lt;/li&gt;&lt;li&gt;関数の呼び出しと戻り値の確認&lt;/li&gt;&lt;/ul&gt;&lt;b&gt;制限:&lt;/b&gt;&lt;ul&gt;&lt;li&gt;ローカル変数は直接変更できません ( &lt;code&gt;debug.setlocal()&lt;/code&gt;)を使用してください&lt;/li&gt;&lt;li&gt;長時間実行される式は自動的に中止されます&lt;/li&gt;&lt;li&gt;&lt;b&gt;警告:&lt;/b&gt; グローバル変数への変更は保持され、進行中の解析に影響する可能性があります&lt;/li&gt;&lt;/ul&gt;</translation>
     </message>
     <message>
         <source>Undo</source>
@@ -8075,44 +8230,6 @@ Shift+クリック: 空行では無効なブレークポイントを追加
     </message>
 </context>
 <context>
-    <name>LuaDebuggerEvalController</name>
-    <message>
-        <source>Evaluation available when debugger is paused</source>
-        <translation>評価はデバッガの一時停止中に利用できます</translation>
-    </message>
-    <message>
-        <source>Enter Lua expression (prefix with = to return value)</source>
-        <translation>Lua式を入力してください（戻り値を表示するには先頭に = を付けてください）</translation>
-    </message>
-    <message>
-        <source>Error: %1</source>
-        <translation>エラー: %1</translation>
-    </message>
-    <message>
-        <source>Error: Unknown error</source>
-        <translation>エラー:不明なエラー</translation>
-    </message>
-</context>
-<context>
-    <name>LuaDebuggerFilesController</name>
-    <message>
-        <source>Open Source</source>
-        <translation>ソースを開く</translation>
-    </message>
-    <message>
-        <source>Show in Finder</source>
-        <translation>ファインダーで表示</translation>
-    </message>
-    <message>
-        <source>Show in Folder</source>
-        <translation>フォルダで表示</translation>
-    </message>
-    <message>
-        <source>Copy Path</source>
-        <translation>パスをコピー</translation>
-    </message>
-</context>
-<context>
     <name>LuaDebuggerFindFrame</name>
     <message>
         <source>Find:</source>
@@ -8159,20 +8276,6 @@ Shift+クリック: 空行では無効なブレークポイントを追加
     </message>
 </context>
 <context>
-    <name>LuaDebuggerLuaReloadCoordinator</name>
-    <message>
-        <source>Reload Lua Plugins</source>
-        <translation>Luaプラグインを再読込</translation>
-    </message>
-    <message>
-        <source>Are you sure you want to reload all Lua plugins?
-
-This will restart all Lua scripts and may affect capture analysis.</source>
-        <translation>本当にすべてのLuaプラグインを再読み込みしてもよろしいですか？
-これによりすべての Lua スクリプトが再起動され、キャプチャ解析に影響する可能性があります</translation>
-    </message>
-</context>
-<context>
     <name>LuaDebuggerPauseOverlay</name>
     <message>
         <source>Lua debugger paused</source>
@@ -8184,57 +8287,11 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     </message>
 </context>
 <context>
-    <name>LuaDebuggerStackController</name>
-    <message>
-        <source>Open Source</source>
-        <translation>ソースを開く</translation>
-    </message>
-    <message>
-        <source>Copy Location</source>
-        <translation>位置をコピー</translation>
-    </message>
-</context>
-<context>
-    <name>LuaDebuggerVariablesController</name>
-    <message>
-        <source>Type: %1</source>
-        <translation>種別: %1</translation>
-    </message>
-    <message>
-        <source>%1 = %2</source>
-        <translation>%1 = %2</translation>
-    </message>
-    <message>
-        <source>Copy Name</source>
-        <translation>名前をコピー</translation>
-    </message>
-    <message>
-        <source>Copy Value</source>
-        <translation>値をコピー</translation>
-    </message>
-    <message>
-        <source>Copy Path</source>
-        <translation>パスをコピー</translation>
-    </message>
-    <message>
-        <source>Copy Name &amp;&amp; Value</source>
-        <translation>名前と値をコピー</translation>
-    </message>
-    <message>
-        <source>Add Watch: &quot;%1&quot;</source>
-        <translation>ウォッチを追加: &quot;%1&quot;</translation>
-    </message>
-</context>
-<context>
     <name>LuaDebuggerWatchController</name>
-    <message>
-        <source>Clear All Watches</source>
-        <translation>すべてのウォッチをクリア</translation>
-    </message>
     <message numerus="yes">
         <source>Are you sure you want to remove %Ln watch(es)?</source>
-        <translation>
-            <numerusform>本当に %Ln 個のウォッチを削除してもよろしいですか？</numerusform>
+        <translation type="obsolete">
+            <numerusform>Are you sure you want to remove %Ln watch?</numerusform>
         </translation>
     </message>
     <message>
@@ -8246,14 +8303,6 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>
             <numerusform>ウォッチ式が長すぎます(最大 %Ln 文字)</numerusform>
         </translation>
-    </message>
-    <message>
-        <source>Maximum watch depth reached</source>
-        <translation>ウォッチの最大深度に達しました</translation>
-    </message>
-    <message>
-        <source>Maximum watch depth reached.</source>
-        <translation>ウォッチの最大深度に達しました</translation>
     </message>
 </context>
 <context>
@@ -9067,8 +9116,20 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>ダイアログ</translation>
     </message>
     <message>
+        <source>&amp;Edit</source>
+        <translation>編集(&amp;E)</translation>
+    </message>
+    <message>
         <source>&lt;small&gt;&lt;i&gt;&lt;/i&gt;&lt;/small&gt;</source>
         <translation>&lt;small&gt;&lt;i&gt;&lt;/i&gt;&lt;/small&gt;</translation>
+    </message>
+    <message>
+        <source>Find in Packet</source>
+        <translation>パケットを検索</translation>
+    </message>
+    <message>
+        <source>Find in the packet details tree (Ctrl+Alt+F)</source>
+        <translation>パケット詳細ツリーを検索 (Ctrl+Alt+F)</translation>
     </message>
     <message>
         <source>Show packet bytes</source>
@@ -9077,6 +9138,14 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>Layout:</source>
         <translation>レイアウト:</translation>
+    </message>
+    <message>
+        <source>Find in &amp;Packet</source>
+        <translation>パケットを検索(&amp;P)</translation>
+    </message>
+    <message>
+        <source>Find in the packet details tree (%1)</source>
+        <translation>パケット詳細ツリーを検索 (%1)</translation>
     </message>
     <message>
         <source>Packet %1</source>
@@ -9115,6 +9184,84 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     </message>
 </context>
 <context>
+    <name>PacketFormatCArraysGroupBox</name>
+    <message>
+        <source>GroupBox</source>
+        <translation>グループボックス</translation>
+    </message>
+    <message>
+        <source>Packet Format</source>
+        <translation>パケット形式</translation>
+    </message>
+    <message>
+        <source>Include secondary data sources</source>
+        <translation>第２データソースを含む</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Generate arrays for secondary data sources like reassembled or decrypted buffers in addition to the frame&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;フレームに加えて再組立てや復号化したバッファなどの第二データソースの配列を作成します。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Include an array to index into the list of frames&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt; フレーム一覧を参照するためのインデックス配列を含めます。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Include index</source>
+        <translation>インデックスを含む</translation>
+    </message>
+</context>
+<context>
+    <name>PacketFormatCSVGroupBox</name>
+    <message>
+        <source>GroupBox</source>
+        <translation>グループボックス</translation>
+    </message>
+    <message>
+        <source>Packet Format</source>
+        <translation>パケット形式</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Escape non-ASCII and whitespace characters&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;ASCII以外と空白文字をエスケープ&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>ASCII</source>
+        <translation>アスキー文字形式</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Export as a UTF-8 CSV&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;UTF-8のCSV形式としてエクスポート&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>UTF-8</source>
+        <translation>UTF-8形式</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Include a Byte Order Mark at the beginning of the file, for Windows&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Windowsのためにバイト順序マークをファイルの先頭に含みます&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Include Byte Order Mark</source>
+        <translation>バイト順序マークを含む</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Prefix values that a spreadsheet would evaluate as a formula (those starting with &quot;=&quot;, &quot;+&quot;, &quot;-&quot; or &quot;@&quot;) with an apostrophe, so that packet data cannot inject a formula into the exported file&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&#xa0; &apos;=&apos;, &apos;+&apos;, &apos;-&apos;, &apos;@&apos; で始まる値は、エクスポートしたファイルで数式として解釈されないよう、先頭にアポストロフィ (&apos;) を付加します。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Escape spreadsheet formulas</source>
+        <translation>スプレッドシート数式をエスケープ</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Replace whitespace characters (tabs, newlines, etc.) with C-style escapes&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt; 空白文字（タブ、改行など）を C 言語形式のエスケープ表記に置換する&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Escape whitespace</source>
+        <translation>空白をエスケープ</translation>
+    </message>
+</context>
+<context>
     <name>PacketFormatJSONGroupBox</name>
     <message>
         <source>GroupBox</source>
@@ -9131,6 +9278,14 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>No duplicate keys</source>
         <translation>重複キーなし</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Output compact JSON without indentation (significantly faster and smaller)&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;インデントなしのコンパクトJSON形式で出力 ( 大幅に高速化されサイズも削減)&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Compact (no indentation)</source>
+        <translation>コンパクト(インデントなし)</translation>
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Export a name/value pair for each field with the field value&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
@@ -9231,6 +9386,14 @@ This will restart all Lua scripts and may affect capture analysis.</source>
 <context>
     <name>PacketList</name>
     <message>
+        <source>Go to Packet</source>
+        <translation>パケットへ移動</translation>
+    </message>
+    <message>
+        <source>Tag Links</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Summary as Text</source>
         <translation>テキストとしての概要</translation>
     </message>
@@ -9261,6 +9424,26 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>[ Comment text exceeds %1. Stopping. ]</source>
         <translation>[ コメントテキスト超過 %1 停止中 ]</translation>
+    </message>
+    <message>
+        <source>Unpin Selected Rows</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Pin Selected Rows (max %Ln)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Pin Selected Rows</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>At most %Ln rows can be pinned.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
 </context>
 <context>
@@ -9298,16 +9481,24 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>文字列として表示</translation>
     </message>
     <message>
-        <source>Display as packet Details</source>
-        <translation>パケット詳細として表示</translation>
-    </message>
-    <message>
         <source>Column Preferences…</source>
         <translation>列の設定…</translation>
     </message>
     <message>
         <source>Resize Column to Width…</source>
         <translation>内容に合わせて列幅を揃える…</translation>
+    </message>
+    <message>
+        <source>Unfreeze Columns</source>
+        <translation>列の固定解除</translation>
+    </message>
+    <message>
+        <source>Freeze Column</source>
+        <translation>列を固定</translation>
+    </message>
+    <message>
+        <source>Display as Packet Details</source>
+        <translation>パケット詳細として表示</translation>
     </message>
     <message>
         <source>Remove this Column</source>
@@ -9325,22 +9516,6 @@ This will restart all Lua scripts and may affect capture analysis.</source>
 <context>
     <name>PacketListModel</name>
     <message>
-        <source>Column</source>
-        <translation>列</translation>
-    </message>
-    <message>
-        <source>%1 can only be sorted with %2 or fewer visible rows; increase cache size in Layout preferences</source>
-        <translation>%1 は %2 か、より少ない表示行数でのみソートできます。設定のレイアウトでキャッシュサイズを増やしてください。</translation>
-    </message>
-    <message>
-        <source>Sorting &quot;%1&quot;…</source>
-        <translation>&quot;%1&quot; ソート中…</translation>
-    </message>
-    <message>
-        <source>Sorting …</source>
-        <translation>ソート中 …</translation>
-    </message>
-    <message>
         <source>Marked</source>
         <translation>マーク済</translation>
     </message>
@@ -9355,6 +9530,25 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>Modified</source>
         <translation>修正済</translation>
+    </message>
+</context>
+<context>
+    <name>PacketListProxyModel</name>
+    <message>
+        <source>Column</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 can only be sorted with %2 or fewer visible rows; increase cache size in Layout preferences</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sorting &quot;%1&quot;…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sorting …</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -9431,10 +9625,21 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     </message>
 </context>
 <context>
+    <name>PinnedRowsModel</name>
+    <message>
+        <source>This packet is pinned but doesn&apos;t match the display filter.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This packet is pinned but has been aggregated into a later row with the same key.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>Plot</name>
     <message>
-        <source>Field cannot be empty!</source>
-        <translation>フィールドを空にはできません!</translation>
+        <source>Field cannot be empty.</source>
+        <translation>フィールドを空にはできません</translation>
     </message>
 </context>
 <context>
@@ -10062,8 +10267,8 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>列</translation>
     </message>
     <message>
-        <source>Font and Colors</source>
-        <translation>フォントと色</translation>
+        <source>Theme and Font</source>
+        <translation>テーマとフォント</translation>
     </message>
     <message>
         <source>Welcome Page</source>
@@ -10457,6 +10662,10 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>すべて閉じる</translation>
     </message>
     <message>
+        <source>Distribution…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Copy</source>
         <translation>コピー</translation>
     </message>
@@ -10470,7 +10679,7 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     </message>
     <message>
         <source>Description</source>
-        <translation>記述</translation>
+        <translation>説明</translation>
     </message>
     <message>
         <source>Field Name</source>
@@ -10491,6 +10700,14 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>Filter Field Reference</source>
         <translation>フィルタフィールドリファレンス</translation>
+    </message>
+    <message>
+        <source>Tagging Rules...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tag Links</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Coloring Rule Preferences...</source>
@@ -11085,6 +11302,10 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>UE Id</translation>
     </message>
     <message>
+        <source></source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Name</source>
         <translation>名前</translation>
     </message>
@@ -11274,12 +11495,234 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <source>Personal</source>
         <translation>個人</translation>
     </message>
-</context>
-<context>
-    <name>QObject::QObject::QObject</name>
     <message>
-        <source>CCCH</source>
-        <translation>CCCH</translation>
+        <source>Type: %1</source>
+        <translation>種別: %1</translation>
+    </message>
+    <message>
+        <source>%1 = %2</source>
+        <translation>%1 = %2</translation>
+    </message>
+    <message>
+        <source>Copy Name</source>
+        <translation>名前をコピー</translation>
+    </message>
+    <message>
+        <source>Copy Value</source>
+        <translation>値をコピー</translation>
+    </message>
+    <message>
+        <source>Copy Path</source>
+        <translation>パスをコピー</translation>
+    </message>
+    <message>
+        <source>Copy Name &amp;&amp; Value</source>
+        <translation>名前と値をコピー</translation>
+    </message>
+    <message>
+        <source>Add Watch: &quot;%1&quot;</source>
+        <translation>ウォッチを追加: &quot;%1&quot;</translation>
+    </message>
+    <message>
+        <source>Reload Lua Plugins</source>
+        <translation>Luaプラグインを再読込</translation>
+    </message>
+    <message>
+        <source>Are you sure you want to reload all Lua plugins?
+
+This will restart all Lua scripts and may affect capture analysis.</source>
+        <translation>本当にすべてのLuaプラグインを再読み込みしてもよろしいですか？
+これによりすべての Lua スクリプトが再起動され、キャプチャ解析に影響する可能性があります</translation>
+    </message>
+    <message>
+        <source>Evaluation available when debugger is paused</source>
+        <translation>評価はデバッガの一時停止中に利用できます</translation>
+    </message>
+    <message>
+        <source>Enter Lua expression</source>
+        <translation>Lua式を入力</translation>
+    </message>
+    <message>
+        <source>Error: %1</source>
+        <translation>エラー: %1</translation>
+    </message>
+    <message>
+        <source>Error: Unknown error</source>
+        <translation>エラー:不明なエラー</translation>
+    </message>
+    <message>
+        <source>Open Source</source>
+        <translation>ソースを開く</translation>
+    </message>
+    <message>
+        <source>Copy Location</source>
+        <translation>位置をコピー</translation>
+    </message>
+    <message>
+        <source>Show in Finder</source>
+        <translation>ファインダーで表示</translation>
+    </message>
+    <message>
+        <source>Show in Folder</source>
+        <translation>フォルダで表示</translation>
+    </message>
+    <message>
+        <source>Add Watch</source>
+        <translation>ウォッチを追加</translation>
+    </message>
+    <message>
+        <source>Remove All Watches</source>
+        <translation>すべてのウォッチを削除</translation>
+    </message>
+    <message>
+        <source>Duplicate Watch</source>
+        <translation>ウォッチを複製</translation>
+    </message>
+    <message>
+        <source>Edit Watch</source>
+        <translation>ウォッチを編集</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>削除</translation>
+    </message>
+    <message>
+        <source>Clear All Watches</source>
+        <translation>すべてのウォッチをクリア</translation>
+    </message>
+    <message numerus="yes">
+        <source>Are you sure you want to remove %Ln watch(es)?</source>
+        <translation>
+            <numerusform>本当に %Ln 個のウォッチを削除してもよろしいですか？</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Maximum watch depth reached</source>
+        <translation>ウォッチの最大深度に達しました</translation>
+    </message>
+    <message>
+        <source>Maximum watch depth reached.</source>
+        <translation>ウォッチの最大深度に達しました</translation>
+    </message>
+    <message>
+        <source>Location</source>
+        <translation>位置</translation>
+    </message>
+    <message>
+        <source>&lt;p&gt;&lt;b&gt;Hit-count summary&lt;/b&gt;&lt;/p&gt;&lt;p&gt;&lt;code&gt;≥N&lt;/code&gt; &amp;mdash; &lt;i&gt;from&lt;/i&gt; mode: pause from hit &lt;i&gt;N&lt;/i&gt; onwards.&lt;br/&gt;&lt;code&gt;×N&lt;/code&gt; &amp;mdash; &lt;i&gt;every&lt;/i&gt; mode: pause on hits &lt;i&gt;N&lt;/i&gt;, &lt;i&gt;2N&lt;/i&gt;, &lt;i&gt;3N&lt;/i&gt;, &amp;hellip;&lt;br/&gt;&lt;code&gt;@N&lt;/code&gt; &amp;mdash; &lt;i&gt;once&lt;/i&gt; mode: pause once on the &lt;i&gt;N&lt;/i&gt;th hit, then deactivate.&lt;/p&gt;&lt;p&gt;The cell starts with the running hit counter; if a gate is set it follows in parentheses, e.g. &lt;code&gt;3 (≥10)&lt;/code&gt;. With no hit gate the cell is just the counter.&lt;/p&gt;&lt;p&gt;Edit the &lt;i&gt;Location&lt;/i&gt; cell to set or change the gate (see the breakpoint-extras section).&lt;/p&gt;</source>
+        <translation>&lt;p&gt;&lt;b&gt;ヒット回数サマリ&lt;/b&gt;&lt;/p&gt;&lt;p&gt;&lt;code&gt;≥N&lt;/code&gt; &amp;mdash; &lt;i&gt;from&lt;/i&gt; モード: &lt;i&gt;N&lt;/i&gt; 回目以降のすべてのヒットで一時停止します。&lt;br/&gt;&lt;code&gt;×N&lt;/code&gt; &amp;mdash; &lt;i&gt;every&lt;/i&gt; モード:  &lt;i&gt;N&lt;/i&gt;, &lt;i&gt;2N&lt;/i&gt;, &lt;i&gt;3N&lt;/i&gt;...回目のヒットで一時停止します。 &lt;br/&gt;&lt;code&gt;@N&lt;/code&gt; &amp;mdash; &lt;i&gt;once&lt;/i&gt; モード:  &lt;i&gt;N&lt;/i&gt;回目のヒットで一度だけ一時停止し、その後ブレークポイントを無効化します。&lt;/p&gt;&lt;p&gt;セルは実行中のヒットカウンタで始まり、条件が設定されている場合は括弧内に表示されます（例: &lt;code&gt;3 (≥10)&lt;/code&gt; ヒット条件がない場合、セルにはカウンタのみ表示されます。&lt;/p&gt;&lt;p&gt;条件を編集するには &lt;i&gt;Location&lt;/i&gt;セルを編集してください（ブレークポイント拡張セクションを参照） &lt;/p&gt;</translation>
+    </message>
+    <message>
+        <source>Edit...</source>
+        <translation>編集...</translation>
+    </message>
+    <message>
+        <source>Reset Hit Count</source>
+        <translation>ヒット回数をリセット</translation>
+    </message>
+    <message>
+        <source>Reset All Hit Counts</source>
+        <translation>すべてのヒット回数をリセット</translation>
+    </message>
+    <message>
+        <source>Remove All Breakpoints</source>
+        <translation>すべてのブレークポイントを削除</translation>
+    </message>
+    <message>
+        <source>Clear All Breakpoints</source>
+        <translation>すべてのブレークポイントをクリア</translation>
+    </message>
+    <message numerus="yes">
+        <source>Are you sure you want to remove %Ln breakpoint(s)?</source>
+        <translation>
+            <numerusform>%Ln 個のブレークポイントを削除してもよろしいですか？</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Location: %1:%2</source>
+        <translation>位置: %1:%2</translation>
+    </message>
+    <message>
+        <source>Condition: %1</source>
+        <translation>条件: %1</translation>
+    </message>
+    <message>
+        <source>pauses on hits %1, 2×%1, 3×%1, …</source>
+        <translation>%1、2×%1、3×%1、… 回目のヒットで一時停止</translation>
+    </message>
+    <message>
+        <source>pauses once on hit %1, then deactivates the breakpoint</source>
+        <translation>%1 回目のヒットで一度だけ一時停止し、その後ブレークポイントを無効化</translation>
+    </message>
+    <message>
+        <source>pauses on every hit from %1 onwards</source>
+        <translation>%1 回目以降のすべてのヒットで一時停止</translation>
+    </message>
+    <message>
+        <source>Hit Count: %1 / %2 (%3)</source>
+        <translation>ヒット回数: %1 / %2 (%3)</translation>
+    </message>
+    <message>
+        <source>Hits: %1</source>
+        <translation>ヒット: %1</translation>
+    </message>
+    <message>
+        <source>Log: %1</source>
+        <translation>ログ: %1</translation>
+    </message>
+    <message>
+        <source>(logpoint — also pauses)</source>
+        <translation>(ログポイント — 一時停止も行います)</translation>
+    </message>
+    <message>
+        <source>(logpoint — does not pause)</source>
+        <translation>(ログポイント — 一時停止しません)</translation>
+    </message>
+    <message>
+        <source>Condition error on last evaluation — treated as false (silent). Edit or reset the breakpoint to clear.</source>
+        <translation>前回の評価で条件エラーが発生しました — false として扱われます（サイレント）。解除するにはブレークポイントを編集またはリセットしてください</translation>
+    </message>
+    <message>
+        <source>Condition error: %1</source>
+        <translation>条件エラー: %1</translation>
+    </message>
+    <message>
+        <source>File not found: %1</source>
+        <translation>ファイルが見つかりません: %1</translation>
+    </message>
+    <message>
+        <source>&amp;Edit...</source>
+        <translation>編集(&amp;E)...</translation>
+    </message>
+    <message>
+        <source>&amp;Disable</source>
+        <translation>無効化(&amp;D)</translation>
+    </message>
+    <message>
+        <source>&amp;Enable</source>
+        <translation>有効化(&amp;E)</translation>
+    </message>
+    <message>
+        <source>&amp;Remove</source>
+        <translation>削除(&amp;R)</translation>
+    </message>
+    <message>
+        <source>No breakpoints
+%1: add or remove breakpoint on the current line in the editor</source>
+        <translation>ブレークポイントはありません
+%1: エディタの現在の行にブレークポイントを追加または削除</translation>
+    </message>
+    <message>
+        <source>All breakpoints are inactive — click to activate all
+%1: add or remove on the current line in the editor</source>
+        <translation>すべてのブレークポイントは無効です — クリックしてすべて有効化します
+%1: エディタの現在の行で追加または削除</translation>
+    </message>
+    <message>
+        <source>Click to deactivate all breakpoints
+%1: add or remove on the current line in the editor</source>
+        <translation>クリックしてすべてのブレークポイントを無効化します
+%1: エディタの現在の行で追加または削除</translation>
     </message>
 </context>
 <context>
@@ -12203,6 +12646,14 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>選択したストリームをミュート・ミュート解除</translation>
     </message>
     <message>
+        <source>Solo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unmute selected streams and mute all other streams</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Route audio to left channel of selected streams</source>
         <translation>選択したストリームの左チャンネルへオーディオを接続</translation>
     </message>
@@ -12470,8 +12921,12 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>, 開始: %1, カーソル: %2. &quot;G&quot; を押してパケット %3 へ移動します。ダブルクリックして再生開始を設定します。</translation>
     </message>
     <message>
-        <source>Playback of stream %1 failed!</source>
-        <translation>ストリーム %1 の再生に失敗しました!!</translation>
+        <source>Playback of stream %1 failed.</source>
+        <translation>ストリーム %1 の再生に失敗しました</translation>
+    </message>
+    <message>
+        <source>Save failed.</source>
+        <translation>保存に失敗しました</translation>
     </message>
     <message>
         <source>Automatic</source>
@@ -12521,10 +12976,6 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>No streams are suitable for save</source>
         <translation>保存にて適したストリームはありません</translation>
-    </message>
-    <message>
-        <source>Save failed!</source>
-        <translation>保存失敗!!</translation>
     </message>
     <message>
         <source>Can&apos;t write header of AU file</source>
@@ -13319,6 +13770,14 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>複数発生するフィールド値</translation>
     </message>
     <message>
+        <source>Search the selected packet details tree</source>
+        <translation>選択したパケット詳細ツリーを検索</translation>
+    </message>
+    <message>
+        <source>Find in selected Packet</source>
+        <translation>選択したパケットを検索</translation>
+    </message>
+    <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Search for data using display filter syntax (e.g. ip.addr==10.1.1.1), a hexadecimal string (e.g. fffffda5), a plain string (e.g. My String) or a regular expression (e.g. colou?r).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <oldsource>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Search for data using display filter syntax (e.g. ip.addr==10.1.1.1), a hexadecimal string (e.g. fffffda5) or a plain string (e.g. My String).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</oldsource>
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;表示フィルタ構文(例 ip.addr==10.1.1.1),16数文字列(例 ffffda5),平文文字列(例 My String)もしくは正規表現(例 colou?r)を用いてデータを検索しますt;/body&gt;&lt;/html&gt;</translation>
@@ -13354,6 +13813,14 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>Invalid filter.</source>
         <translation>無効なフィルタです</translation>
+    </message>
+    <message>
+        <source>Search for a plain text string in the current packet details tree (e.g. My String).</source>
+        <translation>現在のパケット詳細ツリーのプレインテキスト文字列を検索 (例 My String)</translation>
+    </message>
+    <message>
+        <source>Search using a regular expression in the current packet details tree (e.g. colou?r).</source>
+        <translation>現在のパケット詳細ツリーを正規表現で検索 (例 colou?r)</translation>
     </message>
     <message>
         <source>That filter doesn&apos;t test anything.</source>
@@ -13398,6 +13865,30 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>No packet matched that filter.</source>
         <translation>フィルタに一致するパケットはありませんでした</translation>
+    </message>
+    <message>
+        <source>Find in Packet supports string and regular expression search only.</source>
+        <translation>パケット内検索は文字列および正規表現のみ対応しています</translation>
+    </message>
+    <message>
+        <source>[no matches] %1</source>
+        <translation>[合致なし] %1</translation>
+    </message>
+    <message>
+        <source>No %1 found.</source>
+        <translation>%1 は見つかりません</translation>
+    </message>
+    <message>
+        <source>[%1 of %2]</source>
+        <translation>[%1 of %2]</translation>
+    </message>
+    <message>
+        <source>Search for a plain text string/char in the current packet details tree (e.g. &apos;flag&apos; or &apos;f&apos;).</source>
+        <translation>現在のパケット詳細ツリー内でプレーンテキスト文字列または文字を検索します（例 &apos;flag&apos; や &apos;f&apos;)</translation>
+    </message>
+    <message>
+        <source>Search using a regular expression in the current packet details tree (e.g. &apos;d&apos;).</source>
+        <translation>現在のパケット詳細ツリー内で正規表現を使用して検索します (例 &apos;d&apos;)</translation>
     </message>
 </context>
 <context>
@@ -13771,7 +14262,7 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     </message>
     <message>
         <source>Description</source>
-        <translation>記述</translation>
+        <translation>説明</translation>
     </message>
 </context>
 <context>
@@ -13885,6 +14376,10 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>UTF-8</source>
         <translation>UTF-8形式</translation>
+    </message>
+    <message>
+        <source>UTF-8 Unescaped</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>YAML</source>
@@ -14069,7 +14564,7 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     </message>
     <message>
         <source>Description</source>
-        <translation>記述</translation>
+        <translation>説明</translation>
     </message>
 </context>
 <context>
@@ -14811,6 +15306,177 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     </message>
 </context>
 <context>
+    <name>TaggingRulesDialog</name>
+    <message>
+        <source>Dialog</source>
+        <translation type="unfinished">ダイアログ</translation>
+    </message>
+    <message>
+        <source>Follow Link:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>How to open a tag link in the packet list.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ctrl+Shift+Click</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Click</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Right-click only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Emoji Size:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Emoji size as a percentage of the row height. Does not affect text tag labels or the separator character.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>100%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>90%</source>
+        <translation type="unfinished">90%</translation>
+    </message>
+    <message>
+        <source>80%</source>
+        <translation type="unfinished">80%</translation>
+    </message>
+    <message>
+        <source>70%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>60%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>50%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Separator:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Single character shown between tags when more than one rule matches. Leave empty for none.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save these tagging rules and open the Coloring Rules dialog with this rule&apos;s filter and name pre-filled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy to Coloring Rule</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;small&gt;&lt;i&gt;A hint.&lt;/i&gt;&lt;/small&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add a new tagging rule.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete this tagging rule.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Duplicate this tagging rule.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear all tagging rules.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tagging Rules %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Shift+Command+Click</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import…</source>
+        <translation type="unfinished">インポート…</translation>
+    </message>
+    <message>
+        <source>Select a file and add its rules to the end of the list.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export…</source>
+        <translation type="unfinished">エクスポート…</translation>
+    </message>
+    <message>
+        <source>Save rules to a file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy tagging rules from another profile.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open </source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>(no tagrules.jsonc file yet — will be created on save)</source>
+        <oldsource>(no tagrules file yet — will be created on save)</oldsource>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Click to edit. Drag to move. Sample Emojis &lt;a href=&quot;https://emojipedia.org&quot;&gt;here&lt;/a&gt;. All matching rules are applied.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import Tagging Rules</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export %1 Tagging Rules</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>TaggingRulesModel</name>
+    <message>
+        <source>Name</source>
+        <translation type="unfinished">名前</translation>
+    </message>
+    <message>
+        <source>Filter</source>
+        <translation type="unfinished">フィルタ</translation>
+    </message>
+    <message>
+        <source>Tag</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Link</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Comment</source>
+        <translation type="unfinished">コメント</translation>
+    </message>
+    <message>
+        <source>New tagging rule</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>TapParameterDialog</name>
     <message>
         <source>Dialog</source>
@@ -14876,6 +15542,315 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>Error saving file %1</source>
         <translation>ファイル保存エラー %1</translation>
+    </message>
+</context>
+<context>
+    <name>TcpDedupDialog</name>
+    <message>
+        <source>TCP Duplication Table</source>
+        <translation>TCP複製テーブル</translation>
+    </message>
+    <message>
+        <source>The &quot;Detect duplication (capture-level) packets&quot; preference must be enabled in
+Preferences → Protocols → TCP to use this table.</source>
+        <translation>このテーブルを利用するには&quot;検出された複製パケット(キャプチャレベル)&quot; 設定を以下で有効にする必要があります
+設定 → プロトコル → TCP</translation>
+    </message>
+    <message>
+        <source>Time</source>
+        <translation>時間</translation>
+    </message>
+    <message>
+        <source>Delta</source>
+        <translation>間隔</translation>
+    </message>
+    <message>
+        <source>Frame Number</source>
+        <translation>フレーム番号</translation>
+    </message>
+    <message>
+        <source>Duplication Total</source>
+        <translation>複製合計</translation>
+    </message>
+    <message>
+        <source>Frame List</source>
+        <translation>フレーム一覧</translation>
+    </message>
+    <message>
+        <source>Info</source>
+        <translation>情報</translation>
+    </message>
+    <message>
+        <source>Stream:</source>
+        <translation>ストリーム:</translation>
+    </message>
+</context>
+<context>
+    <name>ThemeDebugDialog</name>
+    <message>
+        <source>Theme Debug</source>
+        <translation>テーマデバッグ</translation>
+    </message>
+    <message>
+        <source>Name:</source>
+        <translation>名前:</translation>
+    </message>
+    <message>
+        <source>Internal:</source>
+        <translation>内部:</translation>
+    </message>
+    <message>
+        <source>Version:</source>
+        <translation>バージョン:</translation>
+    </message>
+    <message>
+        <source>Author:</source>
+        <translation>作者:</translation>
+    </message>
+    <message>
+        <source>Description:</source>
+        <translation>説明</translation>
+    </message>
+    <message>
+        <source>Mode:</source>
+        <translation>モード:</translation>
+    </message>
+    <message>
+        <source>Dark mode:</source>
+        <translation>ダークモード:</translation>
+    </message>
+    <message>
+        <source>Theme</source>
+        <translation>テーマ</translation>
+    </message>
+    <message>
+        <source>Geometry:</source>
+        <translation>サイズと位置:</translation>
+    </message>
+    <message>
+        <source>Frame geometry:</source>
+        <translation>フレームのサイズと位置:</translation>
+    </message>
+    <message>
+        <source>Screen:</source>
+        <translation>スクリーン:</translation>
+    </message>
+    <message>
+        <source>DPI / DPR:</source>
+        <translation>DPI / DPR:</translation>
+    </message>
+    <message>
+        <source>Window state:</source>
+        <translation>ウインドウ状態:</translation>
+    </message>
+    <message>
+        <source>These values refresh live while the dialog is open.</source>
+        <translation> ダイアログが開いている間は値がリアルタイムで更新されます。</translation>
+    </message>
+    <message>
+        <source>Main Window</source>
+        <translation>メインウインドウ</translation>
+    </message>
+    <message>
+        <source>Track widget under mouse</source>
+        <translation>マウスのある場所のウィジェットを追跡</translation>
+    </message>
+    <message>
+        <source>The inspector reports any widget in this application under the cursor — including child dialogs. Widgets that belong to this debug window are skipped so the last hovered target stays pinned. Hold Alt+Shift and click any widget to pin it: this turns off tracking and locks the readout onto that widget (re-check the box above to resume). Note: on macOS, tool windows are hidden whenever another application has focus, so tracking pauses until Wireshark is frontmost again.</source>
+        <translation> インスペクターは、このアプリケーション内でカーソル下にあるすべてのウィジェット（子ダイアログを含む）を表示します。このデバッグウィンドウに属するウィジェットは除外されるため、直前にホバーしていた対象が固定されます。
+Alt+Shift を押しながら任意のウィジェットをクリックするとピン留めされ、トラッキングが無効になって表示がそのウィジェットに固定されます（上のチェックボックスを再度オンにすると再開します）。
+注：macOS では、別のアプリケーションがフォーカスを持つとツールウィンドウが非表示になるため、Wireshark が再び最前面になるまでトラッキングは一時停止します。</translation>
+    </message>
+    <message>
+        <source>Cursor (global):</source>
+        <translation>カーソル(グローバル):</translation>
+    </message>
+    <message>
+        <source>Class:</source>
+        <translation>クラス:</translation>
+    </message>
+    <message>
+        <source>Object name:</source>
+        <translation>オブジェクト名:</translation>
+    </message>
+    <message>
+        <source>Font:</source>
+        <translation>フォント:</translation>
+    </message>
+    <message>
+        <source>Global rect:</source>
+        <translation>グローバル矩形:</translation>
+    </message>
+    <message>
+        <source>Parent chain:</source>
+        <translation>親チェーン:</translation>
+    </message>
+    <message>
+        <source>Palette (Active group):</source>
+        <translation>パレット (アクティブグループ):</translation>
+    </message>
+    <message>
+        <source>Role</source>
+        <translation>ロール</translation>
+    </message>
+    <message>
+        <source>Color</source>
+        <translation>色</translation>
+    </message>
+    <message>
+        <source>ThemeManager token</source>
+        <translation>テーママネージャートークン</translation>
+    </message>
+    <message>
+        <source>Swatch</source>
+        <translation>スウォッチ</translation>
+    </message>
+    <message>
+        <source>Stylesheet:</source>
+        <translation>スタイルシート:</translation>
+    </message>
+    <message>
+        <source>(no stylesheet)</source>
+        <translation>(スタイルシートなし)</translation>
+    </message>
+    <message>
+        <source>Widget Inspector</source>
+        <translation> ウィジェットインスペクタ</translation>
+    </message>
+    <message>
+        <source>Token</source>
+        <translation>トークン</translation>
+    </message>
+    <message>
+        <source>Hex</source>
+        <translation>16進数</translation>
+    </message>
+    <message>
+        <source>Tokens</source>
+        <translation>トークン</translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <translation>更新</translation>
+    </message>
+    <message>
+        <source>yes</source>
+        <translation>はい</translation>
+    </message>
+    <message>
+        <source>no</source>
+        <translation>いいえ</translation>
+    </message>
+    <message>
+        <source>(no main window)</source>
+        <translation>(メインウインドウなし)</translation>
+    </message>
+    <message>
+        <source>(unknown)</source>
+        <translation>(不明)</translation>
+    </message>
+    <message>
+        <source>maximized</source>
+        <translation>最大化</translation>
+    </message>
+    <message>
+        <source>minimized</source>
+        <translation>最小化</translation>
+    </message>
+    <message>
+        <source>fullscreen</source>
+        <translation>フルスクリーン</translation>
+    </message>
+    <message>
+        <source>active</source>
+        <translation>アクティブ</translation>
+    </message>
+    <message>
+        <source>normal</source>
+        <translation>通常</translation>
+    </message>
+    <message>
+        <source>(unset)</source>
+        <translation>(未設定)</translation>
+    </message>
+    <message>
+        <source>(none)</source>
+        <translation>(なし)</translation>
+    </message>
+    <message>
+        <source>(unnamed)</source>
+        <translation>(名称未設定)</translation>
+    </message>
+</context>
+<context>
+    <name>ThemePreviewWidget</name>
+    <message>
+        <source>No.</source>
+        <translation>No.</translation>
+    </message>
+    <message>
+        <source>Time</source>
+        <translation>時間</translation>
+    </message>
+    <message>
+        <source>Delta</source>
+        <translation>間隔</translation>
+    </message>
+    <message>
+        <source>Source</source>
+        <translation>送信元</translation>
+    </message>
+    <message>
+        <source>Destination</source>
+        <translation>宛先</translation>
+    </message>
+    <message>
+        <source>Protocol</source>
+        <translation>プロトコル</translation>
+    </message>
+    <message>
+        <source>Length</source>
+        <translation>長さ</translation>
+    </message>
+    <message>
+        <source>Show Coloring Rules</source>
+        <translation>色付けルールを表示</translation>
+    </message>
+    <message>
+        <source>Save Image As…</source>
+        <translation>...として画像を保存</translation>
+    </message>
+    <message>
+        <source>Save Theme Preview</source>
+        <translation>テーマプレビューを保存</translation>
+    </message>
+    <message>
+        <source>PNG Image (*.png)</source>
+        <translation>PNG画像 (*.png)</translation>
+    </message>
+    <message>
+        <source>Could not write the image to &quot;%1&quot;.</source>
+        <translation>イメージを &quot;%1&quot; に書き込めませんでした</translation>
+    </message>
+    <message>
+        <source>Info</source>
+        <translation>情報</translation>
+    </message>
+    <message>
+        <source>Ready</source>
+        <translation>準備</translation>
+    </message>
+    <message>
+        <source>Profile: Default</source>
+        <translation>プロファイル: デフォルト</translation>
+    </message>
+    <message>
+        <source>Packets: %1</source>
+        <translation>パケット: %1</translation>
+    </message>
+    <message>
+        <source>Displayed: %1 (100.0%)</source>
+        <translation>表示: %1 (100.0%)</translation>
     </message>
 </context>
 <context>
@@ -15376,10 +16351,6 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>現在実行中のアプリケーションのバージョン</translation>
     </message>
     <message>
-        <source>4.7.0 (v4.7.0rc0-2438-g68ddfc1bcba4)</source>
-        <translation>4.7.0 (v4.7.0rc0-2438-g68ddfc1bcba4)</translation>
-    </message>
-    <message>
         <source>Variant of the application running</source>
         <translation>実行中アプリケーションのビルド種別</translation>
     </message>
@@ -15550,6 +16521,14 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>Frame</source>
         <translation>フレーム</translation>
+    </message>
+    <message>
+        <source>Show the Open and Capture sections next to each other when the window is wide enough, otherwise stacked.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Prefer Open and Capture sections side-by-side</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Tips Section</source>
@@ -16049,7 +17028,7 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     </message>
     <message>
         <source>Description</source>
-        <translation>記述</translation>
+        <translation>説明</translation>
     </message>
     <message>
         <source>Field Name</source>
@@ -16202,7 +17181,7 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     </message>
     <message>
         <source>Copy this item&apos;s description</source>
-        <translation>この項目の記述をコピーします</translation>
+        <translation>この項目の説明をコピーします</translation>
     </message>
     <message>
         <source>Copy this item&apos;s field name</source>
@@ -17093,6 +18072,22 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>TCP スループット</translation>
     </message>
     <message>
+        <source>Duplication Table</source>
+        <translation>複製テーブル</translation>
+    </message>
+    <message>
+        <source>TCP capture-level duplicate packet table</source>
+        <translation>TCPキャプチャレベル複製パケットテーブル</translation>
+    </message>
+    <message>
+        <source>Distribution</source>
+        <translation>分布</translation>
+    </message>
+    <message>
+        <source>Distribution statistics</source>
+        <translation>分布統計</translation>
+    </message>
+    <message>
         <source>General</source>
         <translation>一般</translation>
     </message>
@@ -17195,6 +18190,22 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>Normal Size</source>
         <translation>標準サイズ</translation>
+    </message>
+    <message>
+        <source>Pin Selected Rows</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keep the selected packets at the top of the packet list, or unpin them if they are all pinned</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unpin All Rows</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unpin all of the packets pinned to the top of the packet list</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Reset layout to default size</source>
@@ -17397,6 +18408,14 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>現在のキーボードショートカットを表示します</translation>
     </message>
     <message>
+        <source>&amp;Theme Debug</source>
+        <translation>テーマデバッグ (&amp;T)</translation>
+    </message>
+    <message>
+        <source>Show the active theme, main window geometry, and live widget info</source>
+        <translation>アクティブテーマ、メインウインドウのサイズと位置およびライブウィジェットの情報を表示します</translation>
+    </message>
+    <message>
         <source>MAP Summary</source>
         <translation>MAP概要</translation>
     </message>
@@ -17413,12 +18432,16 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>色付けルール…(&amp;C)</translation>
     </message>
     <message>
-        <source>Show Linked Packet in New Window</source>
-        <translation>新規ウインドウでリンクされたパケットを表示</translation>
+        <source>&amp;Tagging Rules…</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Aggregation in Live Capture</source>
-        <translation>キャプチャ中に集約</translation>
+        <source>Edit the packet tagging rules.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show Linked Packet in New Window</source>
+        <translation>新規ウインドウでリンクされたパケットを表示</translation>
     </message>
     <message>
         <source>New Coloring Rule…</source>
@@ -17588,6 +18611,10 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>キャプチャ中の最後のパケットを自動スクロールします</translation>
     </message>
     <message>
+        <source>Aggregate Packets</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Expert Information</source>
         <translation>エキスパート情報</translation>
     </message>
@@ -17732,6 +18759,14 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>現在のキャプチャファイルへパケットをエクスポートすることはできません</translation>
     </message>
     <message>
+        <source>Display frames grouped by your configured aggregation fields.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Display frames grouped by your configured aggregation fields. To activate, go to Preferences → Aggregation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Do you want to save the changes you&apos;ve made%1?</source>
         <oldsource>Do you want to save the captured packets</oldsource>
         <translation>%1 に作成した変更を保存したいですか？</translation>
@@ -17791,14 +18826,6 @@ This will restart all Lua scripts and may affect capture analysis.</source>
         <translation>エクスポート画面から返された不明なファイルタイプ</translation>
     </message>
     <message>
-        <source>Aggregation View — displays frames grouped by your configured aggregation fields.</source>
-        <translation>集約ビュー — 設定した集約フィールドごとにフレームをグループ化して表示</translation>
-    </message>
-    <message>
-        <source>Aggregation View — displays frames grouped by your configured aggregation fields. To activate, go to Preferences → Aggregation.</source>
-        <translation>集約ビュー — 設定した集約フィールドごとにフレームをグループ化して表示します。有効にするには、［設定］→［集約］へ移動してください</translation>
-    </message>
-    <message>
         <source>Unsaved packets…</source>
         <translation>保存されていないパケット…</translation>
     </message>
@@ -17855,6 +18882,14 @@ This will restart all Lua scripts and may affect capture analysis.</source>
     <message>
         <source>Show and analyze DIS radio streams</source>
         <translation>DIS無線ストリームを表示・分析します</translation>
+    </message>
+    <message>
+        <source>IMSI List</source>
+        <translation>IMSIリスト</translation>
+    </message>
+    <message>
+        <source>Show all IMSIs in the capture</source>
+        <translation>キャプチャにあるすべてのIMSIを表示</translation>
     </message>
     <message>
         <source>Lua Debugger</source>

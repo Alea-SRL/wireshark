@@ -10,7 +10,7 @@
 If you want a guided setup for dependencies and git hooks, run the helper scripts in the source tree root:
 
 * Linux: `tools/setup-dev.sh` configures the commit template and hooks, then offers to run the distro-specific install script (Debian-based by default; Alpine, Arch, and RPM-based distros are auto-detected when possible).
-* macOS: `tools/setup-dev.sh` configures hooks and asks whether to run the Homebrew setup (`tools/macos-setup-brew.sh`, default) or the non-Homebrew script (`tools/macos-setup.sh`).
+* macOS: `tools/setup-dev.sh` configures hooks and asks whether to run the Homebrew setup (`tools/os_setup/macos-setup-brew.sh`, default) or the non-Homebrew script (`tools/os_setup/macos-setup.sh`).
 * Windows / MSYS2 / MinGW: use `tools/setup-dev.ps1` (PowerShell) to configure hooks; follow <<ChSetupWindows>> for platform setup details.
 
 [#ChSetupUNIX]
@@ -48,7 +48,7 @@ shown in the section for that family.
 [discrete]
 ==== Alpine Linux
 
-The setup script is `tools/alpine-setup.sh`; its options are:
+The setup script is `tools/os_setup/alpine-setup.sh`; its options are:
 
 * `--install-optional` install optional software as well
 * `--install-all` install everything
@@ -57,7 +57,7 @@ The setup script is `tools/alpine-setup.sh`; its options are:
 [discrete]
 ==== Arch Linux and pacman-based systems
 
-The setup script is `tools/arch-setup.sh`; its options are:
+The setup script is `tools/os_setup/arch-setup.sh`; its options are:
 
 * `--install-optional` install optional software as well
 * `--install-test-deps` install packages required to run all tests
@@ -67,7 +67,7 @@ The setup script is `tools/arch-setup.sh`; its options are:
 [discrete]
 ==== BSD systems such as FreeBSD, NetBSD, OpenBSD, and DragonFly BSD
 
-The setup script is `tools/bsd-setup.sh`; its options are:
+The setup script is `tools/os_setup/bsd-setup.sh`; its options are:
 
 * `--install-optional` install optional software as well
 * `[other]` other options are passed as-is to pkg manager
@@ -75,12 +75,11 @@ The setup script is `tools/bsd-setup.sh`; its options are:
 [discrete]
 ==== Debian, and Linux distributions based on Debian, such as Ubuntu
 
-The setup script is `tools/debian-setup.sh`; its options are:
+The setup script is `tools/os_setup/debian-setup.sh`; its options are:
 
 * `--install-optional` install optional software as well
 * `--install-deb-deps` install packages required to build the .deb file
 * `--install-test-deps` install packages required to run all tests
-* `--install-qt5-deps` force installation of packages required to use Qt5 (not recommended)
 * `--install-qt6-deps` force installation of packages required to use Qt6
 * `--install-all` install everything
 * `[other]` other options are passed as-is to apt
@@ -88,11 +87,10 @@ The setup script is `tools/debian-setup.sh`; its options are:
 [discrete]
 ==== RPM-based Linux distributions such as Red Hat, Centos, Fedora, and openSUSE +
 
-The setup script is `tools/rpm-setup.sh`; its options are:
+The setup script is `tools/os_setup/rpm-setup.sh`; its options are:
 
 * `--install-optional` install optional software as well
 * `--install-rpm-deps` install packages required to build the .rpm file
-* `--install-qt5-deps` force installation of packages required to use Qt5 (not recommended)
 * `--install-qt6-deps` force installation of packages required to use Qt6
 * `--install-all` install everything
 * `[other]` other options are passed as-is to the packet manager
@@ -105,7 +103,7 @@ You must first install Xcode.
 As with Windows we provide pre-built third party libraries which will be automatically installed if you set the `WIRESHARK_BASE_DIR` CMake variable to a directory that is writable by you, such as _/opt/wireshark-third-party_ or _wireshark-libraries_ at the same level as your Wireshark source code directory.
 We recommend this instead of using Homebrew's libraries, since it's easy, it's what we use to create the official packages, and our pre-built libraries are universal and support older versions of macOS.
 
-You can use `tools/macos-setup-brew.sh` to install CMake, Ninja, and other tools required to build Wireshark using the https://brew.sh/[Homebrew] package manager, and optionally to install third party libraries as an alternative to setting `WIRESHARK_BASE_DIR`.
+You can use `tools/os_setup/macos-setup-brew.sh` to install CMake, Ninja, and other tools required to build Wireshark using the https://brew.sh/[Homebrew] package manager, and optionally to install third party libraries as an alternative to setting `WIRESHARK_BASE_DIR`.
 
 * `--install-required` install third party libraries required to build Wireshark. Not needed if you set `WIRESHARK_BASE_DIR`.
 * `--install-optional` install optional third party libraries. Not needed if you set `WIRESHARK_BASE_DIR`.
@@ -115,9 +113,9 @@ You can use `tools/macos-setup-brew.sh` to install CMake, Ninja, and other tools
 * `--install-stratoshark` install libraries required to build Stratoshark and the Falco Events plugin
 * `[other]` other options are passed as-is to brew
 
-Running `tools/macos-setup-brew.sh` with no options will install CMake, Ninja, pgkconf, and ccache.
+Running `tools/os_setup/macos-setup-brew.sh` with no options will install CMake, Ninja, pgkconf, and ccache.
 
-In the past, `tools/macos-setup.sh` could be used to build third party libraries locally.
+In the past, `tools/os_setup/macos-setup.sh` could be used to build third party libraries locally.
 It is now deprecated, and can only be used to install the tools required to build Wireshark or to remove any previously installed libraries.
 It supports the following options:
 
@@ -140,7 +138,6 @@ Wireshark packages, which at the time of this writing is Qt {macos-qt6-lts-versi
 Select the following components:
 
 * Desktop
-* Qt 5 Compatibility Module
 * Qt Debug Information Files (contains dSYM files which can be used for debugging)
 
 Optionally, under "Additional Libraries" also select the following components:
@@ -155,7 +152,7 @@ The AQt command to install Qt and the modules recommended above would look somet
 
 [source,sh,subs="attributes+"]
 ----
-aqt install-qt mac desktop {macos-qt6-lts-version} clang_64 --modules qt5compat qtmultimedia debug_info
+aqt install-qt mac desktop {macos-qt6-lts-version} clang_64 --modules qtmultimedia debug_info
 ----
 
 [#ChSetupUNIXBuild]
@@ -431,7 +428,7 @@ You can choose installation folder of Qt. In the following example, we're using 
 mkdir C:\Development\Qt
 cd C:\Development\Qt
 curl.exe -LOJ https://github.com/miurahr/aqtinstall/releases/download/v3.3.0/aqt_x64.exe
-.\aqt_x64.exe install-qt windows desktop {windows-qt6-lts-version} win64_msvc2022_64 -m qt5compat debug_info qtmultimedia
+.\aqt_x64.exe install-qt windows desktop {windows-qt6-lts-version} win64_msvc2022_64 -m debug_info qtmultimedia
 ----
 
 [#ChSetupQtOfficial]
@@ -454,7 +451,6 @@ stable Wireshark release, which at the time of this writing is Qt {windows-qt6-l
 Select the following components:
 
 * MSVC 2022 64-bit or MSVC 2022 ARM64
-* Qt 5 Compatibility Module
 * Qt Debug Information Files (contains PDB files which can be used for debugging)
 
 Optionally, under "Additional Libraries" also select the following components:
@@ -504,14 +500,14 @@ image::images/win-setup-vs18shell.png[{screenshot-attrs}]
 
 If you have not already done so globally in <<ChSetupSetEnvVariables>>, you can set the following environment variables, using paths and values suitable for your installation :
 
-[source,cmd,subs="attributes+"]
+[source,pwsh,subs="attributes+"]
 ----
-rem Let CMake determine the library download directory name under WIRESHARK_BASE_DIR.
-set WIRESHARK_BASE_DIR=C:\Development\wireshark-third-party
-rem Set the Qt installation directory
-set CMAKE_PREFIX_PATH=C:\Qt{backslash}{windows-qt6-lts-version}\msvc2022_64
-rem Append a custom string to the package version. Optional.
-set WIRESHARK_VERSION_EXTRA=-YourExtraVersionInfo
+# Let CMake determine the library download directory name under WIRESHARK_BASE_DIR.
+$env:WIRESHARK_BASE_DIR="C:\Development\wireshark-third-party"
+# Set the Qt installation directory
+$env:CMAKE_PREFIX_PATH="C:\Qt{backslash}{windows-qt6-lts-version}\msvc2022_64"
+# Append a custom string to the package version. Optional.
+$env:WIRESHARK_VERSION_EXTRA="-YourExtraVersionInfo"
 ----
 
 Setting these variables could be added to a batch file to be run after you open the Visual Studio Tools Command Prompt.
@@ -573,9 +569,18 @@ the environment variables `WIRESHARK_BASE_DIR` and `CMAKE_PREFIX_PATH`.
 
 Now it’s time to build Wireshark!
 
+[TIP]
+.Solution File Format
+====
+Microsoft Visual Studio introduced a new XML-based solution file format, SLNX,
+which became available in Visual Studio 2022 and is the default on Visual Studio
+2026. If you are using the older file format, which is the default in Visual
+Studio 2022 and earlier, replace `.slnx` with `.sln` in the instructions below.
+====
+
 . Navigate to `C:\Development\wsbuild64`
 
-. Open `Wireshark.sln`
+. Open `Wireshark.slnx`
 
 . Choose the `RelWithDebInfo` configuration
 +
@@ -596,11 +601,11 @@ You may also build Wireshark from Visual Studio command line, using :
 [source,cmd,subs="attributes+"]
 ----
 cd C:\Development\wsbuild64
-msbuild /m /p:Configuration=RelWithDebInfo Wireshark.sln
+msbuild /m /p:Configuration=RelWithDebInfo Wireshark.slnx
 ----
 
 TIP: If compilation fails for suspicious reasons after you changed some source
-files try to clean the build files by doing `Build > Clean solution` (or running `msbuild /m /p:Configuration=RelWithDebInfo Wireshark.sln /t:Clean`)
+files try to clean the build files by doing `Build > Clean solution` (or running `msbuild /m /p:Configuration=RelWithDebInfo Wireshark.slnx /t:Clean`)
 and then building the solution again.
 
 The build files produced by CMake will regenerate themselves if required by changes in the source tree.
@@ -717,7 +722,7 @@ system libraries used etc. If you are unsure, go with UCRT64.
 
 . Install needed dependencies:
 
-    tools/msys2-setup.sh --install-all
+    tools/os_setup/msys2-setup.sh --install-all
 
 . Build using CMake + Ninja:
 
@@ -824,7 +829,7 @@ using Linux.
 
 . Install needed dependencies:
 
-  tools/mingw-rpm-setup.sh --install-all
+  tools/os_setup/mingw-rpm-setup.sh --install-all
 
 . Build using CMake + Ninja:
 
@@ -893,7 +898,7 @@ This guide assumes `paru` is being used.
 
 . Install Qt6:
 
-  paru -S mingw-w64-qt6-base mingw-w64-qt6-5compat mingw-w64-qt6-multimedia
+  paru -S mingw-w64-qt6-base mingw-w64-qt6-multimedia
 
 . Install optional dependencies:
 

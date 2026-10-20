@@ -2867,13 +2867,6 @@ _tvb_get_bits64_le(tvbuff_t *tvb, unsigned bit_offset, const unsigned total_no_o
 	return value;
 }
 
-/* Get 1 - 32 bits (should be deprecated as same as tvb_get_bits32??) */
-uint32_t
-tvb_get_bits(tvbuff_t *tvb, const unsigned bit_offset, const unsigned no_of_bits, const unsigned encoding)
-{
-	return (uint32_t)tvb_get_bits64(tvb, bit_offset, no_of_bits, encoding);
-}
-
 static bool
 tvb_find_uint8_generic(tvbuff_t *tvb, unsigned abs_offset, unsigned limit, uint8_t needle, unsigned *end_offset)
 {
@@ -3656,7 +3649,20 @@ tvb_get_ts_23_038_7bits_string_packed(wmem_allocator_t *scope, tvbuff_t *tvb,
 	const unsigned bit_offset, unsigned no_of_chars)
 {
 	unsigned       in_offset = bit_offset >> 3; /* Current pointer to the input buffer */
-	unsigned       length = ((no_of_chars + 1) * 7 + (bit_offset & 0x07)) >> 3;
+	/* Calculate the number of bytes this will occupy without overflow.
+	 * The end result never overflow (although some compilers don't know
+	 * that and will warn about shortening absent an explicit cast), but
+	 * we must store the intermediate result in a wider type. */
+	unsigned length = (unsigned)((((uint64_t)no_of_chars + 1) * 7 + (bit_offset & 0x07)) >> 3);
+#if 0
+	/* Alternatively, on 32-bit architectures (or if we were doing the
+	 * same operation on 64-bit integers), we could divide by 8 first,
+	 * splitting no_of_chars into its quotient and remainder: */
+	unsigned       length = (no_of_chars >> 3) * 7;
+	/* Then calculate the number of bytes occupied by the remainder and bit
+	 * offset, rounded up. */
+	length += ((no_of_chars & 0x7 + 1) * 7 + (bit_offset & 0x7)) >> 3;
+#endif
 	const uint8_t *ptr;
 
 	DISSECTOR_ASSERT(tvb && tvb->initialized);
@@ -3694,7 +3700,20 @@ tvb_get_ascii_7bits_string(wmem_allocator_t *scope, tvbuff_t *tvb,
 	const unsigned bit_offset, unsigned no_of_chars)
 {
 	unsigned       in_offset = bit_offset >> 3; /* Current pointer to the input buffer */
-	unsigned       length = ((no_of_chars + 1) * 7 + (bit_offset & 0x07)) >> 3;
+	/* Calculate the number of bytes this will occupy without overflow.
+	 * The end result never overflow (although some compilers don't know
+	 * that and will warn about shortening absent an explicit cast), but
+	 * we must store the intermediate result in a wider type. */
+	unsigned length = (unsigned)((((uint64_t)no_of_chars + 1) * 7 + (bit_offset & 0x07)) >> 3);
+#if 0
+	/* Alternatively, on 32-bit architectures (or if we were doing the
+	 * same operation on 64-bit integers), we could divide by 8 first,
+	 * splitting no_of_chars into its quotient and remainder: */
+	unsigned       length = (no_of_chars >> 3) * 7;
+	/* Then calculate the number of bytes occupied by the remainder and bit
+	 * offset, rounded up. */
+	length += ((no_of_chars & 0x7 + 1) * 7 + (bit_offset & 0x7)) >> 3;
+#endif
 	const uint8_t *ptr;
 
 	DISSECTOR_ASSERT(tvb && tvb->initialized);
@@ -4236,19 +4255,6 @@ tvb_get_stringz_unichar2(wmem_allocator_t *scope, tvbuff_t *tvb, const unsigned 
  * functions that operate on strings that don't have a tvb_ equivalent.
  * That's hard to enforce, which is why this is deprecated.
  */
-const uint8_t *
-tvb_get_const_stringz(tvbuff_t *tvb, const unsigned offset, unsigned *lengthp)
-{
-	unsigned      size;
-	const uint8_t *strptr;
-
-	size   = tvb_strsize(tvb, offset);
-	strptr = ensure_contiguous_unsigned(tvb, offset, size);
-	if (lengthp)
-		*lengthp = size;
-	return strptr;
-}
-
 static char *
 tvb_get_ucs_2_stringz(wmem_allocator_t *scope, tvbuff_t *tvb, const unsigned offset, unsigned *lengthp, const unsigned encoding)
 {
@@ -5644,7 +5650,10 @@ tvb_get_varint(tvbuff_t *tvb, unsigned offset, unsigned maxlen, uint64_t *value,
 		DISSECTOR_ASSERT_NOT_REACHED();
 	}
 
-	return 0; /* 10 bytes scanned, but no bytes' msb is zero */
+	// We have scanned 10 bytes, but no bytes' msb is zero. We should probably
+	// return a nonzero value instead since we might be incrementing an offset
+	// inside a loop.
+	return 0;
 }
 
 /*

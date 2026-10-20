@@ -6,6 +6,44 @@
 Dictionary files define how JSON fields are dissected and displayed in Wireshark.
 Each dictionary file is an XML document that maps JSON paths to Wireshark fields.
 
+## Where Dictionary Files Live
+
+JSON+ loads dictionaries from two locations, in order:
+
+  1. System directory   <datadir>/json/
+                        (e.g. /usr/share/wireshark/json/, or
+                         <build>/run/json/ for an in-tree build)
+  2. Personal directory ~/.config/wireshark/json/  (Linux/macOS)
+                        %APPDATA%\Wireshark\json\ (Windows)
+
+Each directory has its own config.txt listing the XML files to load.
+The personal directory is opt-in — JSON+ does not create it. Create it
+yourself, drop in a config.txt and one or more .xml files, and restart
+Wireshark.
+
+Precedence: later-loaded wins. Order of loading is
+
+  system config.txt (top → bottom), then
+  personal config.txt (top → bottom)
+
+so when two dictionaries define the same <field path="...">,
+<protocol port="...">, or <protocol path="..."> regex, the later one
+overrides the earlier. In practice this means:
+
+  - A personal dictionary always wins over a system dictionary.
+  - Within either config.txt, the last-listed dictionary wins on
+    collisions with earlier ones.
+
+External parser scripts referenced by parser="..." on a <field> use
+the same precedence: the personal copy at
+~/.config/wireshark/json/parsers/<name> is used when it exists,
+otherwise the system copy at <datadir>/json/parsers/<name>. The
+"JSON+: Run external parsers" preference still gates whether scripts
+are executed at all.
+
+Personal files survive Wireshark upgrades and rebuilds. The system
+directory is overwritten by the installer; the personal one is not.
+
 ## File Format
 
 Dictionary files must be valid XML with a root <json-dictionary> element.
@@ -108,6 +146,35 @@ Attributes:
   - If specified, this name appears in the Protocol column for matching packets
   - If not specified, "JSON+" is used as default
   - Protocol matching occurs by checking destination port first, then source port
+- path: Regex (PCRE2) matched against the HTTP request path/URI (optional)
+  - Matched against EXACTLY ONE of these display-filter fields, picked
+    automatically based on what's carrying the JSON:
+      * http2.headers.path   - when the frame is HTTP/2 (the :path
+                                pseudo-header value for the current stream)
+      * http.request.uri     - when the frame is HTTP/1.1 (the request URI
+                                from the original request line)
+  - You can preview the value Wireshark will feed the regex by selecting
+    the frame in the GUI and reading the appropriate display-filter field.
+  - For raw TCP/UDP JSON (no HTTP layer in front), neither field exists
+    and path= has no effect; fall back to port= for those captures.
+  - Examples: path=".*nchf-convergedcharging.*", path="/api/v[0-9]+/orders"
+  - Escape regex meta-characters (e.g., \. for a literal dot)
+  - At dissection time, path matching is tried before port matching, so
+    path-based entries can carry JSON over any HTTP-mux'd port
+- case: "sensitive" (default) or "insensitive" - controls path regex
+  case sensitivity. Matches the <field> case= default.
+- condition: "or" (default) or "and" - when BOTH port= and path= are set,
+  this controls how they combine:
+    - "or" (default): either port or path matching is sufficient
+    - "and": both port and path must match to select this protocol
+  When only one of port=/path= is set, condition= is a no-op.
+
+When at least one <protocol> entry exists in the loaded dictionary, the
+dictionary's <field> definitions only apply to packets that match one of
+the <protocol> entries (gated dispatch). Packets that don't match any
+<protocol> are rendered as generic JSON. When no <protocol> entries exist,
+all JSON traffic is parsed against the dictionary's fields (legacy
+behavior, no gating).
 
 Example: Port-based protocol identification:
 <!-- 5G AMF API on port 8000 -->
@@ -119,11 +186,186 @@ Example: Port-based protocol identification:
 <!-- CHF API on multiple ports -->
 <protocol name="CHF Charging API" port="8080,1090,3000" transport="tcp" displayName="AMF-JSON"/>
 
+Example: Path-based protocol identification (HTTP/2 or HTTP/1.1):
+<!-- 5G SBI: select on the request URI regardless of TCP port -->
+<protocol name="SMF Convergent Charging"
+          path=".*nchf-convergedcharging.*"
+          displayName="SMF_CHF"/>
+
+<!-- OR (default): either URI OR port match selects this protocol -->
+<protocol name="SMF (Loose)"
+          path=".*nchf-convergedcharging.*" port="1090"
+          displayName="SMF_CHF_LOOSE"/>
+
+<!-- AND: require both URI and port match -->
+<protocol name="SMF on Port 1090 (Strict)"
+          path=".*nchf-convergedcharging.*" port="1090"
+          condition="and" displayName="SMF_CHF_1090"/>
+
+Per-Protocol Filterable Boolean Field:
+Each <protocol> element automatically registers a hidden FT_BOOLEAN field
+with abbrev json.<sanitized-name>, where the name is lowercased and
+non-alphanumeric characters are replaced with underscores:
+  <protocol name="NUDM_SDM" ...>  →  json.nudm_sdm
+  <protocol name="GitHub API" ...>  →  json.github_api
+  <protocol name="5GC Core" ...>  →  json._5gc_core
+This field is set on every packet where the protocol matched, making it
+possible to filter: json.nudm_sdm (shows only NUDM_SDM-matched packets).
+The field exists in the registry at startup even if no packets matched.
+
+Per-Protocol Field Scoping:
+When <protocol> entries are defined, each protocol's <field> definitions
+are scoped to packets that matched that specific protocol. Fields from
+one XML file do not apply to packets matched by a protocol in a different
+XML file. Files with no <protocol> element contribute fields only in
+legacy mode (no protocols defined anywhere).
+
 Protocol Column Behavior:
 - Packet on port 8000 → Shows "5G-JSON" in Protocol column
 - Packet on port 9999 → Shows "TestAPI" in Protocol column
 - Packet on port 8080, 1090, or 3000 → Shows "AMF-JSON" in Protocol column
-- Packet on other ports → Shows "JSON+" in Protocol column
+- HTTP/2 packet with :path matching ".*nchf-convergedcharging.*" → "SMF_CHF"
+- Packet on other ports / non-matching paths → Shows "JSON+" in Protocol
+  column AND the JSON tree is rendered as generic JSON (no dictionary
+  field names), provided at least one <protocol> exists in the dictionary.
+
+Note: When two <protocol> entries declare the same port=, the later one
+overrides the earlier in the port lookup table (per-port slot). Path-based
+dispatch is unaffected (every path= entry is iterated). Avoid configuring
+two protocols on the exact same port with no distinguishing path=.
+
+###### Regex Patterns for the path= Attribute #########
+
+The path= attribute is a PCRE2 regular expression matched against the
+HTTP request path/URI from the current frame:
+
+  - HTTP/2 traffic:  the :path pseudo-header
+                     (display filter: http2.headers.path)
+  - HTTP/1.1 traffic: the request URI
+                      (display filter: http.request.uri)
+
+The match is "contains" semantics - no implicit anchoring at start or
+end - so use .* or ^ / $ as needed.
+
+Tip: select the frame in Wireshark and look in the packet detail pane
+for http2.headers.path or http.request.uri to see the exact string the
+regex will be tested against.
+
+### Alternation (OR)
+
+PCRE2 uses a single | character. Two equivalent forms:
+
+<!-- Verbose: full alternative on each side -->
+<protocol name="5G-NF" path=".*nchf.*|.*smf.*" displayName="5G-NF"/>
+
+<!-- Compact: non-capturing group (?:...) - preferred -->
+<protocol name="5G-NF" path=".*(?:nchf|smf).*" displayName="5G-NF"/>
+
+The (?:...) form groups the alternation without creating a capture group
+(we don't extract submatches here, so non-capturing is slightly faster).
+
+Common mistake: || is NOT alternation. It matches an empty string OR
+an empty string, which matches everything. Always use single |.
+
+### Anchoring
+
+By default the regex is unanchored (acts like "contains"). To require
+the path to start with a specific prefix, anchor at the beginning:
+
+<protocol name="CHF" path="^/nchf-convergedcharging/" displayName="CHF"/>
+
+To require an exact match, anchor at both ends:
+
+<protocol name="Exact" path="^/api/v1/orders$" displayName="Exact"/>
+
+### Escaping the literal dot
+
+In regex, . matches any single character. To match a literal period,
+escape with backslash:
+
+<!-- Match version "v1.2" - the . must be escaped -->
+<protocol name="V12" path="/api/v1\.2/.*" displayName="V12"/>
+
+XML attribute values accept \. as-is - no XML entity escaping needed.
+
+### Character classes
+
+[0-9]    any digit
+[a-z]    any lowercase letter
+[a-fA-F0-9]  any hex digit
+[^x]     anything EXCEPT x (negation)
+\d       shorthand for [0-9]
+\w       shorthand for [a-zA-Z0-9_]
+
+### Quantifiers
+
+x*       zero or more of x
+x+       one or more of x
+x?       zero or one of x  (makes x optional)
+x{3}     exactly 3 of x
+x{2,5}   between 2 and 5 of x
+x{2,}    2 or more of x
+
+### Case sensitivity
+
+Use the case= attribute on the <protocol>, NOT inline (?i) flags:
+
+<!-- Match either case of NCHF -->
+<protocol name="CHF" path=".*nchf-convergedcharging.*"
+          case="insensitive" displayName="CHF"/>
+
+The compiled regex picks up WS_REGEX_CASELESS automatically when
+case="insensitive". Default is case-sensitive (matches the <field>
+default).
+
+### Worked examples for 5G SBI
+
+<!-- Any 5G NF service prefix -->
+<protocol name="5G-SBI" path="^/(?:nchf|nudm|nsmf|npcf|namf|nausf|nudr)-"
+          displayName="5G-SBI"/>
+
+<!-- Versioned CHF endpoint -->
+<protocol name="CHF-v2+" path="^/nchf-convergedcharging/v[0-9]+/"
+          displayName="CHF"/>
+
+<!-- Any path containing a UUID -->
+<protocol name="UUID-Path"
+          path=".*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}.*"
+          displayName="UUID-Path"/>
+
+<!-- Versioned REST endpoint -->
+<protocol name="OrdersAPI" path="^/api/v[0-9]+/orders" displayName="Orders"/>
+
+<!-- Default: match if either path OR port matches (condition="or" is default) -->
+<protocol name="SBI-Loose"
+          path="^/(?:nchf|nudm|nsmf)-" port="1090,8443"
+          displayName="SBI"/>
+
+<!-- Stricter: require both URI prefix AND port=1090 (condition="and") -->
+<protocol name="CHF-1090" path="^/nchf-convergedcharging/" port="1090"
+          condition="and" displayName="CHF-1090"/>
+
+### Common mistakes to avoid
+
+- || does not mean OR.  Use single |.
+- Unescaped . matches any character. Use \. for literal dot.
+- Forgetting to anchor when intended. ".*nchf.*" matches anywhere;
+  "^/nchf-" requires the prefix.
+- Setting case="insensitive" but writing the regex with explicit
+  upper-case characters - works fine but the case= flag does the work,
+  the regex shouldn't carry [Nn][Cc][Hh][Ff] noise.
+
+### Debugging a bad regex
+
+If the regex fails to compile, the JSON+ loader logs a warning via
+ws_warning() including the protocol name and pattern. Run Wireshark/
+tshark from the terminal to see the warning, e.g.:
+
+  WARN: JSON dictionary: failed to compile path regex for protocol "X"
+        (pattern="[unterminated"): missing ]
+
+The protocol's port= setting (if any) still applies; only the path=
+matching is disabled.
 
 ############## Field Definitions ##################
 
@@ -292,6 +534,68 @@ Nested Arrays:
         <array-element type="Integer"/>
     </array-element>
 </field>
+
+### Wildcard Object Keys (<wildcardfield>)
+
+Some JSON APIs use object keys that are runtime values — DNN names,
+subscription IDs, UUIDs — rather than fixed schema names. A
+`<wildcardfield>` element matches those keys by regex and dissects their
+children using a fixed alias path, so child fields are filterable even
+though the parent key is unknown at schema time.
+
+Syntax:
+<field name="DnnConfigurations" path="dnnConfigurations" type="Object">
+    <wildcardfield name="Apn" path="dnnConfigurations.apn"
+                   displayvalue="name" match=".*\.com">
+        <field name="DefaultSessionType"
+               path="dnnConfigurations.apn.pduSessionTypes.defaultSessionType"
+               type="String"/>
+        <field name="5qi" path="dnnConfigurations.apn.5gQosProfile.5qi"
+               type="Integer"/>
+        <!-- Nested wildcardfield is allowed -->
+        <wildcardfield name="Slice" path="dnnConfigurations.apn.slice"
+                       displayvalue="id" match="[0-9]+">
+            <field name="Sst" path="dnnConfigurations.apn.slice.sst"
+                   type="Integer"/>
+        </wildcardfield>
+    </wildcardfield>
+    <!-- Catch-all after more specific patterns -->
+    <wildcardfield name="AnyKey" path="dnnConfigurations.key"
+                   displayvalue="key" match=".*">
+    </wildcardfield>
+</field>
+
+Attributes:
+- name:         Display name for the wildcard subtree
+- path:         Full path string. The last segment (after the final dot)
+                is the alias token — it replaces the runtime key in all
+                child path lookups. Example: path="dnnConfigurations.apn"
+                → alias "apn", child paths use "dnnConfigurations.apn.*"
+- displayvalue: Label for the auto-generated string field that shows the
+                actual runtime key value. Default: "key".
+                Filter: json.<path>.<displayvalue> == "web.operator.com"
+- match:        PCRE2 regex matched against the runtime JSON key. Required.
+                First matching wildcardfield wins (document order).
+
+Matching priority for each key encountered under the parent object:
+  1. Exact literal <field> lookup by full path — wins if found
+  2. <wildcardfield> entries tried in document order — first match wins
+  3. No match — key displayed as generic JSON
+
+Child elements inside <wildcardfield>:
+  - <field>         — regular child field (path uses alias, not runtime key)
+  - <array-element> — if the wildcard value is an array
+  - <wildcardfield> — nested wildcard (recursive)
+
+Auto-generated key-value field:
+Each <wildcardfield> registers a FT_STRING field at
+json.<path>.<displayvalue> (e.g. json.dnnConfigurations.apn.name).
+This field holds the actual runtime key and is always filterable.
+
+Examples:
+  Filter the key:       json.dnnConfigurations.apn.name == "web.operator.com"
+  Filter a child:       json.dnnConfigurations.apn.5gQosProfile.5qi == 9
+  Filter array child:   json.dnnConfigurations.apn.sscModes.allowedSscModes == "SSC_MODE_1"
 
 ## Integer Enum Mapping
 

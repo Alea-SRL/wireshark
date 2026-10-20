@@ -6,12 +6,15 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 import argparse
-import aiohttp
 import asyncio
 import os
 import re
 import shutil
 import signal
+import sys
+
+import aiohttp
+
 from check_common import getFilesFromCommits, getFilesFromOpen
 
 # This utility scans the dissector code for URLs, then attempts to
@@ -43,7 +46,7 @@ def signal_handler(sig, frame):
         tasks = asyncio.all_tasks()
     except (RuntimeError):
         # we haven't yet started the async link checking, we can exit directly
-        exit(1)
+        sys.exit(1)
     # ignore further SIGINTs while we're cancelling the running tasks
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     for t in tasks:
@@ -70,7 +73,7 @@ class FailedLookup:
 cached_lookups = {}
 
 
-class Link(object):
+class Link:
 
     def __init__(self, file, line_number, url):
         self.file = file
@@ -99,8 +102,6 @@ class Link(object):
         return s
 
     def validate(self):
-        global cached_lookups
-        global should_exit
         if should_exit:
             return
         self.tested = True
@@ -145,7 +146,6 @@ def find_links_in_file(filename):
                 if 'www.wireshark.org/tools/modelines' in url:
                     continue
 
-                global links, all_urls
                 links.append(Link(filename, line_number, url))
                 all_urls.add(url)
 
@@ -158,7 +158,7 @@ def find_links_in_folder(folder):
             if should_exit:
                 return
             file = os.path.join(root, f)
-            if file.endswith('.c') or file.endswith('.adoc'):
+            if file.endswith(('.c', '.adoc')):
                 files_to_check.append(file)
 
     # Deal with files in sorted order.
@@ -167,7 +167,6 @@ def find_links_in_folder(folder):
 
 
 async def populate_cache(sem, session, url):
-    global cached_lookups
     if should_exit:
         return
     async with sem:
@@ -177,7 +176,12 @@ async def populate_cache(sem, session, url):
                 if args.verbose:
                     print('checking ', url, ': success', sep='')
 
-        except (asyncio.CancelledError, ValueError, ConnectionError, Exception):
+        # N.B., no longer catching Exception to placate 'ruff check', but difficult to know if catching all possible exceptions..
+        except (asyncio.CancelledError, ValueError, ConnectionError, asyncio.TimeoutError,
+                aiohttp.client_exceptions.ClientConnectorDNSError,
+                aiohttp.client_exceptions.ClientConnectorError,
+                aiohttp.client_exceptions.ClientResponseError,
+                aiohttp.client_exceptions.ServerDisconnectedError):
             cached_lookups[url] = FailedLookup()
             if args.verbose:
                 print('checking ', url, ': failed', sep='')
@@ -227,7 +231,7 @@ if __name__ == '__main__':
                 f = os.path.join('epan', 'dissectors', f)
             if not os.path.isfile(f):
                 print('Chosen file', f, 'does not exist.')
-                exit(1)
+                sys.exit(1)
             else:
                 files.append(f)
                 find_links_in_file(f)

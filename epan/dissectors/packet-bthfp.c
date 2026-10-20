@@ -171,6 +171,7 @@ static expert_field ei_cnum_itc;
 static expert_field ei_aplefm_out_of_range;
 static expert_field ei_aplsiri_out_of_range;
 static expert_field ei_iphoneaccev_key_out_of_range;
+static expert_field ei_xapl_info_format;
 static expert_field ei_xapl_features_reserved;
 static expert_field ei_parameter_blank;
 
@@ -206,6 +207,13 @@ enum reassemble_state_t {
     REASSEMBLE_DONE
 };
 
+/* Upper bound on the length of a reassembled message. V.250 and the
+ * HSP/HFP specifications don't limit the length of an AT command or
+ * response. This limit is arbitrary, well above any real command line;
+ * it keeps the offsets from overflowing and stops an unterminated stream
+ * from growing the same message without end. */
+#define MAX_REASSEMBLED_LENGTH  (64 * 1024)
+
 typedef struct _fragment_t {
     uint32_t                 interface_id;
     uint32_t                 adapter_id;
@@ -217,6 +225,7 @@ typedef struct _fragment_t {
     unsigned                 length;
     uint8_t                 *data;
     struct _fragment_t      *previous_fragment;
+    struct _fragment_t      *first_fragment;
 
     unsigned                 reassemble_start_offset;
     unsigned                 reassemble_end_offset;
@@ -1095,6 +1104,10 @@ dissect_xapl_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     if (parameter_number == 0) {
         if (role == ROLE_HS) {
             pitem = proto_tree_add_item(tree, hf_xapl_accessory_info, tvb, offset, parameter_length, ENC_ASCII);
+            if (parameter_length < 14) {
+                expert_add_info(pinfo, pitem, &ei_xapl_info_format);
+                return true;
+            }
             ptree = proto_item_add_subtree(pitem, ett_bthfp_xapl_accessory_info);
 
             value = get_uint_hex_parameter(parameter_stream + (4 + 1) * 0, 4);
@@ -2239,6 +2252,12 @@ dissect_bthfp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             previous_fragment = NULL;
         }
 
+        if (previous_fragment &&
+                (uint64_t)previous_fragment->idx + previous_fragment->length + tvb_reported_length(tvb) > MAX_REASSEMBLED_LENGTH) {
+            /* Too long; give up on the previous message and start a new one */
+            previous_fragment = NULL;
+        }
+
         frame_number = pinfo->num;
 
         key[0].length = 1;
@@ -2267,6 +2286,7 @@ dissect_bthfp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         fragment->length            = tvb_reported_length(tvb);
         fragment->data              = (uint8_t *) wmem_alloc(wmem_file_scope(), fragment->length);
         fragment->previous_fragment = previous_fragment;
+        fragment->first_fragment    = (fragment->idx > 0) ? previous_fragment->first_fragment : fragment;
         tvb_memcpy(tvb, fragment->data, offset, fragment->length);
 
         wmem_tree_insert32_array(fragments, key, fragment);
@@ -2315,10 +2335,7 @@ dissect_bthfp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                     fragment->chandle == chandle &&
                     fragment->dlci == dlci &&
                     fragment->role == role) {
-                i_fragment = fragment;
-                while (i_fragment && i_fragment->idx > 0) {
-                    i_fragment = i_fragment->previous_fragment;
-                }
+                i_fragment = fragment->first_fragment;
 
                 if (i_length + 1 == length &&
                         role == ROLE_HS &&
@@ -3217,6 +3234,7 @@ proto_register_bthfp(void)
         { &ei_aplefm_out_of_range,   { "bthfp.expert.aplefm.out_of_range", PI_PROTOCOL, PI_WARN, "Only 0-1 is valid", EXPFILL }},
         { &ei_aplsiri_out_of_range,  { "bthfp.expert.aplsiri.out_of_range", PI_PROTOCOL, PI_WARN, "Only 1-2 is valid", EXPFILL }},
         { &ei_iphoneaccev_key_out_of_range,  { "bthfp.expert.iphoneaccev.out_of_range", PI_PROTOCOL, PI_WARN, "Only 1-2 is valid", EXPFILL }},
+        { &ei_xapl_info_format,      { "bthfp.expert.xapl.short", PI_PROTOCOL, PI_WARN, "The first parameter must have the format XXXX-XXXX-XXXX", EXPFILL }},
         { &ei_xapl_features_reserved, { "bthfp.expert.xapl.reserved", PI_PROTOCOL, PI_WARN, "The reserved bits [6-31] shall be initialized to Zero", EXPFILL }}
     };
 

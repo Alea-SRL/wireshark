@@ -1087,22 +1087,36 @@ insert_chunk(active_file   *file, export_object_entry_t *entry, const smb_eo_t *
 	free_chunk *new_free_chunk;
 	uint64_t    chunk_offset     = eo_info->smb_file_offset;
 	uint64_t    chunk_length     = eo_info->payload_len;
-	uint64_t    chunk_end_offset = chunk_offset + chunk_length-1;
 	/* Size of file in memory */
-	uint64_t    calculated_size  = chunk_offset + chunk_length;
+	uint64_t    chunk_end_offset, calculated_size;
 	void *      dest_memory_addr;
+
+	if (ckd_add(&calculated_size, chunk_offset, chunk_length)) {
+		calculated_size = UINT64_MAX;
+		chunk_length = calculated_size - chunk_offset;
+	}
+
+	if (chunk_length == 0) {
+		/* There's no point in doing anything with a zero length chunk.
+		 * eo_info->payload_data might be NULL, in which case at least
+		 * currently means the memmove() below is UB. */
+		return;
+	}
+
+	chunk_end_offset = calculated_size - 1;
+	/* Above has to be at least 0 because chunk_length != 0 */
 
 	/* Let's recalculate the file length and data gathered */
 	if ((file->data_gathered == 0) && (nfreechunks == 0)) {
 		/* If this is the first entry for this file, we first create an initial free chunk */
 		new_free_chunk = g_new(free_chunk, 1);
 		new_free_chunk->start_offset = 0;
-		new_free_chunk->end_offset = MAX(file->file_length, chunk_end_offset+1) - 1;
+		new_free_chunk->end_offset = MAX(file->file_length, calculated_size) - 1;
 		file->free_chunk_list = NULL;
 		file->free_chunk_list = g_slist_append(file->free_chunk_list, new_free_chunk);
 		nfreechunks += 1;
 	} else {
-		if (chunk_end_offset > file->file_length-1) {
+		if (calculated_size > file->file_length) {
 			new_free_chunk = g_new(free_chunk, 1);
 			new_free_chunk->start_offset = file->file_length;
 			new_free_chunk->end_offset = chunk_end_offset;
@@ -1110,7 +1124,7 @@ insert_chunk(active_file   *file, export_object_entry_t *entry, const smb_eo_t *
 			nfreechunks += 1;
 		}
 	}
-	file->file_length = MAX(file->file_length, chunk_end_offset+1);
+	file->file_length = MAX(file->file_length, calculated_size);
 
 	/* Recalculate each free chunk according with the incoming data chunk */
 	for (i=0; i<nfreechunks; i++) {
@@ -1378,6 +1392,7 @@ smb_eo_packet(void *tapdata, packet_info *pinfo, epan_dissect_t *edt _U_, const 
 
 		/* Modify the current_entry object_type string */
 		if (current_file->is_out_of_memory) {
+			g_free(current_entry->content_type);
 			current_entry->content_type =
 				ws_strdup_printf("%s (%"PRIu64"?/%"PRIu64") %s [mem!!]",
 								aux_smb_fid_type_string,
@@ -1386,6 +1401,7 @@ smb_eo_packet(void *tapdata, packet_info *pinfo, epan_dissect_t *edt _U_, const 
 								try_val_to_str(current_file->flag_contains, smb_eo_contains_string));
 		} else {
 			percent = (float) (100*current_file->data_gathered/current_file->file_length);
+			g_free(current_entry->content_type);
 			current_entry->content_type =
 				ws_strdup_printf("%s (%"PRIu64"/%"PRIu64") %s [%5.2f%%]",
 								aux_smb_fid_type_string,
@@ -2203,7 +2219,7 @@ dissect_smb_UTIME(tvbuff_t *tvb, proto_tree *tree, int offset, int hf_date, cons
 	return offset;
 }
 
-static int
+int
 dissect_smb_datetime(tvbuff_t *tvb, proto_tree *parent_tree, int offset,
     int hf_date, int hf_dos_date, int hf_dos_time, bool time_first)
 {
@@ -5073,7 +5089,7 @@ static int
 dissect_read_file_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, proto_tree *smb_tree _U_, smb_info_t *si)
 {
 	uint8_t      wc;
-	uint16_t     cnt = 0, bc;
+	uint32_t     cnt = 0, bc;
 	uint32_t     ofs = 0;
 	unsigned int fid;
 	rw_info_t    *rwi = NULL;
@@ -5091,13 +5107,11 @@ dissect_read_file_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
 	offset += 2;
 
 	/* read count */
-	cnt = tvb_get_letohs(tvb, offset);
-	proto_tree_add_item(tree, hf_smb_count, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+	proto_tree_add_item_ret_uint(tree, hf_smb_count, tvb, offset, 2, ENC_LITTLE_ENDIAN, &cnt);
 	offset += 2;
 
 	/* offset */
-	ofs = tvb_get_letohl(tvb, offset);
-	proto_tree_add_item(tree, hf_smb_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+	proto_tree_add_item_ret_uint(tree, hf_smb_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN, &ofs);
 	offset += 4;
 
 	col_append_fstr(pinfo->cinfo, COL_INFO,
@@ -5233,9 +5247,7 @@ dissect_read_file_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 
 	/* data len */
 	CHECK_BYTE_COUNT(2);
-	proto_tree_add_item(tree, hf_smb_data_len, tvb, offset, 2, ENC_LITTLE_ENDIAN);
-	datalen = tvb_get_letohs(tvb, offset);
-	COUNT_BYTES(2);
+	proto_tree_add_item_ret_uint(tree, hf_smb_data_len, tvb, offset, 2, ENC_LITTLE_ENDIAN, &datalen);	COUNT_BYTES(2);
 	dataoffset = offset;
 
 	/* file data, might be DCERPC on a pipe */
@@ -5343,8 +5355,7 @@ dissect_write_file_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 	offset += 2;
 
 	/* offset */
-	ofs = tvb_get_letohl(tvb, offset);
-	proto_tree_add_item(tree, hf_smb_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+	proto_tree_add_item_ret_uint(tree, hf_smb_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN, &ofs);
 	offset += 4;
 
 	col_append_fstr(pinfo->cinfo, COL_INFO,
@@ -5413,7 +5424,7 @@ static int
 dissect_write_file_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, proto_tree *smb_tree _U_, smb_info_t *si)
 {
 	uint8_t     wc;
-	uint16_t    bc, cnt;
+	uint32_t    bc, cnt;
 	rw_info_t  *rwi = NULL;
 
 	DISSECTOR_ASSERT(si);
@@ -5426,8 +5437,7 @@ dissect_write_file_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	}
 
 	/* write count */
-	cnt = tvb_get_letohs(tvb, offset);
-	proto_tree_add_item(tree, hf_smb_count, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+	proto_tree_add_item_ret_uint(tree, hf_smb_count, tvb, offset, 2, ENC_LITTLE_ENDIAN, &cnt);
 	offset += 2;
 
 	col_append_fstr(pinfo->cinfo, COL_INFO,
@@ -7303,8 +7313,7 @@ dissect_open_andx_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 	offset = dissect_access_mode(tvb, tree, offset, hf_smb_granted_access_mode);
 
 	/* File Type */
-	ftype = tvb_get_letohs(tvb, offset);
-	proto_tree_add_item(tree, hf_smb_file_type, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+	proto_tree_add_item_ret_uint16(tree, hf_smb_file_type, tvb, offset, 2, ENC_LITTLE_ENDIAN, &ftype);
 	offset += 2;
 	/* Copied from dissect_nt_create_andx_response
 	   Try to remember the type of this fid so that we can dissect
@@ -7487,8 +7496,7 @@ dissect_read_andx_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
 
 	if (wc == 12) {
 		/* high offset */
-		offsethigh = tvb_get_letohl(tvb, offset);
-		proto_tree_add_item(tree, hf_smb_high_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item_ret_uint(tree, hf_smb_high_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN, &offsethigh);
 		offset += 4;
 	}
 
@@ -7764,8 +7772,7 @@ dissect_write_andx_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 
 	if (wc == 14) {
 		/* high offset */
-		offsethigh = tvb_get_letohl(tvb, offset);
-		proto_tree_add_item(tree, hf_smb_high_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item_ret_uint(tree, hf_smb_high_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN, &offsethigh);
 		offset += 4;
 	}
 
@@ -10286,16 +10293,14 @@ dissect_nt_trans_param_response(tvbuff_t *tvb, packet_info *pinfo,
 		offset += 8;
 
 		/* File Type */
-		ftype = tvb_get_letohs(tvb, offset);
-		proto_tree_add_item(tree, hf_smb_file_type, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item_ret_uint16(tree, hf_smb_file_type, tvb, offset, 2, ENC_LITTLE_ENDIAN, &ftype);
 		offset += 2;
 
 		/* device state */
 		offset = dissect_ipc_state(tvb, tree, offset, false);
 
 		/* is directory */
-		isdir = tvb_get_uint8(tvb, offset);
-		proto_tree_add_item(tree, hf_smb_is_directory, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item_ret_uint8(tree, hf_smb_is_directory, tvb, offset, 1, ENC_LITTLE_ENDIAN, &isdir);
 		offset += 1;
 
 		/* decode extended response per [MS-SMB] 2.2.7.1.2
@@ -11364,16 +11369,14 @@ dissect_nt_create_andx_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
 	offset += 8;
 
 	/* File Type */
-	ftype = tvb_get_letohs(tvb, offset);
-	proto_tree_add_item(tree, hf_smb_file_type, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+	proto_tree_add_item_ret_uint16(tree, hf_smb_file_type, tvb, offset, 2, ENC_LITTLE_ENDIAN, &ftype);
 	offset += 2;
 
 	/* IPC State */
 	offset = dissect_ipc_state(tvb, tree, offset, false);
 
 	/* is directory */
-	isdir = tvb_get_uint8(tvb, offset);
-	proto_tree_add_item(tree, hf_smb_is_directory, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+	proto_tree_add_item_ret_uint8(tree, hf_smb_is_directory, tvb, offset, 1, ENC_LITTLE_ENDIAN, &isdir);
 	offset += 1;
 
 	/* Always use the word count to decide if this is an "extended" response.
@@ -15080,13 +15083,11 @@ dissect_transaction_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		offset += 2;
 
 		/* total data count , only 16bit integer here*/
-		tdc = tvb_get_letohs(tvb, offset);
-		proto_tree_add_item(tree, hf_smb_total_data_count, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item_ret_uint16(tree, hf_smb_total_data_count, tvb, offset, 2, ENC_LITTLE_ENDIAN, &tdc);
 		offset += 2;
 
 		/* param count */
-		pc = tvb_get_letohs(tvb, offset);
-		proto_tree_add_uint(tree, hf_smb_param_count16, tvb, offset, 2, pc);
+		proto_tree_add_item_ret_uint16(tree, hf_smb_param_count16, tvb, offset, 2, ENC_LITTLE_ENDIAN, &pc);
 		offset += 2;
 
 		/* param offset */
@@ -15155,8 +15156,7 @@ dissect_transaction_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		offset += 2;
 
 		/* total data count , only 16bit integer here*/
-		tdc = tvb_get_letohs(tvb, offset);
-		proto_tree_add_item(tree, hf_smb_total_data_count, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item_ret_uint16(tree, hf_smb_total_data_count, tvb, offset, 2, ENC_LITTLE_ENDIAN, &tdc);
 		offset += 2;
 
 		/* max param count , only 16bit integer here*/
@@ -15189,8 +15189,7 @@ dissect_transaction_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		offset += 2;
 
 		/* param count */
-		pc = tvb_get_letohs(tvb, offset);
-		proto_tree_add_uint(tree, hf_smb_param_count16, tvb, offset, 2, pc);
+		proto_tree_add_item_ret_uint16(tree, hf_smb_param_count16, tvb, offset, 2, ENC_LITTLE_ENDIAN, &pc);
 		offset += 2;
 
 		/* param offset */
@@ -17858,8 +17857,7 @@ dissect_transaction_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 	offset += 2;
 
 	/* param count */
-	pc = tvb_get_letohs(tvb, offset);
-	proto_tree_add_uint(tree, hf_smb_param_count16, tvb, offset, 2, pc);
+	proto_tree_add_item_ret_uint16(tree, hf_smb_param_count16, tvb, offset, 2, ENC_LITTLE_ENDIAN, &pc);
 	offset += 2;
 
 	/* param offset */

@@ -27,6 +27,7 @@ WS_DLL_PUBLIC const value_string eap_code_vals[];
 #define EAP_TYPE_NOTIFY      2
 #define EAP_TYPE_NAK         3
 #define EAP_TYPE_MD5         4
+#define EAP_TYPE_GTC         6
 #define EAP_TYPE_TLS        13
 #define EAP_TYPE_LEAP       17
 #define EAP_TYPE_SIM        18
@@ -74,8 +75,10 @@ WS_DLL_PUBLIC const value_string eap_aka_subtype_vals[];
 WS_DLL_PUBLIC const value_string eap_ms_chap_v2_opcode_vals[];
 
 typedef enum {
+  PROTO_DATA_EAP_VISITED = 1,
   PROTO_DATA_EAP_DUPLICATE_ID,
   PROTO_DATA_EAP_FRAME_STATE,
+  PROTO_DATA_EAP_FRAME_STATE_LEAP,
   PROTO_DATA_EAP_TVB,
 } proto_data_eap;
 

@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ws_posix_compat.h> // SSIZE_MAX
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -24,6 +25,10 @@
 #include <wsutil/value_string.h>
 
 #include <ui/recent.h>
+#ifdef HAVE_LIBPCAP
+#include <ui/capture_opts.h>
+#include <ui/capture_globals.h>
+#endif
 #include <ui/util.h>
 #include "ui/ws_ui_util.h"
 
@@ -42,7 +47,7 @@
 #include <QUrl>
 #include <QScreen>
 
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_MACOS)
 #include <ui/macosx/cocoa_bridge.h>
 #elif !defined(Q_OS_WIN) && defined(QT_DBUS_LIB)
 #include <QtDBus/QDBusConnection>
@@ -82,6 +87,16 @@ QByteArray gbytearray_free_to_qbytearray(GByteArray *glib_array)
 {
     QByteArray qt_ba(reinterpret_cast<char *>(glib_array->data), glib_array->len);
     g_byte_array_free(glib_array, true);
+    return qt_ba;
+}
+
+QByteArray gbytes_free_to_qbytearray(GBytes *glib_bytes)
+{
+    size_t size;
+    const char* bytes = reinterpret_cast<const char *>(g_bytes_get_data(glib_bytes, &size));
+    Q_ASSERT(size <= SSIZE_MAX);
+    QByteArray qt_ba(bytes, size);
+    g_bytes_unref(glib_bytes);
     return qt_ba;
 }
 
@@ -207,12 +222,7 @@ QString join_lines(const QString multiline_string) {
 }
 
 void smooth_font_size(QFont &font) {
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
     QList<int> size_list = QFontDatabase::smoothSizes(font.family(), font.styleName());
-#else
-    QFontDatabase fdb;
-    QList<int> size_list = fdb.smoothSizes(font.family(), font.styleName());
-#endif
 
     if (size_list.size() < 2) return;
 
@@ -255,7 +265,7 @@ void desktop_show_in_folder(const QString file_path)
     QString path = QDir::toNativeSeparators(file_path);
     arguments << "/select," << path + "";
     success = QProcess::startDetached(command, arguments);
-#elif defined(Q_OS_MAC)
+#elif defined(Q_OS_MACOS)
     CocoaBridge::showInFinder(file_path.toUtf8());
     success = true;
 #elif defined(QT_DBUS_LIB)
@@ -423,3 +433,12 @@ bool filePathsMatch(const QString &path1, const QString &path2)
     return abs1.compare(abs2, cs) == 0;
 }
 
+QString tempPath()
+{
+#ifdef HAVE_LIBPCAP
+    /* One place decides this, so the C and Qt sides cannot disagree. */
+    return QString(capture_opts_get_temp_dir(&global_capture_opts));
+#else
+    return QDir::tempPath();
+#endif
+}

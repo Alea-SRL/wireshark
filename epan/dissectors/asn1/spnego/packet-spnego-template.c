@@ -436,6 +436,9 @@ gssapi_verify_pad(uint8_t *wrapped_data, int wrapped_length,
   int padlength;
   int i;
 
+  if (wrapped_length < 1)
+    return 1;
+
   pad = wrapped_data + wrapped_length - 1;
   padlength = *pad;
 
@@ -469,6 +472,10 @@ decrypt_arcfour(gssapi_encrypt_info_t* gssapi_encrypt, uint8_t *input_message_bu
   int i;
 
   datalen = tvb_captured_length(gssapi_encrypt->gssapi_encrypted_tvb);
+  if (datalen < 1) {
+    /* There must be at least the padding. */
+    return -2;
+  }
 
   if(tvb_get_ntohs(gssapi_encrypt->gssapi_wrap_tvb, 4)==0x1000){
     conf_flag=1;
@@ -981,8 +988,7 @@ dissect_spnego_krb5_cfx_wrap_base(tvbuff_t *tvb, int offset, packet_info *pinfo,
   offset += 1;
 
   /* EC */
-  ec = tvb_get_ntohs(tvb, offset);
-  proto_tree_add_item(tree, hf_spnego_krb5_cfx_ec, tvb, offset, 2, ENC_BIG_ENDIAN);
+  proto_tree_add_item_ret_uint16(tree, hf_spnego_krb5_cfx_ec, tvb, offset, 2, ENC_BIG_ENDIAN, &ec);
   offset += 2;
 
   /* RRC */
@@ -1462,6 +1468,9 @@ void proto_reg_handoff_spnego(void) {
   gssapi_init_oid("1.3.6.1.5.2.5", proto_spnego_krb5, ett_spnego_krb5,
                   spnego_krb5_handle, spnego_krb5_wrap_handle,
                   "KRB5 - IAKERB");
+  gssapi_init_oid("1.3.6.1.4.1.311.2.2.40", proto_spnego_krb5, ett_spnego_krb5,
+                  spnego_krb5_handle, spnego_krb5_wrap_handle,
+                  "MS SPNG - Negotiate Late Fallback");
 }
 
 /*

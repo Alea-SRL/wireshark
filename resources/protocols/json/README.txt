@@ -27,6 +27,45 @@ jsonmain.xml
 
 Only fields from active dictionary files will be registered in Wireshark.
 
+## Personal Dictionaries
+
+In addition to the system directory shown above, JSON+ also loads
+dictionaries from your personal Wireshark config directory:
+
+  Linux / macOS:  ~/.config/wireshark/json/
+  Windows:        %APPDATA%\Wireshark\json\
+
+The personal directory is opt-in — Wireshark will not create it for you.
+To use it:
+
+  1. mkdir -p ~/.config/wireshark/json
+  2. Create config.txt listing your XML files (same format as the system
+     config.txt) and drop the .xml files next to it.
+  3. Restart Wireshark.
+
+The system directory loads first; the personal directory loads second.
+Within each directory, dictionaries load in the order listed in
+config.txt, top to bottom. On any collision — same <field path=...>,
+same <protocol port=...>, anywhere — the later-loaded entry wins.
+
+That means:
+- A personal XML always wins over a system XML (personal loads last).
+- Within a single config.txt, the last-listed dictionary wins for any
+  paths or ports it shares with earlier ones.
+
+Either way, "later loaded wins" is the single rule — see the existing
+Field Collision Example in config.txt for the same description.
+
+External parser scripts (parser="..." on a <field>) follow the same
+precedence: the personal copy at ~/.config/wireshark/json/parsers/<name>
+is used when present, otherwise the system copy at
+<datadir>/json/parsers/<name>. The existing
+"JSON+: Run external parsers" preference still gates whether scripts
+are executed at all.
+
+Personal files survive Wireshark upgrades and rebuilds — the system
+directory is overwritten by the installer, the personal one is not.
+
 ## Enabling JSON+
 
 JSON+ mode must be enabled in Wireshark preferences:
@@ -245,6 +284,63 @@ Comment out dictionaries to reduce registered fields:
 3. **Minimal fields**: Don't define fields you won't use
 4. **Protocol names**: Define protocol names/ports for automatic detection
 
+## Wildcard Object Keys
+
+Some JSON objects use runtime values as keys (e.g. DNN names, subscription
+IDs). Use `<wildcardfield>` to match these by regex and dissect their children
+with fixed alias paths:
+
+<field name="DnnConfigurations" path="dnnConfigurations" type="Object">
+    <wildcardfield name="Apn" path="dnnConfigurations.apn"
+                   displayvalue="name" match=".*">
+        <field name="DefaultSessionType"
+               path="dnnConfigurations.apn.pduSessionTypes.defaultSessionType"
+               type="String"/>
+    </wildcardfield>
+</field>
+
+- `path=` — full path; the last segment (`apn`) becomes the alias token
+  substituted for the runtime key in all child path lookups
+- `displayvalue=` — label for the auto-generated string field that shows
+  the actual key value (default: "key")
+- `match=` — PCRE2 regex matched against the runtime JSON key (required)
+
+Matching priority per key: literal `<field>` lookup first, then
+`<wildcardfield>` entries in document order, then generic display.
+
+Filter the key value: `json.dnnConfigurations.apn.name == "web.operator.com"`
+Filter a child field: `json.dnnConfigurations.apn.pduSessionTypes.defaultSessionType == "TYPE"`
+
+See DICTIONARY-GUIDE.txt for full `<wildcardfield>` reference.
+
+## Per-Protocol Field Scoping
+
+When `<protocol>` entries are defined, each protocol's dictionary fields are
+scoped to packets that matched that protocol. Fields from one XML file do not
+apply to packets matched by a protocol defined in a different XML file. This
+prevents cross-contamination between dictionaries.
+
+Fields in XML files with no `<protocol>` element are global and only apply
+when no protocols are defined at all (legacy mode).
+
+## Filtering by Protocol Name
+
+Every `<protocol>` element automatically registers a hidden boolean field:
+
+    json.<sanitized-name>
+
+where the name is lowercased and non-alphanumeric characters replaced with
+underscores. Examples:
+- `<protocol name="NUDM_SDM" ...>` → filter: `json.nudm_sdm`
+- `<protocol name="GitHub API" ...>` → filter: `json.github_api`
+- `<protocol name="5GC Core" ...>` → filter: `json._5gc_core`
+
+Use it to isolate packets matched by that protocol:
+    json.nudm_sdm          (show only NUDM_SDM packets)
+
+The field is registered at startup regardless of whether any packets match,
+so it is always available as a valid filter name.
+
 ## Advanced Topics
 
 ### Multiple API Versions
@@ -254,10 +350,80 @@ api-v3.xml
 Load only the version you're analyzing.
 
 ### Protocol Detection
-Use port numbers and display names in dictionary:
+Use port numbers and/or HTTP path regex, plus a display name:
+
+<!-- Port-based (raw TCP/UDP JSON) -->
 <protocol name="My API" port="9999" transport="tcp" displayName="MyAPI"/>
 
-The displayName will appear in the Protocol column when JSON+ is enabled.
+<!-- HTTP path-based (HTTP/2 :path or HTTP/1.1 request URI) -->
+<protocol name="5G Charging" path=".*nchf-convergedcharging.*"
+          displayName="SMF_CHF"/>
+
+<!-- Both, default condition="or" - either match selects this protocol -->
+<protocol name="Loose" path=".*api/orders.*" port="8080"
+          displayName="OrdersLoose"/>
+
+<!-- condition="and" requires both to match -->
+<protocol name="Strict" path=".*api/orders.*" port="8080"
+          condition="and" displayName="OrdersStrict"/>
+
+Attributes summary:
+  port=         comma-separated port list (optional)
+  path=         PCRE2 regex against the HTTP path/URI (optional)
+  case=         "sensitive" (default) | "insensitive" - affects path= regex
+  condition=    "or" (default) | "and" - combines port + path when both set
+  transport=    "tcp" | "udp" (default "tcp")
+  displayName=  Name shown in the Protocol column when this entry matches
+
+When at least one <protocol> entry exists in the dictionary, JSON+ field
+parsing is restricted to packets that match a <protocol> entry. Packets
+that don't match show as generic JSON. (With no <protocol> entries, all
+JSON is parsed against the dictionary - legacy behavior.)
+
+The displayName will appear in the Protocol column when JSON+ is enabled
+and this protocol matches.
+
+### Regex tips for `path=`
+
+The `path=` attribute is a PCRE2 regex tested against whichever display-
+filter field carries the request URI for the current frame:
+
+| HTTP version | Display-filter field tested |
+|---|---|
+| HTTP/2       | `http2.headers.path` |
+| HTTP/1.1     | `http.request.uri` |
+| raw TCP/UDP  | neither — `path=` has no effect; use `port=` instead |
+
+Tip: select a frame in Wireshark and read the corresponding field in the
+packet detail pane to preview the exact string the regex will see.
+
+Quick reference (full guide in DICTIONARY-GUIDE.txt):
+
+- **Alternation (OR)** uses a single `|`, not `||`:
+  - Compact form (preferred): `path=".*(?:nchf|smf|npcf).*"`
+  - Verbose form: `path=".*nchf.*|.*smf.*"`
+- **Anchoring**: default is "contains". Anchor with `^` for prefix-only:
+  - `path="^/nchf-convergedcharging/"`
+- **Escape literal dots**: regex `.` matches any character. Use `\.` for a
+  literal period: `path="/api/v1\.2/.*"`
+- **Character classes & quantifiers**: `[0-9]+`, `\d{3,5}`, `[a-fA-F0-9]{8}`.
+- **Case-insensitive matching**: add `case="insensitive"` rather than
+  using inline `(?i)`.
+
+A few worked examples:
+
+<!-- Any 5G NF service prefix -->
+<protocol name="5G-SBI" path="^/(?:nchf|nudm|nsmf|npcf|namf)-"
+          displayName="5G-SBI"/>
+
+<!-- Versioned CHF endpoint -->
+<protocol name="CHF" path="^/nchf-convergedcharging/v[0-9]+/"
+          displayName="CHF"/>
+
+<!-- Paths containing a UUID -->
+<protocol name="UUID"
+          path=".*[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}.*"
+          displayName="UUID"/>
 
 ### Custom Field Names
 Display names can differ from paths:

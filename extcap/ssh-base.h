@@ -28,6 +28,7 @@
 #define STDOUT_FILENO 1
 #endif
 
+/* Server and Authentication Options */
 #define SSH_BASE_OPTIONS \
 	{ "remote-host", ws_required_argument, NULL, OPT_REMOTE_HOST}, \
 	{ "remote-port", ws_required_argument, NULL, OPT_REMOTE_PORT}, \
@@ -37,24 +38,59 @@
 	{ "sshkey", ws_required_argument, NULL, OPT_SSHKEY}, \
 	{ "sshkey-passphrase", ws_required_argument, NULL, OPT_SSHKEY_PASSPHRASE}, \
 	{ "proxycommand", ws_required_argument, NULL, OPT_PROXYCOMMAND}, \
-	{ "ssh-sha1", ws_no_argument, NULL, OPT_SSH_SHA1}
+	{ "ssh-sha1", ws_no_argument, NULL, OPT_SSH_SHA1}, \
+	{ "update-known-hosts", ws_no_argument, NULL, OPT_UPDATE_KNOWN_HOSTS}
+
+#define SSH_BASE_OPTIONS_ENUM \
+	OPT_REMOTE_HOST, \
+	OPT_REMOTE_PORT, \
+	OPT_REMOTE_USERNAME, \
+	OPT_REMOTE_PASSWORD, \
+	OPT_SSHKEY, \
+	OPT_SSHKEY_PASSPHRASE, \
+	OPT_PROXYCOMMAND, \
+	OPT_SSH_SHA1, \
+	OPT_UPDATE_KNOWN_HOSTS
 
 #define SSH_BASE_PACKET_OPTIONS \
 	SSH_BASE_OPTIONS, \
 	{ "remote-interface", ws_required_argument, NULL, OPT_REMOTE_INTERFACE}, \
 	{ "remote-filter", ws_required_argument, NULL, OPT_REMOTE_FILTER}
 
+#define SSH_BASE_PACKET_OPTIONS_ENUM \
+	SSH_BASE_OPTIONS_ENUM, \
+	OPT_REMOTE_INTERFACE, \
+	OPT_REMOTE_FILTER
+
+/**
+ * @brief Holds the connection parameters required to establish an SSH session for an SSH-based extcap capture.
+ */
 typedef struct _ssh_params {
-	char* host;
-	uint16_t port;
-	char* username;
-	char* password;
-	char* sshkey_path;
-	char* sshkey_passphrase;
-	char* proxycommand;
-	bool ssh_sha1;
-	int debug;
+    char*    host;               /**< Hostname or IP address of the remote SSH server to connect to. */
+    uint16_t port;               /**< TCP port number of the remote SSH server; typically 22. */
+    char*    username;           /**< Username to authenticate with on the remote SSH server; NULL to use the current user. */
+    char*    password;           /**< Password for password-based SSH authentication; NULL if using key-based authentication. */
+    char*    sshkey_path;        /**< Filesystem path to the private key file used for key-based authentication; NULL if using password authentication. */
+    char*    sshkey_passphrase;  /**< Passphrase used to decrypt the private key at sshkey_path; NULL if the key is unencrypted. */
+    char*    proxycommand;       /**< Shell command used to establish the SSH connection via a proxy or jump host; NULL for a direct connection. */
+    bool     ssh_sha1;           /**< True to permit SHA-1 based host key algorithms, which may be required for older SSH servers. */
+    bool     update_known_hosts;
+    int      debug;              /**< Debug verbosity level for SSH session diagnostics; 0 disables debug output. */
 } ssh_params_t;
+
+/**
+ * @brief Print SSH base server and authentication configuration options
+ *
+ * @param[in,out] count The current option count
+ */
+void ssh_base_list_config(unsigned *count);
+
+/**
+ * @brief Adds SSH base server and authentication options to the help options.
+ *
+ * @param extcap_conf Pointer to the extcap parameters structure.
+ */
+void ssh_base_add_help_options(extcap_parameters *extcap_conf);
 
 /* Add libssh version information to an extcap_parameters structure */
 
@@ -84,6 +120,39 @@ ssh_session create_ssh_connection(const ssh_params_t* ssh_params, char** err_inf
  * @return EXIT_SUCCESS if successful, EXIT_FAILURE otherwise.
  */
 int ssh_channel_printf(ssh_channel channel, const char* fmt, ...);
+
+/**
+ * @brief Sets up ssh_async_loop_read to allow graceful shutdown
+ *
+ * Creates a self-pipe (eventually, on Windows, a SOCKET, but not
+ * implemented yet) that allows ssh_async_loop_read to be interrupted
+ * when a graceful shutdown is signaled for by the main application.
+ * This is useful for, among other things, when SSH has EXEC'd a command
+ * like dumpcap and tcpdump that might sit without attempting to read
+ * from stdin or write to stdout or stderr indefinitely if, e.g., a
+ * capture filter was given that excludes all packets, and thus will
+ * not exit unless a SIGHUP is manually issued, such as by ssh_cleanup.
+ *
+ * @param extcap_conf Pointer to the extcap parameters structure.
+ */
+bool ssh_base_setup_graceful_shutdown(extcap_parameters *extcap_conf);
+
+/**
+ * @brief Asynchronously reads the output of a single SSH command
+ *
+ * Loops to read the output of a single SSH command and write it to an open
+ * FILE pointer. Calls ssh_select to wait on the channel and optionally the
+ * graceful shutdown indication, if ssh_base_setup_graceful_shutdown was
+ * called (non-Windows only). If the SSH channel's stdout reaches EOF, the
+ * function then reads the channel's stderr and writes that to the current
+ * process's stderr.
+ *
+ * @param sshs The SSH session
+ * @param channel The SSH channel to read
+ * @param fp The FILE to write the channel's stdout to
+ * @return EXIT_SUCCESS if successful, EXIT_FAILURE otherwise.
+ */
+int ssh_async_loop_read(ssh_session sshs, ssh_channel channel, FILE* fp);
 
 /* Clean the current ssh session and channel. */
 

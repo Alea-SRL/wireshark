@@ -15,6 +15,7 @@
 
 
 #include <epan/packet.h>
+#include <epan/expert.h>
 #include <epan/tfs.h>
 #include <epan/reassemble.h>
 #include "packet-tcp.h"
@@ -54,12 +55,21 @@
 #define FUN_EXT             'u'
 #define MAP_EXT             't'
 #define LOCAL_EXT           'y'
+#define RECORD_EXT          'C'
 
 #define DIST_HEADER         'D'
 #define DIST_FRAG_HEADER    'E'
 #define DIST_FRAG_CONT      'F'
 #define ATOM_CACHE_REF      'R'
 #define COMPRESSED          'P'
+
+#define DOP_ALTACT_SIG_SEND 37
+
+#define ALTACT_SIG_FLG_PRIO   0x01
+#define ALTACT_SIG_FLG_TOKEN  0x02
+#define ALTACT_SIG_FLG_ALIAS  0x04
+#define ALTACT_SIG_FLG_NAME   0x08
+#define ALTACT_SIG_FLG_EXIT   0x10
 
 void proto_register_erldp(void);
 void proto_reg_handoff_erldp(void);
@@ -95,6 +105,7 @@ static const value_string etf_tag_vals[] = {
   { FUN_EXT             , "FUN_EXT" },
   { MAP_EXT             , "MAP_EXT" },
   { LOCAL_EXT           , "LOCAL_EXT" },
+  { RECORD_EXT          , "RECORD_EXT" },
   { DIST_HEADER         , "DIST_HEADER" },
   { DIST_FRAG_HEADER    , "DIST_FRAG_HEADER" },
   { ATOM_CACHE_REF      , "ATOM_CACHE_REF" },
@@ -136,6 +147,11 @@ static const value_string erldp_ctlmsg_vals[] = {
   { 30, "SPAWN_REQUEST_TT" },
   { 31, "SPAWN_REPLY" },
   { 32, "SPAWN_REPLY_TT" },
+  { 33, "ALIAS_SEND" },
+  { 34, "ALIAS_SEND_TT" },
+  { 35, "UNLINK_ID" },
+  { 36, "UNLINK_ID_ACK" },
+  { DOP_ALTACT_SIG_SEND, "ALTACT_SIG_SEND" },
   {  0, NULL }
 };
 
@@ -175,12 +191,25 @@ static int hf_erldp_flags_exit_payload;
 static int hf_erldp_flags_fragments;
 static int hf_erldp_flags_handshake_23;
 static int hf_erldp_flags_unlink_id;
+static int hf_erldp_flags_mandatory_25_digest;
 static int hf_erldp_flags_reserved;
 static int hf_erldp_flags_spawn;
 static int hf_erldp_flags_name_me;
 static int hf_erldp_flags_v4_nc;
 static int hf_erldp_flags_alias;
+static int hf_erldp_flags_local_ext;
+static int hf_erldp_flags_altact_sig;
+static int hf_erldp_flags_native_records;
 static int hf_erldp_flags_spare;
+static int hf_erldp_flags_high;
+static int hf_erldp_flags_high_spawn;
+static int hf_erldp_flags_high_name_me;
+static int hf_erldp_flags_high_v4_nc;
+static int hf_erldp_flags_high_alias;
+static int hf_erldp_flags_high_local_ext;
+static int hf_erldp_flags_high_altact_sig;
+static int hf_erldp_flags_high_native_records;
+static int hf_erldp_flags_high_spare;
 static int hf_erldp_creation;
 static int hf_erldp_challenge;
 static int hf_erldp_digest;
@@ -227,6 +256,20 @@ static int hf_erldp_new_fun_ext_arity;
 static int hf_erldp_new_fun_ext_uniq;
 static int hf_erldp_new_fun_ext_index;
 static int hf_erldp_new_fun_ext_num_free;
+static int hf_erldp_ref_ext_id;
+static int hf_erldp_local_ext_hash;
+static int hf_erldp_local_ext_data;
+static int hf_erldp_undecoded;
+static int hf_erldp_record_ext_num_fields;
+static int hf_erldp_record_ext_flags;
+static int hf_erldp_record_ext_flags_exported;
+static int hf_erldp_record_ext_flags_reserved;
+static int hf_erldp_altact_flags;
+static int hf_erldp_altact_flags_prio;
+static int hf_erldp_altact_flags_token;
+static int hf_erldp_altact_flags_alias;
+static int hf_erldp_altact_flags_name;
+static int hf_erldp_altact_flags_exit;
 
 static int hf_etf_tag;
 static int hf_etf_dist_header_tag;
@@ -259,9 +302,13 @@ static int ett_etf_flags;
 static int ett_etf_acrs;
 static int ett_etf_acr;
 static int ett_etf_tmp;
+static int ett_etf_altact_flags;
+static int ett_etf_record_flags;
 
 static int ett_etf_fragment;
 static int ett_etf_fragments;
+
+static expert_field ei_erldp_unknown_tag;
 
 /* Preferences */
 static bool erldp_desegment = true;
@@ -295,6 +342,7 @@ static const fragment_items etf_frag_items = {
 /*--- External Term Format ---*/
 
 static int dissect_etf_type(const char *label, packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree *tree);
+static int dissect_etf_type_ret_tree(const char *label, packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree *tree, proto_tree **ret_tree);
 static int dissect_etf_pdu_data(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree *tree);
 
 static int dissect_etf_dist_header(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree *tree) {
@@ -404,7 +452,7 @@ static int dissect_etf_big_ext(tvbuff_t *tvb, packet_info *pinfo, int offset, ui
         if (value_str)
           *value_str = wmem_strdup_printf(pinfo->pool, "%s%" PRIu64,
                                           sign ? "-"  : "", big_val);
-      } if (len < 64) {
+      } else if (len < 64) {
         wmem_strbuf_t *strbuf = wmem_strbuf_new_sized(pinfo->pool, len*1+3+1);
 
         wmem_strbuf_append(strbuf, "0x");
@@ -429,6 +477,12 @@ static int dissect_etf_type_content(uint8_t tag, packet_info *pinfo, tvbuff_t *t
   uint32_t len, i, uint_val;
   uint32_t id;
   const uint8_t *str_val;
+
+  static int * const record_flags[] = {
+    &hf_erldp_record_ext_flags_reserved,
+    &hf_erldp_record_ext_flags_exported,
+    NULL
+  };
 
   increment_dissection_depth(pinfo);
 
@@ -490,6 +544,24 @@ static int dissect_etf_type_content(uint8_t tag, packet_info *pinfo, tvbuff_t *t
       proto_tree_add_item_ret_uint(tree, hf_erldp_atom_length2, tvb, offset, 2, ENC_BIG_ENDIAN, &len);
       offset += 2;
       proto_tree_add_item_ret_string(tree, hf_erldp_atom_text, tvb, offset, len, ENC_NA|ENC_UTF_8, pinfo->pool, &str_val);
+      offset += len;
+      if (value_str)
+        *value_str = (const char *)str_val;
+      break;
+
+    case ATOM_EXT:
+      proto_tree_add_item_ret_uint(tree, hf_erldp_atom_length2, tvb, offset, 2, ENC_BIG_ENDIAN, &len);
+      offset += 2;
+      proto_tree_add_item_ret_string(tree, hf_erldp_atom_text, tvb, offset, len, ENC_NA|ENC_ISO_8859_1, pinfo->pool, &str_val);
+      offset += len;
+      if (value_str)
+        *value_str = (const char *)str_val;
+      break;
+
+    case SMALL_ATOM_EXT:
+      proto_tree_add_item_ret_uint(tree, hf_erldp_atom_length, tvb, offset, 1, ENC_BIG_ENDIAN, &len);
+      offset++;
+      proto_tree_add_item_ret_string(tree, hf_erldp_atom_text, tvb, offset, len, ENC_NA|ENC_ISO_8859_1, pinfo->pool, &str_val);
       offset += len;
       if (value_str)
         *value_str = (const char *)str_val;
@@ -604,6 +676,14 @@ static int dissect_etf_type_content(uint8_t tag, packet_info *pinfo, tvbuff_t *t
       offset += len;
       break;
 
+    case REFERENCE_EXT:
+      offset = dissect_etf_type("Node", pinfo, tvb, offset, tree);
+      proto_tree_add_item(tree, hf_erldp_ref_ext_id, tvb, offset, 4, ENC_BIG_ENDIAN);
+      offset += 4;
+      proto_tree_add_item(tree, hf_erldp_new_ref_ext_creation, tvb, offset, 1, ENC_BIG_ENDIAN);
+      offset++;
+      break;
+
     case NEW_REFERENCE_EXT:
       proto_tree_add_item_ret_uint(tree, hf_erldp_new_ref_ext_len, tvb, offset, 2, ENC_BIG_ENDIAN, &len);
       offset += 2;
@@ -675,6 +755,46 @@ static int dissect_etf_type_content(uint8_t tag, packet_info *pinfo, tvbuff_t *t
       offset = dissect_etf_type("Function", pinfo, tvb, offset, tree);
       offset = dissect_etf_type("Arity", pinfo, tvb, offset, tree);
       break;
+
+    case RECORD_EXT:
+      proto_tree_add_item_ret_uint(tree, hf_erldp_record_ext_num_fields, tvb, offset, 4, ENC_BIG_ENDIAN, &len);
+      offset += 4;
+      proto_tree_add_bitmask(tree, tvb, offset, hf_erldp_record_ext_flags,
+                             ett_etf_record_flags, record_flags, ENC_NA);
+      offset += 1;
+      offset = dissect_etf_type("Module", pinfo, tvb, offset, tree);
+      offset = dissect_etf_type("Name", pinfo, tvb, offset, tree);
+
+      for (i = 0; i < len; i++) {
+          char buf[ITEM_LABEL_LENGTH];
+          snprintf(buf, sizeof(buf), "Field Name[%u]", i + 1);
+          offset = dissect_etf_type(buf, pinfo, tvb, offset, tree);
+      }
+      for (i = 0; i < len; i++) {
+          char buf[ITEM_LABEL_LENGTH];
+          snprintf(buf, sizeof(buf), "Value[%u]", i + 1);
+          offset = dissect_etf_type(buf, pinfo, tvb, offset, tree);
+      }
+      break;
+
+    case LOCAL_EXT:
+      /* A hash, then an encoding known only to the node that made it */
+      proto_tree_add_item(tree, hf_erldp_local_ext_hash, tvb, offset, 4, ENC_BIG_ENDIAN);
+      offset += 4;
+      len = tvb_reported_length_remaining(tvb, offset);
+      if (len > 0)
+        proto_tree_add_item(tree, hf_erldp_local_ext_data, tvb, offset, len, ENC_NA);
+      offset += len;
+      break;
+
+    default:
+      /* Its length is unknown, so nothing after it can be decoded */
+      proto_tree_add_expert(tree, pinfo, &ei_erldp_unknown_tag, tvb, offset - 1, 1);
+      len = tvb_reported_length_remaining(tvb, offset);
+      if (len > 0)
+        proto_tree_add_item(tree, hf_erldp_undecoded, tvb, offset, len, ENC_NA);
+      offset += len;
+      break;
   }
 
   decrement_dissection_depth(pinfo);
@@ -683,13 +803,31 @@ static int dissect_etf_type_content(uint8_t tag, packet_info *pinfo, tvbuff_t *t
 }
 
 static int dissect_etf_pdu_data(packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree *tree) {
-  uint8_t ctl_op;
+  uint8_t ctl_op = 0;
+  int ctl_offset = offset;
+  proto_tree *ctl_tree = NULL;
+
+  static int * const altact_flags[] = {
+    &hf_erldp_altact_flags_prio,
+    &hf_erldp_altact_flags_token,
+    &hf_erldp_altact_flags_alias,
+    &hf_erldp_altact_flags_name,
+    &hf_erldp_altact_flags_exit,
+    NULL
+  };
 
   if ((tvb_get_uint8(tvb, offset) == SMALL_TUPLE_EXT) && (tvb_get_uint8(tvb, offset + 2) == SMALL_INTEGER_EXT)) {
     ctl_op = tvb_get_uint8(tvb, offset + 3);
     col_add_str(pinfo->cinfo, COL_INFO, val_to_str(pinfo->pool, ctl_op, VALS(erldp_ctlmsg_vals), "unknown ControlMessage operation (%d)"));
   }
-  offset = dissect_etf_type("ControlMessage", pinfo, tvb, offset, tree);
+  offset = dissect_etf_type_ret_tree("ControlMessage", pinfo, tvb, offset, tree, &ctl_tree);
+
+  /* {37, Flags, SenderPid, To} or {37, Flags, SenderPid, To, Token} */
+  if ((ctl_op == DOP_ALTACT_SIG_SEND) && (tvb_get_uint8(tvb, ctl_offset + 1) >= 4) &&
+      (tvb_get_uint8(tvb, ctl_offset + 4) == SMALL_INTEGER_EXT)) {
+    proto_tree_add_bitmask(ctl_tree, tvb, ctl_offset + 5, hf_erldp_altact_flags,
+                           ett_etf_altact_flags, altact_flags, ENC_NA);
+  }
   if (tvb_reported_length_remaining(tvb, offset) > 0)
     offset = dissect_etf_type("Message", pinfo, tvb, offset, tree);
 
@@ -795,6 +933,11 @@ static int dissect_etf_versioned_type(const char *label, packet_info *pinfo, tvb
 
 // NOLINTNEXTLINE(misc-no-recursion)
 static int dissect_etf_type(const char *label, packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree *tree) {
+  return dissect_etf_type_ret_tree(label, pinfo, tvb, offset, tree, NULL);
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+static int dissect_etf_type_ret_tree(const char *label, packet_info *pinfo, tvbuff_t *tvb, int offset, proto_tree *tree, proto_tree **ret_tree) {
   int begin = offset;
   uint32_t tag;
   proto_item *ti;
@@ -815,13 +958,16 @@ static int dissect_etf_type(const char *label, packet_info *pinfo, tvbuff_t *tvb
 
   proto_item_set_len(ti, offset - begin);
 
+  if (ret_tree)
+    *ret_tree = etf_tree;
+
   return offset;
 }
 
 static bool is_handshake(tvbuff_t *tvb, int offset) {
   uint32_t len = tvb_get_ntohs(tvb, offset);
   uint8_t tag = tvb_get_uint8(tvb, offset + 2);
-  return ((len > 0) && strchr("nNras", tag) && (len == (uint32_t)tvb_captured_length_remaining(tvb, offset + 2)));
+  return ((len > 0) && strchr("nNcras", tag) && (len == (uint32_t)tvb_captured_length_remaining(tvb, offset + 2)));
 }
 
 /*--- dissect_erldp_handshake -------------------------------------------------*/
@@ -832,13 +978,30 @@ static void dissect_erldp_handshake(tvbuff_t *tvb, packet_info *pinfo, proto_tre
   uint32_t str_len;
   const uint8_t *str;
 
+  /* The flags above bit 31, as the complement message carries them */
+  static int * const erldp_flags_high_flags[] = {
+    &hf_erldp_flags_high_spare,
+    &hf_erldp_flags_high_native_records,
+    &hf_erldp_flags_high_altact_sig,
+    &hf_erldp_flags_high_local_ext,
+    &hf_erldp_flags_high_alias,
+    &hf_erldp_flags_high_v4_nc,
+    &hf_erldp_flags_high_name_me,
+    &hf_erldp_flags_high_spawn,
+    NULL
+  };
+
   static int * const erldp_flags_flags[] = {
     &hf_erldp_flags_spare,
+    &hf_erldp_flags_native_records,
+    &hf_erldp_flags_altact_sig,
+    &hf_erldp_flags_local_ext,
     &hf_erldp_flags_alias,
     &hf_erldp_flags_v4_nc,
     &hf_erldp_flags_name_me,
     &hf_erldp_flags_spawn,
     &hf_erldp_flags_reserved,
+    &hf_erldp_flags_mandatory_25_digest,
     &hf_erldp_flags_unlink_id,
     &hf_erldp_flags_handshake_23,
     &hf_erldp_flags_fragments,
@@ -914,6 +1077,15 @@ static void dissect_erldp_handshake(tvbuff_t *tvb, packet_info *pinfo, proto_tre
       offset += 2;
       proto_tree_add_item_ret_string(tree, hf_erldp_name, tvb, offset, str_len, ENC_ASCII|ENC_NA, pinfo->pool, &str);
       col_add_fstr(pinfo->cinfo, COL_INFO, "%s %s", (is_challenge) ? "SEND_CHALLENGE" : "SEND_NAME", str);
+      break;
+
+    case 'c' :
+      proto_tree_add_bitmask(tree, tvb, offset, hf_erldp_flags_high,
+         ett_erldp_flags, erldp_flags_high_flags, ENC_BIG_ENDIAN);
+      offset += 4;
+      proto_tree_add_item(tree, hf_erldp_creation, tvb, offset, 4, ENC_BIG_ENDIAN);
+      /*offset += 4;*/
+      col_set_str(pinfo->cinfo, COL_INFO, "SEND_COMPLEMENT");
       break;
 
     case 'r' :
@@ -1120,8 +1292,11 @@ void proto_register_erldp(void) {
     { &hf_erldp_flags_unlink_id, { "Unlink Id", "erldp.flags.unlink_id",
                         FT_BOOLEAN, 64, NULL, 0x2000000,
                         NULL, HFILL }},
+    { &hf_erldp_flags_mandatory_25_digest, { "Mandatory 25 Digest", "erldp.flags.mandatory_25_digest",
+                        FT_BOOLEAN, 64, NULL, 0x4000000,
+                        NULL, HFILL }},
     { &hf_erldp_flags_reserved, { "Reserved", "erldp.flags.reserved",
-                        FT_UINT64, BASE_DEC, NULL, 0xfc000000,
+                        FT_UINT64, BASE_DEC, NULL, 0xf8000000,
                         NULL, HFILL }},
     { &hf_erldp_flags_spawn, { "Spawn", "erldp.flags.spawn",
                         FT_BOOLEAN, 64, NULL, 1ULL << 32,
@@ -1135,8 +1310,44 @@ void proto_register_erldp(void) {
     { &hf_erldp_flags_alias, { "Alias", "erldp.flags.alias",
                         FT_BOOLEAN, 64, NULL, 1ULL << 35,
                         NULL, HFILL }},
+    { &hf_erldp_flags_local_ext, { "Local Ext", "erldp.flags.local_ext",
+                        FT_BOOLEAN, 64, NULL, 1ULL << 36,
+                        NULL, HFILL }},
+    { &hf_erldp_flags_altact_sig, { "AltAct Sig", "erldp.flags.altact_sig",
+                        FT_BOOLEAN, 64, NULL, 1ULL << 37,
+                        NULL, HFILL }},
+    { &hf_erldp_flags_native_records, { "Native Records", "erldp.flags.native_records",
+                        FT_BOOLEAN, 64, NULL, 1ULL << 38,
+                        NULL, HFILL }},
     { &hf_erldp_flags_spare, { "Spare", "erldp.flags.spare",
-                        FT_UINT64, BASE_DEC, NULL,  ~(0ULL) << 36,
+                        FT_UINT64, BASE_DEC, NULL,  ~(0ULL) << 39,
+                        NULL, HFILL }},
+    { &hf_erldp_flags_high, { "Flags High", "erldp.flags_high",
+                        FT_UINT32, BASE_HEX, NULL, 0x0,
+                        "The flags above bit 31", HFILL}},
+    { &hf_erldp_flags_high_spawn, { "Spawn", "erldp.flags.spawn",
+                        FT_BOOLEAN, 32, NULL, 0x00000001,
+                        NULL, HFILL }},
+    { &hf_erldp_flags_high_name_me, { "Name ME", "erldp.flags.name_me",
+                        FT_BOOLEAN, 32, NULL, 0x00000002,
+                        NULL, HFILL }},
+    { &hf_erldp_flags_high_v4_nc, { "V4 NC", "erldp.flags.v4_nc",
+                        FT_BOOLEAN, 32, NULL, 0x00000004,
+                        NULL, HFILL }},
+    { &hf_erldp_flags_high_alias, { "Alias", "erldp.flags.alias",
+                        FT_BOOLEAN, 32, NULL, 0x00000008,
+                        NULL, HFILL }},
+    { &hf_erldp_flags_high_local_ext, { "Local Ext", "erldp.flags.local_ext",
+                        FT_BOOLEAN, 32, NULL, 0x00000010,
+                        NULL, HFILL }},
+    { &hf_erldp_flags_high_altact_sig, { "AltAct Sig", "erldp.flags.altact_sig",
+                        FT_BOOLEAN, 32, NULL, 0x00000020,
+                        NULL, HFILL }},
+    { &hf_erldp_flags_high_native_records, { "Native Records", "erldp.flags.native_records",
+                        FT_BOOLEAN, 32, NULL, 0x00000040,
+                        NULL, HFILL }},
+    { &hf_erldp_flags_high_spare, { "Spare", "erldp.flags.spare",
+                        FT_UINT32, BASE_DEC, NULL, 0xffffff80,
                         NULL, HFILL }},
     { &hf_erldp_creation, { "Creation", "erldp.creation",
                         FT_UINT32, BASE_DEC, NULL, 0x0,
@@ -1276,6 +1487,48 @@ void proto_register_erldp(void) {
     { &hf_erldp_new_fun_ext_num_free, { "Num Free", "erldp.new_fun_ext.num_free",
                         FT_UINT32, BASE_DEC, NULL, 0x0,
                         NULL, HFILL}},
+    { &hf_erldp_ref_ext_id, { "ID", "erldp.ref_ext.id",
+                        FT_UINT32, BASE_HEX, NULL, 0x0,
+                        NULL, HFILL}},
+    { &hf_erldp_local_ext_hash, { "Hash", "erldp.local_ext.hash",
+                        FT_UINT32, BASE_HEX, NULL, 0x0,
+                        "Checked by the decoder to match the encoder", HFILL}},
+    { &hf_erldp_local_ext_data, { "Local Data", "erldp.local_ext.data",
+                        FT_BYTES, BASE_NONE, NULL, 0x0,
+                        "Terms in a format known only to the node that encoded them", HFILL}},
+    { &hf_erldp_undecoded, { "Undecoded Data", "erldp.undecoded",
+                        FT_BYTES, BASE_NONE, NULL, 0x0,
+                        NULL, HFILL}},
+    { &hf_erldp_record_ext_num_fields, { "Num Fields", "erldp.record_ext.num_fields",
+                        FT_UINT32, BASE_DEC, NULL, 0x0,
+                        NULL, HFILL}},
+    { &hf_erldp_record_ext_flags, { "Flags", "erldp.record_ext.flags",
+                        FT_UINT8, BASE_HEX, NULL, 0x0,
+                        NULL, HFILL}},
+    { &hf_erldp_record_ext_flags_exported, { "Exported", "erldp.record_ext.flags.exported",
+                        FT_BOOLEAN, 8, NULL, 0x01,
+                        "The record is exported from its module", HFILL}},
+    { &hf_erldp_record_ext_flags_reserved, { "Reserved", "erldp.record_ext.flags.reserved",
+                        FT_UINT8, BASE_HEX, NULL, 0xfe,
+                        NULL, HFILL}},
+    { &hf_erldp_altact_flags, { "AltAct Flags", "erldp.altact_flags",
+                        FT_UINT8, BASE_HEX, NULL, 0x0,
+                        "ALTACT_SIG_SEND flags", HFILL}},
+    { &hf_erldp_altact_flags_prio, { "Priority", "erldp.altact_flags.prio",
+                        FT_BOOLEAN, 8, NULL, ALTACT_SIG_FLG_PRIO,
+                        "This is a priority signal", HFILL}},
+    { &hf_erldp_altact_flags_token, { "Token", "erldp.altact_flags.token",
+                        FT_BOOLEAN, 8, NULL, ALTACT_SIG_FLG_TOKEN,
+                        "A sequential trace token follows To", HFILL}},
+    { &hf_erldp_altact_flags_alias, { "Alias", "erldp.altact_flags.alias",
+                        FT_BOOLEAN, 8, NULL, ALTACT_SIG_FLG_ALIAS,
+                        "To is a process alias (a reference)", HFILL}},
+    { &hf_erldp_altact_flags_name, { "Name", "erldp.altact_flags.name",
+                        FT_BOOLEAN, 8, NULL, ALTACT_SIG_FLG_NAME,
+                        "To is a registered name (an atom)", HFILL}},
+    { &hf_erldp_altact_flags_exit, { "Exit", "erldp.altact_flags.exit",
+                        FT_BOOLEAN, 8, NULL, ALTACT_SIG_FLG_EXIT,
+                        "The signal is an exit signal, not a message", HFILL}},
 
     /*---  ---*/
     { &hf_erldp_length_4, { "Length", "erldp.len",
@@ -1366,9 +1619,18 @@ void proto_register_erldp(void) {
     &ett_etf_acrs,
     &ett_etf_acr,
     &ett_etf_tmp,
+    &ett_etf_altact_flags,
+    &ett_etf_record_flags,
     &ett_etf_fragment,
     &ett_etf_fragments,
   };
+
+  static ei_register_info ei[] = {
+    { &ei_erldp_unknown_tag, { "erldp.unknown_tag", PI_UNDECODED, PI_WARN,
+                        "Unknown term tag; the rest of the message is not decoded", EXPFILL }},
+  };
+
+  expert_module_t *expert_erldp;
 
   /* Register protocol and dissector */
   proto_erldp = proto_register_protocol("Erlang Distribution Protocol", "ErlDP", "erldp");
@@ -1380,6 +1642,8 @@ void proto_register_erldp(void) {
   /* Register fields and subtrees */
   proto_register_field_array(proto_erldp, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
+  expert_erldp = expert_register_protocol(proto_erldp);
+  expert_register_field_array(expert_erldp, ei, array_length(ei));
 
 }
 

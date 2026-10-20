@@ -3,7 +3,7 @@
 /* packet-ldap.c                                                              */
 /* asn2wrs.py -b -q -L -p ldap -c ./ldap.cnf -s ./packet-ldap-template -D . -O ../.. Lightweight-Directory-Access-Protocol-V3.asn */
 
-/* packet-ldap-template.c
+/* packet-ldap.c
  * Routines for ldap packet dissection
  *
 * See RFC 3494 (LDAP v2), RFC 4511 (LDAP v3), and RFC 2222 (SASL).
@@ -4201,7 +4201,7 @@ static int dissect_NetLogon_PDU(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
   uint16_t itype;
   uint16_t len;
   uint32_t version;
-  int fn_len;
+  unsigned fn_len;
   proto_item *item;
 
   ldm_tree = NULL;

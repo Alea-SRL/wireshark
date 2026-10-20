@@ -359,6 +359,11 @@ const value_string bluetooth_not_used_0xff_special[] = {
     {0, NULL}
 };
 
+const true_false_string tfs_rtt_accuracy = {
+    "10 ns",
+    "150 ns"
+};
+
 void
 save_local_device_name_from_eir_ad(tvbuff_t *tvb, int offset, packet_info *pinfo,
         uint8_t size, bluetooth_data_t *bluetooth_data)
@@ -1437,7 +1442,7 @@ void proto_reg_handoff_btad_matter(void);
 static int
 dissect_btad_matter(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data _U_)
 {
-    int offset = 0;
+    unsigned offset = 0;
     proto_tree *main_item = proto_tree_add_item(tree, proto_btad_matter, tvb, offset, -1, ENC_NA);
     proto_tree *main_tree = proto_item_add_subtree(main_item, ett_btad_matter);
 

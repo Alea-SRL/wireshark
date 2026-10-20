@@ -17,19 +17,20 @@
 #include <epan/packet.h>
 
 #include <QAbstractItemModel>
+#include <QColor>
 #include <QFont>
 #include <QVector>
-
-#include <ui/qt/progress_frame.h>
 
 #include "packet_list_record.h"
 
 #include <epan/cfile.h>
 
-class QElapsedTimer;
-
 /**
  * @brief A Qt item model representing the list of packets in a capture file.
+ *
+ * There is one row for every packet appended, in frame number order (so
+ * frame N is row N - 1), regardless of the display filter. Filtering and
+ * sorting are done by a proxy model such as PacketListProxyModel.
  */
 class PacketListModel : public QAbstractItemModel
 {
@@ -65,6 +66,12 @@ public:
     void setCaptureFile(capture_file *cf);
 
     /**
+     * @brief Returns the capture file associated with the model.
+     * @return Pointer to the capture file.
+     */
+    capture_file *captureFile() const { return cap_file_; }
+
+    /**
      * @brief Returns the index of the item in the model.
      * @param row The row of the item.
      * @param column The column of the item.
@@ -81,22 +88,30 @@ public:
     QModelIndex parent(const QModelIndex &) const override;
 
     /**
-     * @brief Converts a packet number to a row index.
-     * @param packet_num The packet number.
-     * @return The corresponding row index.
+     * @brief Retrieves the PacketListRecord for a given frame/packet
+     * number regardless of whether it currently passes the display
+     * filter. This looks the record up directly among physical_rows_ --
+     * every packet ever appended, retained permanently in frame-number
+     * order, including any not yet inserted as rows (see flushNewRows())
+     * -- so callers that need a packet's data independent of the current
+     * display filter (e.g. rendering a pinned row that's been filtered
+     * out) can still get at it.
+     * @param frame_num The frame/packet number.
+     * @return The record, or nullptr if out of range.
      */
-    int packetNumberToRow(int packet_num) const;
+    PacketListRecord *physicalRecordForFrameNum(int frame_num) const;
 
     /**
-     * @brief Recreates the list of visible rows based on filters and state.
-     * @return The number of visible rows.
+     * @brief Retrieves the PacketListRecord at the given row.
+     * @param row The row index (the frame number - 1).
+     * @return The record, or nullptr if out of range.
      */
-    unsigned recreateVisibleRows();
+    PacketListRecord *physicalRecordAt(int row) const;
 
     /**
-     * @brief Flags the model as needing to recreate its visible rows.
+     * @brief Returns true if no packets have been appended.
      */
-    inline void needRecreateVisibleRows() { need_recreate_visible_rows_ = !physical_rows_.isEmpty(); }
+    bool isEmpty() const { return physical_rows_.isEmpty(); }
 
     /**
      * @brief Clears the model data.
@@ -141,38 +156,12 @@ public:
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
 
     /**
-     * @brief Appends a packet to the model.
+     * @brief Appends a packet to the model. The row is inserted the next
+     * time flushNewRows() runs, which is scheduled automatically.
      * @param fdata Pointer to the frame data.
-     * @return The row index where the packet was appended.
+     * @return The row index where the packet will be inserted.
      */
     int appendPacket(frame_data *fdata);
-
-    /**
-     * @brief Retrieves the frame data for a given model index.
-     * @param idx The model index.
-     * @return Pointer to the frame data.
-     */
-    frame_data *getRowFdata(QModelIndex idx) const;
-
-    /**
-     * @brief Retrieves the frame data for a given row.
-     * @param row The row index.
-     * @return Pointer to the frame data.
-     */
-    frame_data *getRowFdata(int row) const;
-
-    /**
-     * @brief Ensures that a specific row has been colorized.
-     * @param row The row index to colorize.
-     */
-    void ensureRowColorized(int row);
-
-    /**
-     * @brief Returns the visible index of the given frame data.
-     * @param fdata Pointer to the frame data.
-     * @return The visible index.
-     */
-    int visibleIndexOf(const frame_data *fdata) const;
 
     /**
      * @brief Invalidate any cached column strings.
@@ -191,33 +180,35 @@ public:
 
     /**
      * @brief Toggles the mark state for the specified frames.
-     * @param indeces List of model indices to toggle.
+     * @param indices List of model indices to toggle.
      */
-    void toggleFrameMark(const QModelIndexList &indeces);
+    void toggleFrameMark(const QModelIndexList &indices);
 
     /**
-     * @brief Sets the mark state for all currently displayed frames.
+     * @brief Sets the mark state for the given frames.
+     * @param records The records of the frames to change.
      * @param set True to mark, false to unmark.
      */
-    void setDisplayedFrameMark(bool set);
+    void setFrameMark(const QVector<PacketListRecord *> &records, bool set);
 
     /**
      * @brief Toggles the ignore state for the specified frames.
-     * @param indeces List of model indices to toggle.
+     * @param indices List of model indices to toggle.
      */
-    void toggleFrameIgnore(const QModelIndexList &indeces);
+    void toggleFrameIgnore(const QModelIndexList &indices);
 
     /**
-     * @brief Sets the ignore state for all currently displayed frames.
+     * @brief Sets the ignore state for the given frames.
+     * @param records The records of the frames to change.
      * @param set True to ignore, false to un-ignore.
      */
-    void setDisplayedFrameIgnore(bool set);
+    void setFrameIgnore(const QVector<PacketListRecord *> &records, bool set);
 
     /**
-     * @brief Toggles the reference time state for a specified frame.
-     * @param rt_index The model index of the frame.
+     * @brief Toggles the reference time state for the specified frames.
+     * @param indices List of model indices to toggle
      */
-    void toggleFrameRefTime(const QModelIndex &rt_index);
+    void toggleFrameRefTime(const QModelIndexList &indices);
 
     /**
      * @brief Unsets the reference time state for all frames.
@@ -259,44 +250,34 @@ signals:
      */
     void packetAppended(capture_file *cap_file, frame_data *fdata, qsizetype row);
 
-    /**
-     * @brief Signal emitted to navigate the view to a specific packet number.
-     * @param packet_num The target packet number.
-     */
-    void goToPacket(int packet_num);
-
-    /**
-     * @brief Signal emitted to report background colorization progress.
-     * @param first The first row processed.
-     * @param last The last row processed.
-     */
-    void bgColorizationProgress(int first, int last);
-
 public slots:
     /**
-     * @brief Sorts the model based on the specified column.
-     * @param column The column index to sort by.
-     * @param order The sort order (ascending or descending).
+     * @brief Inserts the rows for any packets appended since the last flush.
      */
-    void sort(int column, Qt::SortOrder order = Qt::AscendingOrder) override;
+    void flushNewRows();
 
-    /**
-     * @brief Stops an ongoing sorting operation.
-     */
-    void stopSorting();
-
-    /**
-     * @brief Flushes the newly visible rows into the main visible rows view.
-     */
-    void flushVisibleRows();
-
-    /**
-     * @brief Performs dissection work during application idle time.
-     * @param reset True to reset the idle dissection state.
-     */
-    void dissectIdle(bool reset = false);
+private slots:
+    /** Slot connected to ThemeManager::themeChanged. Refreshes the color
+     *  cache and asks the view to repaint every cell's bg/fg roles. */
+    void onThemeChanged();
 
 private:
+    /** Cached foreground color for manually marked packets. */
+    QColor marked_fg_;
+    /** Cached background color for manually marked packets. */
+    QColor marked_bg_;
+    /** Cached foreground color for ignored packets. */
+    QColor ignored_fg_;
+    /** Cached background color for ignored packets (invalid = use view default). */
+    QColor ignored_bg_;
+
+    /**
+     * Re-reads marked/ignored colors from ThemeManager into the cached
+     * QColor members. Called from the constructor (priming) and from
+     * onThemeChanged() (after a theme/mode flip).
+     */
+    void refreshThemeColors();
+
     /** Pointer to the associated capture file. */
     capture_file *cap_file_;
 
@@ -306,89 +287,9 @@ private:
     /** Vector of all physical rows loaded into the model. */
     QVector<PacketListRecord *> physical_rows_;
 
-    /** Vector of currently visible rows. */
-    QVector<PacketListRecord *> visible_rows_;
+    /** The number of physical rows inserted as model rows so far. */
+    int inserted_rows_;
 
-    /** Vector of new visible rows pending a flush. */
-    QVector<PacketListRecord *> new_visible_rows_;
-
-    /** Vector mapping packet numbers to their corresponding row index. */
-    QVector<int> number_to_row_;
-
-    /** Hash mapping aggregation keys to their corresponding row index. */
-    QHash<QString, int> aggregation_key_row_;
-
-    /** Flag indicating whether visible rows need to be recreated. */
-    bool need_recreate_visible_rows_;
-
-    /** The column index currently being used for sorting. */
-    static int sort_column_;
-
-    /** Flag indicating if the current sort column is numeric. */
-    static int sort_column_is_numeric_;
-
-    /** The column index used as a secondary text sort column. */
-    static int text_sort_column_;
-
-    /** The current sort order applied to the model. */
-    static Qt::SortOrder sort_order_;
-
-    /** Pointer to the capture file context used during sorting. */
-    static capture_file *sort_cap_file_;
-
-    /**
-     * @brief Compare function used to sort records.
-     * @param r1 The first record.
-     * @param r2 The second record.
-     * @return True if r1 should appear before r2, false otherwise.
-     */
-    static bool recordLessThan(PacketListRecord *r1, PacketListRecord *r2);
-
-    /**
-     * @brief Parses a string value from a column as a numeric double.
-     * @param val The string value to parse.
-     * @param ok Pointer to a boolean set to true if parsing was successful.
-     * @return The parsed double value.
-     */
-    static double parseNumericColumn(const QString &val, bool *ok);
-
-    /** Flag used to signal stopping a long-running operation. */
-    static bool stop_flag_;
-
-    /** Pointer to the frame displaying progress. */
-    static ProgressFrame *progress_frame_;
-
-    /** The expected number of comparisons during sorting. */
-    static double exp_comps_;
-
-    /** The actual number of comparisons performed during sorting. */
-    static double comps_;
-
-    /** Timer used for triggering idle dissection batches. */
-    QElapsedTimer *idle_dissection_timer_;
-
-    /** The current row index being processed by idle dissection. */
-    int idle_dissection_row_;
-
-    /**
-     * @brief Determines if the specified column contains numeric data.
-     * @param column The column index to check.
-     * @return True if numeric, false otherwise.
-     */
-    bool isNumericColumn(int column);
-
-    /**
-     * @brief Updates the internal lists with a newly visible row.
-     * @param record Pointer to the packet list record that is now visible.
-     */
-    void updateVisibleRows(PacketListRecord* record);
-
-    /**
-     * @brief Updates the aggregation view rows based on a newly visible record.
-     * @param record Pointer to the packet list record that is now visible.
-     * @return True if the aggregation view was updated, false otherwise.
-     */
-    bool updateVisibleAggregationViewRows(PacketListRecord* record);
 };
 
 #endif // PACKET_LIST_MODEL_H

@@ -48,9 +48,12 @@ codec_amrwb_get_frequency(codec_context_t *ctx _U_)
 
 /* RTP doesn't allow the other SID types */
 /* modes: 7k,9k,12k,14k,16k,18k,20k,23k,24k, MRDTX/SID */
-static const uint16_t speech_bits[16] = {132, 177, 253, 285, 317, 365, 397, 461, 477, 35, 0, 0, 0, 0, 0, 0};
+static const uint16_t speech_bits[16] = {132, 177, 253, 285, 317, 365, 397, 461, 477, 40, 0, 0, 0, 0, 0, 0};
 /* The number of speech bits rounded up to bytes */
 static const uint8_t block_size[16]   = { 17,  23,  32,  36,  40,  46,  50,  58,  60,  5, 0, 0, 0, 0, 0, 0};
+static const uint8_t class_a_bits[16] = { 54,  64,  72,  72,  72,  72,  72,  72,  72, 40, 0, 0, 0, 0, 0, 0};
+
+#define AMR_MAX_FRAMES 64
 
 static const uint8_t bit_mask8[] = { 0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F, 0xFF };
 
@@ -73,6 +76,130 @@ get_bits8(uint8_t *in, unsigned bit_offset, const unsigned no_of_bits)
         ret |= (in[octet_offset + 1] >> (8 - left_shift));
     }
     return ret;
+}
+
+static uint8_t
+codec_amrwb_frame_crc(const uint8_t *data, unsigned no_of_bits)
+{
+    uint8_t crc = 0;
+    for (unsigned i = 0; i < no_of_bits; i++) {
+        unsigned feedback = (crc & 1U) ^ ((data[i / 8] >> (7 - (i % 8))) & 1U);
+        crc >>= 1;
+        if (feedback)
+            crc ^= 0xB8;
+    }
+    return crc;
+}
+
+static size_t
+codec_amrwb_decode_oa_options(void *state, const uint8_t *input, size_t inputSizeBytes,
+        void *output, size_t *outputSizeBytes, unsigned frames, bool crc, bool robust)
+{
+    const uint8_t *toc = input + 1;
+    uint8_t speech[AMR_MAX_FRAMES][60] = {{0}};
+    bool present[AMR_MAX_FRAMES] = {false};
+    bool quality[AMR_MAX_FRAMES] = {false};
+    size_t longest = 0;
+
+    *outputSizeBytes = out_frame_bytes * frames;
+    if (frames > AMR_MAX_FRAMES) {
+        memset(output, 0, *outputSizeBytes);
+        return *outputSizeBytes;
+    }
+    if (inputSizeBytes < 2) {
+        memset(output, 0, *outputSizeBytes);
+        return *outputSizeBytes;
+    }
+    for (unsigned i = 0; i < frames; i++) {
+        unsigned mode = (toc[i] >> 3) & 0x0F;
+        if (mode >= 10 && mode <= 13) {
+            memset(output, 0, *outputSizeBytes);
+            return *outputSizeBytes;
+        }
+        if (block_size[mode] > longest)
+            longest = block_size[mode];
+        quality[i] = (toc[i] & 0x04) != 0;
+    }
+
+    size_t crc_offset = 1U + frames;
+    size_t speech_offset = crc_offset;
+    if (crc) {
+        for (unsigned i = 0; i < frames; i++) {
+            unsigned mode = (toc[i] >> 3) & 0x0F;
+            if (speech_bits[mode])
+                speech_offset++;
+        }
+    }
+
+    if (robust) {
+        size_t byte = speech_offset;
+        for (unsigned i = 0; i < frames; i++)
+            present[i] = true;
+        for (size_t octet = 0; octet < longest; octet++) {
+            for (unsigned i = 0; i < frames; i++) {
+                unsigned mode = (toc[i] >> 3) & 0x0F;
+                if (octet >= block_size[mode])
+                    continue;
+                if (byte < inputSizeBytes) {
+                    speech[i][octet] = input[byte];
+                } else {
+                    present[i] = false;
+                }
+                byte++;
+            }
+        }
+        for (unsigned i = 0; i < frames; i++) {
+            unsigned mode = (toc[i] >> 3) & 0x0F;
+            if (speech_bits[mode] % 8 && block_size[mode])
+                speech[i][block_size[mode] - 1] &=
+                        (uint8_t)(0xFF00U >> (speech_bits[mode] % 8));
+        }
+    } else {
+        size_t byte = speech_offset;
+        for (unsigned i = 0; i < frames; i++) {
+            unsigned mode = (toc[i] >> 3) & 0x0F;
+            present[i] = true;
+            for (unsigned octet = 0; octet < block_size[mode]; octet++) {
+                if (byte < inputSizeBytes) {
+                    speech[i][octet] = input[byte];
+                } else {
+                    present[i] = false;
+                }
+                byte++;
+            }
+        }
+    }
+
+    if (crc) {
+        size_t byte = crc_offset;
+        for (unsigned i = 0; i < frames; i++) {
+            unsigned mode = (toc[i] >> 3) & 0x0F;
+            if (!speech_bits[mode])
+                continue;
+            if (byte >= inputSizeBytes) {
+                present[i] = false;
+            } else if (present[i] &&
+                    codec_amrwb_frame_crc(speech[i], class_a_bits[mode]) != input[byte]) {
+                quality[i] = false;
+            }
+            byte++;
+        }
+    }
+
+    for (unsigned i = 0; i < frames; i++) {
+        uint8_t aligned[61] = {0};
+        unsigned mode = (toc[i] >> 3) & 0x0F;
+        if (present[i]) {
+            aligned[0] = (uint8_t)(mode << 3) | (quality[i] ? 0x04 : 0x00);
+            memcpy(&aligned[1], speech[i], block_size[mode]);
+            D_IF_decode(state, aligned, (short *)output, !quality[i]);
+        } else {
+            memset(output, 0, out_frame_bytes);
+        }
+        output = (uint8_t *)output + out_frame_bytes;
+    }
+
+    return *outputSizeBytes;
 }
 
 static size_t
@@ -103,10 +230,12 @@ codec_amrwb_decode_one(void *state, const void *input, size_t inputSizeBytes,
         return *outputSizeBytes;
     }
 
-    /* XXX: The last parameter is the BFI - we could invert the
-     * Q-bit and pass it in, which might be better?
-     */
-    D_IF_decode(state, in, (short *)output, 0);
+    if (mode >= 10 && mode <= 13) {
+        memset(output, 0, out_frame_bytes);
+        return *outputSizeBytes;
+    }
+
+    D_IF_decode(state, in, (short *)output, !(in[0] & 0x04));
     return *outputSizeBytes;
 }
 
@@ -121,7 +250,16 @@ codec_amrwb_decode_many(void *state, const void *input, size_t inputSizeBytes,
 
     uint8_t *toc = (uint8_t *)input + 1;
     uint8_t *speech = toc + frames;
+    uint8_t *output_start = output;
     uint8_t in[64];
+
+    for (unsigned i = 0; i < frames; i++) {
+        mode = (toc[i] >> 3) & 0x0F;
+        if (mode >= 10 && mode <= 13) {
+            memset(output_start, 0, out_frame_bytes * frames);
+            return *outputSizeBytes;
+        }
+    }
 
     for (unsigned i = 0; i < frames; i++) {
         mode = (toc[i] >> 3) & 0x0F;
@@ -138,10 +276,7 @@ codec_amrwb_decode_many(void *state, const void *input, size_t inputSizeBytes,
          */
         in[0] = toc[i] & 0x7F;
         memcpy(&in[1], speech, block_size[mode]);
-        /* XXX: The last parameter is the BFI - we could invert the
-         * Q-bit and pass it in, which might be better?
-         */
-        D_IF_decode(state, in, (short *)output, 0);
+        D_IF_decode(state, in, (short *)output, !(toc[i] & 0x04));
         speech += block_size[mode];
         output = (uint8_t *)output + out_frame_bytes;
     }
@@ -151,7 +286,7 @@ codec_amrwb_decode_many(void *state, const void *input, size_t inputSizeBytes,
 
 static size_t
 codec_amrwb_decode_oa(codec_context_t *ctx, const void *input,
-        size_t inputSizeBytes, void *output, size_t *outputSizeBytes)
+        size_t inputSizeBytes, void *output, size_t *outputSizeBytes, bool crc, bool robust)
 {
     bool f_bit;
     unsigned frames = 0;
@@ -170,6 +305,10 @@ codec_amrwb_decode_oa(codec_context_t *ctx, const void *input,
     if (!output || !outputSizeBytes)
         return out_frame_bytes * frames;
 
+    if (crc || robust)
+        return codec_amrwb_decode_oa_options(state, input, inputSizeBytes, output, outputSizeBytes,
+                frames, crc, robust);
+
     if (frames == 1) {
         return codec_amrwb_decode_one(state, input, inputSizeBytes, output, outputSizeBytes);
     } else {
@@ -187,12 +326,16 @@ codec_amrwb_decode(codec_context_t *ctx, const void *input,
 
     if (ctx->fmtp_map) {
         const char* octet_align = (const char *)wmem_map_lookup(ctx->fmtp_map, "octet-align");
-        /* There's a few other lesser used options like "crc", "interleaving",
-         * and "robust-sorting" that can change how it should be decoded.
-         * (All of them imply octet-aligned.) Ideally we'd handle them too.
+        const char* crc = (const char *)wmem_map_lookup(ctx->fmtp_map, "crc");
+        const char* robust_sorting = (const char *)wmem_map_lookup(ctx->fmtp_map, "robust-sorting");
+        /* "crc" and "robust-sorting" imply octet-aligned mode.
+         * "interleaving" (which also implies it) needs state across
+         * packets and is not handled yet.
          */
-        if (g_strcmp0(octet_align, "1") == 0) {
-            return codec_amrwb_decode_oa(ctx, input, inputSizeBytes, output, outputSizeBytes);
+        if (g_strcmp0(octet_align, "1") == 0 || g_strcmp0(crc, "1") == 0 ||
+                g_strcmp0(robust_sorting, "1") == 0) {
+            return codec_amrwb_decode_oa(ctx, input, inputSizeBytes, output, outputSizeBytes,
+                    g_strcmp0(crc, "1") == 0, g_strcmp0(robust_sorting, "1") == 0);
         }
     }
 
@@ -224,12 +367,25 @@ codec_amrwb_decode(codec_context_t *ctx, const void *input,
     *outputSizeBytes = total_out_bytes;
 
     /* bit_offset is now where the speech bits begin */
+    if (inputSizeBytes < 2 || bit_offset > inputSizeBytes * 8) {
+        memset(output, 0, *outputSizeBytes);
+        return *outputSizeBytes;
+    }
     unsigned toc_offset = 5; /* Mode start */
     /* Make room for mode byte + largest WB frame bytes + 1 */
     uint8_t aligned[64];
     int mode;
+    uint8_t *output_start = output;
     for (unsigned i = 0; i < frames; ++i) {
         mode = get_bits8(in, toc_offset, 4);
+        int bfi = !get_bits8(in, toc_offset + 4, 1);
+        toc_offset += 6;
+
+        /* A reserved frame type invalidates the whole payload. */
+        if (mode >= 10 && mode <= 13) {
+            memset(output_start, 0, total_out_bytes);
+            return *outputSizeBytes;
+        }
 
         /* If the size is screwed up, insert silence */
         if ((bit_offset + speech_bits[mode] + 7) / 8 > inputSizeBytes) {
@@ -245,14 +401,13 @@ codec_amrwb_decode(codec_context_t *ctx, const void *input,
             bit_offset += 8;
         }
         if (j < block_size[mode]) {
-            aligned[1 + j] = get_bits8(in, bit_offset, speech_bits[mode] % 8);
+            unsigned remaining_bits = speech_bits[mode] % 8;
+            aligned[1 + j] = get_bits8(in, bit_offset, remaining_bits) << (8 - remaining_bits);
+            bit_offset += remaining_bits;
         }
         /* Padding might be different. */
 
-        /* XXX: The last parameter is the BFI - we could invert the
-         * Q-bit and pass it in, which might be better?
-         */
-        D_IF_decode(state, aligned, (short *)output, 0);
+        D_IF_decode(state, aligned, (short *)output, bfi);
         output = (uint8_t *)output + out_frame_bytes;
     }
 

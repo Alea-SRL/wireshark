@@ -47,10 +47,9 @@ static unsigned dissect_cms_OCTET_STRING(bool implicit_tag _U_, tvbuff_t *tvb, u
 struct cms_private_data {
   const char *object_identifier_id;
   tvbuff_t *content_tvb;
+  proto_tree *top_tree;
+  proto_tree *cap_tree;
 };
-
-static proto_tree *top_tree;
-static proto_tree *cap_tree;
 
 #define HASH_SHA1 "1.3.14.3.2.26"
 
@@ -71,7 +70,7 @@ static unsigned char digest_buf[MAX(HASH_SHA1_LENGTH, HASH_MD5_LENGTH)];
 static int
 dissect_cms(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
 {
-	int offset = 0;
+	unsigned offset = 0;
 	proto_item *item=NULL;
 	proto_tree *tree=NULL;
 	asn1_ctx_t asn1_ctx;
@@ -104,10 +103,15 @@ cms_get_private_data(packet_info *pinfo)
 static void
 cms_verify_msg_digest(proto_item *pi, tvbuff_t *content, const char *alg, tvbuff_t *tvb, int offset)
 {
-  int i= 0, buffer_size = 0;
+  int i, buffer_size = 0;
 
   /* we only support two algorithms at the moment  - if we do add SHA2
-     we should add a registration process to use a registration process */
+     we should add a registration process and use it */
+
+  if (alg == NULL) {
+    proto_item_append_text(pi, " [unable to verify]");
+    return;
+  }
 
   if(strcmp(alg, HASH_SHA1) == 0) {
     gcry_md_hash_buffer(GCRY_MD_SHA1, digest_buf, tvb_get_ptr(content, 0, tvb_captured_length(content)), tvb_captured_length(content));
@@ -125,7 +129,7 @@ cms_verify_msg_digest(proto_item *pi, tvbuff_t *content, const char *alg, tvbuff
        (tvb_memeql(tvb, offset, digest_buf, buffer_size) != 0)) {
       proto_item_append_text(pi, " [incorrect, should be ");
       for(i = 0; i < buffer_size; i++)
-	proto_item_append_text(pi, "%02X", digest_buf[i]);
+        proto_item_append_text(pi, "%02X", digest_buf[i]);
 
       proto_item_append_text(pi, "]");
     }

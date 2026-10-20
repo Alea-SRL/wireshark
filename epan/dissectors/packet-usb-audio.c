@@ -9,13 +9,16 @@
 /* the parsing of audio-specific descriptors is based on
    USB Audio Device Class Specification for Basic Audio Devices, Release 1.0,
    USB Device Class Definition for Audio Devices, Release 2.0 and
-   USB Device Class Definition for MIDI Devices, Release 1.0 */
+   USB Device Class Definition for MIDI Devices, Release 1.0
+   https://www.usb.org/sites/default/files/Audio2_with_Errata_and_ECN_through_Apr_2_2025.pdf
+  */
 
 #include "config.h"
 
 #include <epan/packet.h>
 #include <epan/expert.h>
 #include <epan/reassemble.h>
+#include "packet-midi.h"
 #include "packet-usb.h"
 
 /* XXX - we use the same macro for mpeg sections,
@@ -372,6 +375,7 @@ static int hf_wvalue_channel_number;
 static int hf_wvalue_fu_cs_v1;
 static int hf_wvalue_clksrc_cs;
 static int hf_wvalue_clksel_cs;
+static int hf_wvalue_interface_cs;
 static int hf_windex;
 static int hf_windex_interface;
 static int hf_windex_entity_id;
@@ -393,6 +397,8 @@ static int hf_parameter_dcur;
 static int hf_parameter_dmin;
 static int hf_parameter_dmax;
 static int hf_parameter_dres;
+static int hf_parameter_bcontrolsize;
+static int hf_parameter_bmvalidaltsettings;
 
 static reassembly_table midi_data_reassembly_table;
 
@@ -545,6 +551,19 @@ static const value_string v2_clksrc_cs_vals[] = {
 static const value_string v2_clksel_cs_vals[] = {
     {V2_CX_CONTROL_UNDEFINED,      "CX_CONTROL_UNDEFINED"},
     {V2_CX_CLOCK_SELECTOR_CONTROL, "CX_CLOCK_SELECTOR_CONTROL"},
+    {0,NULL}
+};
+
+/* A.17.11 AudioStreaming Interface Control Selectors */
+#define V2_AS_CONTROL_UNDEFINED          0x00
+#define V2_AS_ACT_ALT_SETTING_CONTROL    0x01
+#define V2_AS_VAL_ALT_SETTINGS_CONTROL   0x02
+#define V2_AS_AUDIO_DATA_FORMAT_CONTROL  0x03
+static const value_string v2_interface_cs_vals[] = {
+    {V2_AS_CONTROL_UNDEFINED,         "AS_CONTROL_UNDEFINED"},
+    {V2_AS_ACT_ALT_SETTING_CONTROL,   "AS_ACT_ALT_SETTING_CONTROL"},
+    {V2_AS_VAL_ALT_SETTINGS_CONTROL,  "AS_ACT_ALT_SETTINGS_CONTROL"},
+    {V2_AS_AUDIO_DATA_FORMAT_CONTROL, "AS_AUDIO_DATA_FORMAT_CONTROL"},
     {0,NULL}
 };
 
@@ -852,6 +871,7 @@ typedef enum {
     PARAMETER_LAYOUT_1,
     PARAMETER_LAYOUT_2,
     PARAMETER_LAYOUT_3,
+    VAL_ALT_SETTINGS_LAYOUT,
 } parameter_layout_t;
 
 typedef struct _audio_conv_info_t {
@@ -993,9 +1013,12 @@ dissect_usb_midi_event(tvbuff_t *tvb, packet_info *pinfo,
         padding_size = 3 - event_size;
         if (event_size > 0)
         {
-            /* TODO: Create MIDI dissector and pass the event data to it */
-            const uint8_t *event_data = tvb_get_ptr(tvb, offset+1, event_size);
-            proto_tree_add_bytes(tree, hf_midi_event, tvb, offset+1, event_size, event_data);
+            if (is_sysex_code(code)) {
+                proto_tree_add_item(tree, hf_midi_event, tvb, offset+1, event_size, ENC_NA);
+            } else {
+                tvbuff_t* midi_tvb = tvb_new_subset_length(tvb, offset+1, event_size);
+                dissect_midi1_message(midi_tvb, pinfo, tree, 0, NULL, true);
+            }
         }
         if (padding_size > 0)
         {
@@ -1119,8 +1142,6 @@ dissect_ac_if_hdr_body(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
 {
     int      offset_start;
     uint16_t bcdADC;
-    uint8_t  ver_major;
-    double   ver;
     uint8_t  if_in_collection, i;
 
     static int * const bm_controls[] = {
@@ -1132,11 +1153,11 @@ dissect_ac_if_hdr_body(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
     offset_start = offset;
 
     bcdADC = tvb_get_letohs(tvb, offset);
-    ver_major = USB_AUDIO_BCD44_TO_DEC(bcdADC>>8);
-    ver = ver_major + USB_AUDIO_BCD44_TO_DEC(bcdADC&0xFF) / 100.0;
 
-    proto_tree_add_double_format_value(tree, hf_ac_if_hdr_ver,
-            tvb, offset, 2, ver, "%2.2f", ver);
+    proto_tree_add_uint_format_value(tree, hf_ac_if_hdr_ver, tvb, offset, 2,
+            bcdADC, "%d.%02d",
+            USB_AUDIO_BCD44_TO_DEC(bcdADC>>8),
+            USB_AUDIO_BCD44_TO_DEC(bcdADC&0xFF));
     offset += 2;
 
     /* version 1 refers to the Basic Audio Device specification,
@@ -1397,8 +1418,7 @@ dissect_ac_if_feature_unit(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
     offset += 1;
 
     if (urb->conv->interfaceProtocol == AUDIO_PROTOCOL_V1) {
-        proto_tree_add_item(tree, hf_ac_if_fu_controlsize, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-        controlsize = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint8(tree, hf_ac_if_fu_controlsize, tvb, offset, 1, ENC_LITTLE_ENDIAN, &controlsize);
         offset += 1;
 
         /* Descriptor size is 7+(ch+1)*n where n is controlsize, calculate and validate ch */
@@ -1419,7 +1439,7 @@ dissect_ac_if_feature_unit(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
             proto_item_prepend_text(ti, "%s channel %d ", (i == 0) ? "Master" : "Logical", i);
             if (controlsize > 1) {
                 ti = proto_tree_add_bitmask(bitmap_tree, tvb, offset + 1, hf_ac_if_fu_control, ett_ac_if_fu_controls1, fu_controls1, ENC_LITTLE_ENDIAN);
-                proto_item_prepend_text(ti, "%s channel %d", (i == 0) ? "Master" : "Logical", i);
+                proto_item_prepend_text(ti, "%s channel %d ", (i == 0) ? "Master" : "Logical", i);
             }
             offset += controlsize;
         }
@@ -1530,8 +1550,7 @@ dissect_ac_if_mixed_unit(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
     proto_tree_add_item(tree, hf_ac_if_mu_unitid, tvb, offset, 1, ENC_LITTLE_ENDIAN);
     offset += 1;
 
-    proto_tree_add_item(tree, hf_ac_if_mu_nrinpins, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-    nrinpins = tvb_get_uint8(tvb, offset);
+    proto_tree_add_item_ret_uint8(tree, hf_ac_if_mu_nrinpins, tvb, offset, 1, ENC_LITTLE_ENDIAN, &nrinpins);
     offset += 1;
 
     while(nrinpins){
@@ -1617,8 +1636,7 @@ dissect_ac_if_clock_selector(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
     proto_tree_add_item(tree, hf_ac_if_clksel_id, tvb, offset, 1, ENC_LITTLE_ENDIAN);
     offset += 1;
 
-    proto_tree_add_item(tree, hf_ac_if_clksel_nrpins, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-    nrinpins = tvb_get_uint8(tvb, offset);
+    proto_tree_add_item_ret_uint8(tree, hf_ac_if_clksel_nrpins, tvb, offset, 1, ENC_LITTLE_ENDIAN, &nrinpins);
     offset += 1;
 
     while (nrinpins) {
@@ -1692,8 +1710,7 @@ dissect_ac_if_extension_unit(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
     proto_tree_add_item(tree, hf_ac_if_extunit_code, tvb, offset, 2, ENC_LITTLE_ENDIAN);
     offset += 2;
 
-    proto_tree_add_item(tree, hf_ac_if_extunit_nrpins, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-    nrinpins = tvb_get_uint8(tvb, offset);
+    proto_tree_add_item_ret_uint8(tree, hf_ac_if_extunit_nrpins, tvb, offset, 1, ENC_LITTLE_ENDIAN, &nrinpins);
     offset += 1;
 
     while (nrinpins) {
@@ -1837,6 +1854,11 @@ dissect_as_if_general_body(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
 
     offset_start = offset;
 
+    if (!PINFO_FD_VISITED(pinfo)) {
+        // Just to ensure that urb->conv->class_data is set to a audio_conv_info_t
+        set_entity_type(urb, 0, USB_AUDIO_ENTITY_INTERFACE);
+    }
+
     if (urb->conv->interfaceProtocol == AUDIO_PROTOCOL_V1) {
         proto_tree_add_item(tree, hf_as_if_gen_term_link, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         offset++;
@@ -1852,8 +1874,7 @@ dissect_as_if_general_body(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
         offset++;
         proto_tree_add_bitmask(tree, tvb, offset, hf_as_if_gen_controls, ett_as_if_gen_controls, v2_controls, ENC_LITTLE_ENDIAN);
         offset++;
-        proto_tree_add_item(tree, hf_as_if_gen_formattype, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-        format_type = tvb_get_uint8(tvb, offset);
+        proto_tree_add_item_ret_uint8(tree, hf_as_if_gen_formattype, tvb, offset, 1, ENC_LITTLE_ENDIAN, &format_type);
         offset++;
         switch(format_type)
         {
@@ -1904,8 +1925,7 @@ dissect_as_if_format_type_ver1_body(tvbuff_t *tvb, int offset, packet_info *pinf
 
     offset_start = offset;
 
-    proto_tree_add_item(tree, hf_as_if_ft_formattype, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-    format_type = tvb_get_uint8(tvb, offset);
+    proto_tree_add_item_ret_uint8(tree, hf_as_if_ft_formattype, tvb, offset, 1, ENC_LITTLE_ENDIAN, &format_type);
     offset++;
 
 
@@ -2016,8 +2036,7 @@ dissect_as_if_format_type_ver2_body(tvbuff_t *tvb, int offset, packet_info *pinf
 
     offset_start = offset;
 
-    proto_tree_add_item(tree, hf_as_if_ft_formattype, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-    format_type = tvb_get_uint8(tvb, offset);
+    proto_tree_add_item_ret_uint8(tree, hf_as_if_ft_formattype, tvb, offset, 1, ENC_LITTLE_ENDIAN, &format_type);
     offset++;
 
     if (format_type==1) {
@@ -2098,17 +2117,15 @@ dissect_ms_if_hdr_body(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
 {
     int      offset_start;
     uint16_t bcdADC;
-    uint8_t  ver_major;
-    double   ver;
 
     offset_start = offset;
 
     bcdADC = tvb_get_letohs(tvb, offset);
-    ver_major = USB_AUDIO_BCD44_TO_DEC(bcdADC>>8);
-    ver = ver_major + USB_AUDIO_BCD44_TO_DEC(bcdADC&0xFF) / 100.0;
 
-    proto_tree_add_double_format_value(tree, hf_ms_if_hdr_ver,
-            tvb, offset, 2, ver, "%2.2f", ver);
+    proto_tree_add_uint_format_value(tree, hf_ms_if_hdr_ver, tvb, offset, 2,
+            bcdADC, "%d.%02d",
+            USB_AUDIO_BCD44_TO_DEC(bcdADC>>8),
+            USB_AUDIO_BCD44_TO_DEC(bcdADC&0xFF));
     offset += 2;
 
     proto_tree_add_item(tree, hf_ms_if_hdr_total_len,
@@ -2146,8 +2163,7 @@ dissect_ms_if_midi_out_body(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
     proto_tree_add_item(tree, hf_ms_if_midi_out_bjackid, tvb, offset, 1, ENC_LITTLE_ENDIAN);
     offset += 1;
 
-    proto_tree_add_item(tree, hf_ms_if_midi_out_bnrinputpins, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-    nrinputpins = tvb_get_uint8(tvb, offset);
+    proto_tree_add_item_ret_uint8(tree, hf_ms_if_midi_out_bnrinputpins, tvb, offset, 1, ENC_LITTLE_ENDIAN, &nrinputpins);
     offset += 1;
     while (nrinputpins)
     {
@@ -2197,8 +2213,7 @@ dissect_ms_if_midi_element_body(tvbuff_t *tvb, int offset, packet_info *pinfo _U
     proto_tree_add_item(tree, hf_ms_if_midi_element_belementid, tvb, offset, 1, ENC_LITTLE_ENDIAN);
     offset += 1;
 
-    proto_tree_add_item(tree, hf_ms_if_midi_element_bnrinputpins, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-    nrinputpins = tvb_get_uint8(tvb, offset);
+    proto_tree_add_item_ret_uint8(tree, hf_ms_if_midi_element_bnrinputpins, tvb, offset, 1, ENC_LITTLE_ENDIAN, &nrinputpins);
     offset += 1;
     while (nrinputpins)
     {
@@ -2254,8 +2269,7 @@ dissect_ms_ep_general_body(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
     int      offset_start = offset;
     uint8_t  numjacks;
 
-    proto_tree_add_item(tree, hf_ms_ep_gen_numjacks, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-    numjacks = tvb_get_uint8(tvb, offset);
+    proto_tree_add_item_ret_uint8(tree, hf_ms_ep_gen_numjacks, tvb, offset, 1, ENC_LITTLE_ENDIAN, &numjacks);
     offset += 1;
     while (numjacks)
     {
@@ -2612,10 +2626,12 @@ dissect_v1_control(tvbuff_t *tvb, int offset, packet_info *pinfo,
     }
 
     if (has_data_stage(urb)) {
-        proto_tree  *subtree;
+        proto_tree  *subtree, *data_tree;
         proto_item  *subtree_item;
 
-        subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_parameter_block, &subtree_item, title);
+        /* always put the data stage after the setup stage (if any), not inside it */
+        data_tree = urb->is_request ? proto_tree_get_parent_tree(tree) : tree;
+        subtree = proto_tree_add_subtree(data_tree, tvb, offset, -1, ett_parameter_block, &subtree_item, title);
 
         if (parameter_hf) {
             proto_tree_add_item(subtree, *parameter_hf, tvb, offset, attribute_size, ENC_LITTLE_ENDIAN);
@@ -2653,6 +2669,30 @@ dissect_v2_control_cur_range(tvbuff_t *tvb, int offset, packet_info *pinfo,
     channel_number = urb->usb_trans_info->setup.wValue & 0x00FF;
 
     switch (entity) {
+        case USB_AUDIO_ENTITY_INTERFACE:
+            wvalue_fields[1] = &hf_wvalue_interface_cs;
+            control_selector_vals = v2_interface_cs_vals;
+            /* 5.2.6.1 - Must have only the CUR attribute, CN 0 */
+            if (channel_number == 0 && urb->usb_trans_info->setup.request == V2_REQUEST_CUR) {
+                switch (control_selector) {
+                case V2_AS_ACT_ALT_SETTING_CONTROL:
+                    layout = PARAMETER_LAYOUT_1;
+                    parameter_str = "Active Alternate Setting";
+                    break;
+                case V2_AS_VAL_ALT_SETTINGS_CONTROL:
+                    layout = VAL_ALT_SETTINGS_LAYOUT;
+                    break;
+                case V2_AS_AUDIO_DATA_FORMAT_CONTROL:
+                    /* XXX - To properly dissect this, the bFormatType from the
+                     * Class-specific Audio Streaming Interface Descriptor
+                     * would need to be saved and then the bitmap dissected
+                     * appropriately. Also note only one bit should be set. */
+                    layout = PARAMETER_LAYOUT_3;
+                    parameter_str = "Audio Data Format";
+                    break;
+                }
+            }
+            break;
         case USB_AUDIO_ENTITY_CLOCK_SOURCE:
             wvalue_fields[1] = &hf_wvalue_clksrc_cs;
             control_selector_vals = v2_clksrc_cs_vals;
@@ -2693,7 +2733,7 @@ dissect_v2_control_cur_range(tvbuff_t *tvb, int offset, packet_info *pinfo,
     }
 
     if (has_data_stage(urb)) {
-        proto_tree  *subtree;
+        proto_tree  *subtree, *data_tree;
         proto_item  *subtree_item;
         const char *title;
         uint32_t     n;
@@ -2725,6 +2765,12 @@ dissect_v2_control_cur_range(tvbuff_t *tvb, int offset, packet_info *pinfo,
                 max_hf = hf_parameter_dmax;
                 res_hf = hf_parameter_dres;
                 break;
+            case VAL_ALT_SETTINGS_LAYOUT:
+                title = "Valid Alternate Settings Parameter Block";
+                attribute_size = 0;
+                cur_hf = hf_parameter_bcontrolsize;
+                min_hf = max_hf = res_hf = 0;
+                break;
             default:
                 title = "Unknown Layout Parameter Block";
                 attribute_size = 0;
@@ -2732,7 +2778,9 @@ dissect_v2_control_cur_range(tvbuff_t *tvb, int offset, packet_info *pinfo,
                 break;
         }
 
-        subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_parameter_block, &subtree_item, title);
+        /* always put the data stage after the setup stage (if any), not inside it */
+        data_tree = urb->is_request ? proto_tree_get_parent_tree(tree) : tree;
+        subtree = proto_tree_add_subtree(data_tree, tvb, offset, -1, ett_parameter_block, &subtree_item, title);
         if (parameter_str) {
             proto_item_append_text(subtree_item, ": %s", parameter_str);
         }
@@ -2766,6 +2814,11 @@ dissect_v2_control_cur_range(tvbuff_t *tvb, int offset, packet_info *pinfo,
         } else if (attribute_size) {
             proto_tree_add_item(subtree, cur_hf, tvb, offset, attribute_size, ENC_LITTLE_ENDIAN);
             offset += attribute_size;
+        } else if (layout == VAL_ALT_SETTINGS_LAYOUT) {
+            proto_tree_add_item_ret_uint(subtree, cur_hf, tvb, offset, 1, ENC_NA, &n);
+            offset += 1;
+            proto_tree_add_item(subtree, hf_parameter_bmvalidaltsettings, tvb, offset, n, ENC_NA);
+            offset += n;
         } else {
             expert_add_info(pinfo, subtree_item, &ei_usb_audio_undecoded);
             offset += tvb_captured_length_remaining(tvb, offset);
@@ -2825,7 +2878,9 @@ dissect_usb_audio_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_
     offset = 0;
 
     if ((urb->conv->interfaceClass == IF_CLASS_AUDIO) &&
-        (urb->conv->interfaceSubclass == AUDIO_IF_SUBCLASS_AUDIOCONTROL)) {
+        (urb->conv->interfaceSubclass == AUDIO_IF_SUBCLASS_AUDIOCONTROL ||
+         urb->conv->interfaceSubclass == AUDIO_IF_SUBCLASS_AUDIOSTREAMING)) {
+
         switch (urb->conv->interfaceProtocol) {
             case AUDIO_PROTOCOL_V1:
                 offset += dissect_v1_control(tvb, offset, pinfo, parent_tree, urb);
@@ -2874,7 +2929,7 @@ dissect_usb_audio_bulk(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tre
     switch (urb->conv->interfaceSubclass)
     {
         case AUDIO_IF_SUBCLASS_MIDISTREAMING:
-            col_set_str(pinfo->cinfo, COL_INFO, "USB-MIDI Event Packets");
+            col_set_str(pinfo->cinfo, COL_INFO, "USB-MIDI Event Packets: ");
 
             for (i = 0; i < length / 4; i++)
             {
@@ -2911,7 +2966,7 @@ proto_register_usb_audio(void)
                 &ac_subtype_vals_ext, 0x0, "bDescriptorSubtype", HFILL }},
         { &hf_ac_if_hdr_ver,
             { "Version", "usbaudio.ac_if_hdr.bcdADC",
-                FT_DOUBLE, BASE_NONE, NULL, 0, "bcdADC", HFILL }},
+                FT_UINT16, BASE_HEX, NULL, 0x0, "bcdADC", HFILL }},
         { &hf_ac_if_hdr_total_len,
             { "Total length", "usbaudio.ac_if_hdr.wTotalLength",
               FT_UINT16, BASE_DEC, NULL, 0x0, "wTotalLength", HFILL }},
@@ -3797,7 +3852,7 @@ proto_register_usb_audio(void)
               &ms_if_subtype_vals_ext, 0x0, "bDescriptorSubtype", HFILL }},
         { &hf_ms_if_hdr_ver,
             { "Version", "usbaudio.ms_if_hdr.bcdADC",
-              FT_DOUBLE, BASE_NONE, NULL, 0, "bcdADC", HFILL }},
+              FT_UINT16, BASE_HEX, NULL, 0x0, "bcdADC", HFILL }},
         { &hf_ms_if_hdr_total_len,
             { "Total length", "usbaudio.ms_if_hdr.wTotalLength",
               FT_UINT16, BASE_DEC, NULL, 0x00, "wTotalLength", HFILL }},
@@ -3938,6 +3993,9 @@ proto_register_usb_audio(void)
         { &hf_wvalue_clksel_cs,
             { "Clock Selector Control Selector", "usbaudio.wValue.clksel_cs",
               FT_UINT16, BASE_HEX, VALS(v2_clksel_cs_vals), 0xFF00, NULL, HFILL }},
+        { &hf_wvalue_interface_cs,
+            { "Interface Control Selector", "usbaudio.wValue.interface_cs",
+              FT_UINT16, BASE_HEX, VALS(v2_interface_cs_vals), 0xFF00, NULL, HFILL }},
         { &hf_windex,
             { "wIndex", "usbaudio.wIndex",
               FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
@@ -4001,6 +4059,12 @@ proto_register_usb_audio(void)
         { &hf_parameter_dres,
             { "dRES", "usbaudio.dRES",
               FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_parameter_bcontrolsize,
+            { "bControlSize", "usbaudio.bControlSize",
+              FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_parameter_bmvalidaltsettings,
+            { "bmValidAltSettings", "usbaudio.bmValidAltSettings",
+              FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
 
         { &hf_sysex_msg_fragments,
             { "Message fragments", "usbaudio.sysex.fragments",

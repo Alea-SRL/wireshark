@@ -27,11 +27,7 @@
 #include <ui/qt/widgets/qcustomplot.h>
 
 #ifdef QT_MULTIMEDIA_LIB
-# if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
 # include <QAudioDevice>
-# else
-# include <QAudioDeviceInfo>
-# endif
 #endif
 
 namespace Ui {
@@ -148,12 +144,12 @@ public:
     /**
      * @brief Accepts the dialog, generally closing it.
      */
-    void accept();
+    void accept() override;
 
     /**
      * @brief Rejects the dialog, generally closing it without taking action.
      */
-    void reject();
+    void reject() override;
 
     /**
      * @brief Sets playback markers on the graph.
@@ -225,19 +221,19 @@ public slots:
     /**
      * @brief Slot to handle replacing RTP streams for analysis.
      */
-    void rtpAnalysisReplace();
+    void rtpAnalysisReplace() override;
 
     /**
      * @brief Slot to handle adding RTP streams for analysis.
      */
-    void rtpAnalysisAdd();
+    void rtpAnalysisAdd() override;
 
     /**
      * @brief Slot to handle removing RTP streams from analysis.
      */
-    void rtpAnalysisRemove();
+    void rtpAnalysisRemove() override;
 
-#endif
+#endif // QT_MULTIMEDIA_LIB
 protected:
     /**
      * @brief Constructs an RtpPlayerDialog. Protected to enforce singleton pattern.
@@ -255,13 +251,13 @@ protected:
     /**
      * @brief Handles the show event for the dialog.
      */
-    virtual void showEvent(QShowEvent *);
+    virtual void showEvent(QShowEvent *) override;
 
     /**
      * @brief Handles the context menu event.
      * @param event The context menu event.
      */
-    void contextMenuEvent(QContextMenuEvent *event);
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
     /**
      * @brief Filters events for objects installed with this event filter.
@@ -269,7 +265,7 @@ protected:
      * @param event The intercepted event.
      * @return True if the event was handled, false otherwise.
      */
-    bool eventFilter(QObject *obj, QEvent *event);
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
 private slots:
     /** Retap the capture file, reading RTP packets that match the
@@ -296,7 +292,7 @@ private slots:
     /**
      * @brief Updates widget states based on current data and selections.
      */
-    void updateWidgets();
+    void updateWidgets() override;
 
     /**
      * @brief Handles an item being entered (e.g. mouse hover).
@@ -501,6 +497,11 @@ private slots:
     void on_actionAudioRoutingMuteInvert_triggered();
 
     /**
+     * @brief Unmutes the selected streams and mutes all other streams.
+     */
+    void on_actionAudioRoutingSolo_triggered();
+
+    /**
      * @brief Handles selection changes in the stream tree widget.
      */
     void on_streamTreeWidget_itemSelectionChanged();
@@ -619,12 +620,10 @@ private slots:
      */
     void on_actionReadCapture_triggered();
 
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
     /**
      * @brief Handles state changes in the audio sink.
      */
     void sinkStateChanged();
-#endif
 
 #endif
 private:
@@ -686,7 +685,6 @@ private:
     /** @brief List of RTP streams currently playing audio. */
     QList<RtpAudioStream *> playing_streams_;
 
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
     /** @brief Audio sink used as a timing marker. */
     QAudioSink *marker_stream_;
 
@@ -695,10 +693,6 @@ private:
 
     /** @brief Offset difference used to shift play cursor to the correct place. */
     qint64 notify_timer_start_diff_;
-#else
-    /** @brief Audio output used as a timing marker. */
-    QAudioOutput *marker_stream_;
-#endif
     /** @brief Requested sample rate for the marker stream. */
     quint32 marker_stream_requested_out_rate_;
 
@@ -847,7 +841,6 @@ private:
      */
     bool isStereoAvailable();
 
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
     /**
      * @brief Retrieves an audio output instance configured for silence (marker timing).
      * @return Pointer to a QAudioSink.
@@ -859,19 +852,6 @@ private:
      * @return The configured audio device.
      */
     QAudioDevice getCurrentDeviceInfo();
-#else
-    /**
-     * @brief Retrieves an audio output instance configured for silence (marker timing).
-     * @return Pointer to a QAudioOutput.
-     */
-    QAudioOutput *getSilenceAudioOutput();
-
-    /**
-     * @brief Obtains the underlying QAudioDeviceInfo structure based on user selection.
-     * @return The configured audio device info.
-     */
-    QAudioDeviceInfo getCurrentDeviceInfo();
-#endif
 
     /**
      * @brief Finds a tree widget item located at specific UI coordinates.

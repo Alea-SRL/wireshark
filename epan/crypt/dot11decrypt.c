@@ -435,6 +435,11 @@ Dot11DecryptDecryptKeyData(PDOT11DECRYPT_CONTEXT ctx,
         }
     }
 
+    if (key_bytes_len > *decrypted_len) {
+        ws_debug("Too large EAPOL key data");
+        return DOT11DECRYPT_RET_UNSUCCESS;
+    }
+
     if ((key_bytes_len < GROUP_KEY_MIN_LEN) ||
         (eapol_parsed->len < EAPOL_RSN_KEY_LEN) ||
         (key_bytes_len > eapol_parsed->len - EAPOL_RSN_KEY_LEN)) {
@@ -2219,6 +2224,12 @@ Dot11DecryptFtMicCheck(
     gcry_mac_hd_t handle;
     int mic_algo;
     bool hmac;
+
+    if (!assoc_parsed->rsne_tag || !assoc_parsed->mde_tag ||
+        !assoc_parsed->fte_tag) {
+        ws_debug("RSNE, MDE, or FTE not present");
+        return DOT11DECRYPT_RET_UNSUCCESS;
+    }
 
     fte_len = assoc_parsed->fte_tag[1] + 2;
     if (fte_len < 20) {

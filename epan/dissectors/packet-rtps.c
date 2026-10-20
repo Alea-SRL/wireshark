@@ -902,6 +902,8 @@ static dissector_table_t rtps_type_name_table;
 #define RTPS_VENDOR_ZRDDS_STRING         "Nanjing Zhenrong Software Technology Co. - ZRDDS"
 #define RTPS_VENDOR_DUST                 (0x0114)
 #define RTPS_VENDOR_DUST_STRING          "S2E Software Systems B.V. - Dust DDS"
+#define RTPS_VENDOR_SMARTDDS             (0x011C)
+#define RTPS_VENDOR_SMARTDDS_STRING      "Hanwha Systems Co., Ltd. - SmartDDS"
 
 
 /* Data encapsulation */
@@ -1946,6 +1948,7 @@ static const value_string vendor_vals[] = {
   { RTPS_VENDOR_RUST,          RTPS_VENDOR_RUST_STRING},
   { RTPS_VENDOR_ZRDDS,         RTPS_VENDOR_ZRDDS_STRING},
   { RTPS_VENDOR_DUST,          RTPS_VENDOR_DUST_STRING},
+  { RTPS_VENDOR_SMARTDDS,      RTPS_VENDOR_SMARTDDS_STRING},
   { 0, NULL }
 };
 
@@ -5689,14 +5692,14 @@ static int rtps_util_add_locator_list(proto_tree *tree, packet_info *pinfo, tvbu
   num_locators = tvb_get_uint32(tvb, offset, encoding);
 
   locator_tree = proto_tree_add_subtree_format(tree, tvb, offset, 4,
-                        ett_rtps_locator_udp_v4, NULL, "%s: %d Locators", label, num_locators);
+                        ett_rtps_locator_udp_v4, NULL, "%s: %u Locators", label, num_locators);
   offset += 4;
   if (num_locators > 0) {
     uint32_t i;
     char temp_buff[20];
 
     for (i = 0; i < num_locators; ++i) {
-      snprintf(temp_buff, 20, "Locator[%d]", i);
+      snprintf(temp_buff, 20, "Locator[%u]", i);
       rtps_util_add_locator_t(locator_tree, pinfo, tvb, offset,
                         encoding, temp_buff);
       offset += 24;
@@ -7125,7 +7128,7 @@ static int rtps_util_add_typecode(proto_tree *tree, tvbuff_t *tvb, packet_info *
         type_name_buf = wmem_strbuf_new(pinfo->pool, type_id_name);
         wmem_strbuf_append(type_name_buf, " '");
         /* value_name might be longer than value_name_len (due to substitution of
-         * replacment characters) but is not shorter. */
+         * replacement characters) but is not shorter. */
         wmem_strbuf_append_len(type_name_buf, value_name, MIN(value_name_len, 30U));
         wmem_strbuf_utf8_make_valid(type_name_buf);
         wmem_strbuf_append_c(type_name_buf, '\'');
@@ -7940,7 +7943,7 @@ static int rtps_util_add_xcdr2_enhanced_mutable_header(proto_tree* tree,
  * @param pinfo Packet info
  * @param tvb The buffer containing the data
  * @param offset The current offset in the buffer
- * @param isBaseType TRUE if this is a base type identifier (for structures)
+ * @param isBaseType true if this is a base type identifier (for structures)
  * @return The new offset after the type identifier has been processed
  */
 // Recursion is required for parsing nested TypeIdentifiers in RTPS.
@@ -16460,10 +16463,10 @@ static void dissect_RTPS_DATA_FRAG_kind(tvbuff_t *tvb, packet_info *pinfo, uint8
 
   /* SerializedData */
   if (frag_size > 0) {
-    char label[20];
-    snprintf(label, 9, "fragment");
+    char label[32];
+    snprintf(label, 32, "fragment");
     if ((flags & FLAG_RTPS_DATA_FRAG_K) != 0) {
-        snprintf(label, 14, "serializedKey");
+        snprintf(label, 32, "serializedKey");
     }
     from_builtin_writer = (((wid & ENTITYKIND_BUILTIN_WRITER_WITH_KEY) == ENTITYKIND_BUILTIN_WRITER_WITH_KEY)
       || ((wid & ENTITYKIND_BUILTIN_WRITER_NO_KEY) == ENTITYKIND_BUILTIN_WRITER_NO_KEY)
@@ -16505,12 +16508,12 @@ static void dissect_RTPS_DATA_FRAG_kind(tvbuff_t *tvb, packet_info *pinfo, uint8
         }
 
         if (new_tvb) {
-            snprintf(label, 19, "reassembled sample");
+            snprintf(label, 32, "reassembled sample");
             dissect_serialized_data(tree, pinfo, new_tvb, 0,
                 sample_size, label, vendor_id, from_builtin_writer, guid, NOT_A_FRAGMENT);
             break;
         } else {
-            snprintf(label, 15, "fragment [%d]", frag_index_in_submessage);
+            snprintf(label, 32, "fragment [%u]", frag_index_in_submessage);
             dissect_serialized_data(tree, pinfo, tvb, offset + (frag_index_in_submessage * frag_size),
                 this_frag_size, label, vendor_id, from_builtin_writer, NULL, this_frag_number);
         }
@@ -16522,7 +16525,7 @@ static void dissect_RTPS_DATA_FRAG_kind(tvbuff_t *tvb, packet_info *pinfo, uint8
         more_fragments = (this_frag_number * frag_size < sample_size);
         this_frag_size = more_fragments ? frag_size : (sample_size - ((this_frag_number - 1) * frag_size));
         fragment_offset = frag_index_in_submessage * frag_size;
-        snprintf(label, 20, "fragment [%d]", frag_index_in_submessage);
+        snprintf(label, 32, "fragment [%u]", frag_index_in_submessage);
         dissect_serialized_data(tree, pinfo, tvb, offset + fragment_offset,
             this_frag_size, label, vendor_id, from_builtin_writer, NULL, this_frag_number);
         frag_index_in_submessage++;
@@ -16731,7 +16734,12 @@ static void dissect_RTPS_DATA_BATCH(tvbuff_t *tvb, packet_info *pinfo,
       proto_tree *si_tree;
       int offset_begin_sampleinfo = offset;
 
-      if (rtps_max_batch_samples_dissected > 0 && (unsigned)sample_info_count >= rtps_max_batch_samples_dissected) {
+      /* Never write past the sample_info_flags/sample_info_length arrays,
+       * which are allocated with sample_info_max entries. When the
+       * preference is 0, sample_info_max is 1024 (see above); otherwise it
+       * equals the preference. Guarding on sample_info_max here (rather than
+       * on the preference) keeps the 0 case bounded too. */
+      if ((unsigned)sample_info_count >= (unsigned)sample_info_max) {
         expert_add_info(pinfo, list_item, &ei_rtps_more_samples_available);
         offset = sampleListOffset;
         break;
@@ -16748,9 +16756,9 @@ static void dissect_RTPS_DATA_BATCH(tvbuff_t *tvb, packet_info *pinfo,
       offset += 2;
 
       min_length = 4;
-      if ((flags2 & FLAG_SAMPLE_INFO_T) != 0) min_len += 8;
-      if ((flags2 & FLAG_SAMPLE_INFO_Q) != 0) min_len += 4;
-      if ((flags2 & FLAG_SAMPLE_INFO_O) != 0) min_len += 4;
+      if ((flags2 & FLAG_SAMPLE_INFO_T) != 0) min_length += 8;
+      if ((flags2 & FLAG_SAMPLE_INFO_Q) != 0) min_length += 4;
+      if ((flags2 & FLAG_SAMPLE_INFO_O) != 0) min_length += 4;
 
       /* Ensure there are enough bytes to decode */
       if (sampleListOffset - offset < min_length) {
@@ -17685,7 +17693,7 @@ static void dissect_SECURE_PREFIX(tvbuff_t *tvb, packet_info *pinfo _U_,
   sec_data_header_tree = proto_tree_add_subtree_format(tree, tvb, offset, octets_to_next_header,
           ett_rtps_secure_dataheader_tree, NULL, "Secure Data Header");
 
-  /* Transformation Kind field used to be 4 bytes. Now it is splitted:
+  /* Transformation Kind field used to be 4 bytes. Now it is split:
    * - 3 bytes: Transformation Key Revision
    * - 1 byte: Transformation Kind
    * A single byte is enough for Transformation Kind since it only has five possible values (0-4).
@@ -22190,7 +22198,7 @@ void proto_register_rtps(void) {
     },
     { &hf_rtps_param_checksum_require_crc, {
         "Require CRC", "rtps.checksum_property.require_crc",
-        FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x01, NULL, HFILL }
+        FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000001, NULL, HFILL }
     },
     { &hf_rtps_secure_dataheader_transformation_kind, {
         "Transformation Kind", "rtps.secure.data_header.transformation_kind",

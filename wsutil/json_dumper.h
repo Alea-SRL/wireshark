@@ -54,18 +54,25 @@ extern "C" {
 
 /** Maximum object/array nesting depth. */
 #define JSON_DUMPER_MAX_DEPTH   1100
+/**
+ * @brief State and configuration for incrementally writing JSON output to a file or string.
+ */
 typedef struct json_dumper {
-    FILE    *output_file;    /**< Output file. If it is not NULL, JSON will be dumped in the file. */
-    GString *output_string;  /**< Output GLib strings. If it is not NULL, JSON will be dumped in the string. */
-#define JSON_DUMPER_FLAGS_PRETTY_PRINT  (1 << 0)    /* Enable pretty printing. */
-#define JSON_DUMPER_DOT_TO_UNDERSCORE   (1 << 1)    /* Convert dots to underscores in keys */
-#define JSON_DUMPER_FLAGS_NO_DEBUG      (1 << 17)   /* Disable fatal ws_error messages on error(intended for speeding up fuzzing). */
-    int     flags;
-    /* for internal use, initialize with zeroes. */
-    unsigned   current_depth;
-    int     base64_state;
-    int     base64_save;
-    uint8_t state[JSON_DUMPER_MAX_DEPTH];
+    FILE    *output_file;    /**< Output file handle; if non-NULL, JSON is written here. */
+    GString *output_string;  /**< Output GLib string buffer; if non-NULL, JSON is appended here. */
+#define JSON_DUMPER_FLAGS_PRETTY_PRINT  (1 << 0)   /**< Enable pretty-printed output with indentation and newlines. */
+#define JSON_DUMPER_DOT_TO_UNDERSCORE   (1 << 1)   /**< Replace '.' with '_' in all object key names. */
+#define JSON_DUMPER_FLAGS_NO_DEBUG      (1 << 17)  /**< Suppress fatal ws_error messages on misuse; intended to improve fuzzing throughput. */
+    int     flags;           /**< Bitmask of JSON_DUMPER_* flags controlling output formatting and error handling behaviour. */
+    /* For internal use; initialize with zeroes. */
+    unsigned current_depth;  /**< Current nesting depth of open objects and arrays. */
+    int     base64_state;    /**< Incremental base64 encoder state used when streaming binary data. */
+    int     base64_save;     /**< Partially accumulated bits carried over between incremental base64 encoding calls. */
+    uint8_t state[JSON_DUMPER_MAX_DEPTH]; /**< Per-depth state flags tracking whether a separator is needed before the next value. */
+    /* Internal write buffer */
+#define JD_BUF_SIZE 8192
+    char    buf[JD_BUF_SIZE]; /**< Internal buffer to batch small writes. */
+    size_t  buf_pos;         /**< Current position in internal buffer. */
 } json_dumper;
 
 /**
@@ -88,6 +95,19 @@ json_dumper_begin_object(json_dumper *dumper);
  */
 WS_DLL_PUBLIC void
 json_dumper_set_member_name(json_dumper *dumper, const char *name);
+
+WS_DLL_PUBLIC void
+json_dumper_set_member_name_noesc(json_dumper *dumper, const char *name, size_t len);
+
+/**
+ * @brief Sets the member name of an object using a string literal.
+ *
+ * The length is computed at compile time via sizeof. The literal must not
+ * contain characters that require JSON escaping (backslash, double-quote,
+ * or control characters). Only use with string literal arguments.
+ */
+#define json_dumper_set_member_name_const(dumper, literal) \
+    json_dumper_set_member_name_noesc(dumper, literal, sizeof(literal) - 1)
 
 /**
  * @brief Ends the current JSON object.
@@ -131,6 +151,19 @@ WS_DLL_PUBLIC void
 json_dumper_value_string(json_dumper *dumper, const char *value);
 
 /**
+ * @brief Writes a string value that is known to not require JSON escaping.
+ *
+ * Skips the escape-scanning overhead. The caller guarantees the string
+ * contains no characters that need escaping (no control chars, backslash, or quotes).
+ *
+ * @param dumper The JSON dumper context.
+ * @param value The pre-validated string value.
+ * @param len Length of the string.
+ */
+WS_DLL_PUBLIC void
+json_dumper_value_string_noesc(json_dumper *dumper, const char *value, size_t len);
+
+/**
  * @brief Writes a double-precision numeric value to the JSON output.
  *
  * Adds a floating-point number to the current object or array.
@@ -167,6 +200,36 @@ G_GNUC_PRINTF(2, 3);
  */
 WS_DLL_PUBLIC void
 json_dumper_value_va_list(json_dumper *dumper, const char *format, va_list ap);
+
+/**
+ * @brief Writes a literal JSON token without printf overhead.
+ *
+ * Suitable for "null", "true", "false" or other raw JSON literals.
+ *
+ * @param dumper The JSON dumper context.
+ * @param literal The literal string to write (not quoted).
+ * @param len Length of the literal.
+ */
+WS_DLL_PUBLIC void
+json_dumper_value_literal(json_dumper *dumper, const char *literal, size_t len);
+
+/**
+ * @brief Writes a signed 64-bit integer value without printf overhead.
+ *
+ * @param dumper The JSON dumper context.
+ * @param value The integer value to write.
+ */
+WS_DLL_PUBLIC void
+json_dumper_value_int(json_dumper *dumper, int64_t value);
+
+/**
+ * @brief Writes an unsigned 64-bit integer value without printf overhead.
+ *
+ * @param dumper The JSON dumper context.
+ * @param value The integer value to write.
+ */
+WS_DLL_PUBLIC void
+json_dumper_value_uint(json_dumper *dumper, uint64_t value);
 
 /**
  * @brief Begins a base64-encoded data block.

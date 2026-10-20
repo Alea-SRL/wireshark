@@ -109,14 +109,20 @@ private:
     Ui::CaptureCardWidget *ui_;
 
     /**
-     * @brief Updates the stylesheet for the widget components.
-     */
-    void updateStyleSheet();
-
-    /**
      * @brief Updates the visibility of the capture filter row based on current state.
      */
     void updateFilterRowVisibility();
+
+    /**
+     * @brief Picks the most verbose interface-type button label that fits the
+     *        available width, falling back to terser variants (and finally
+     *        eliding) on narrow windows so it can never overrun the capture
+     *        filter combo. The full text is kept as the button's tooltip.
+     */
+    void updateInterfaceTypeButton();
+
+    /** Interface-type button labels, ordered most verbose to most terse. */
+    QStringList interfaceTypeButtonTexts_;
 
 private slots:
     /**

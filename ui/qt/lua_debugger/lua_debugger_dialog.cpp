@@ -16,7 +16,7 @@
 #include <config.h>
 
 #include "lua_debugger_dialog.h"
-#include "ui_lua_debugger_dialog.h"
+#include <ui_lua_debugger_dialog.h>
 
 #include <QAbstractItemModel>
 #include <QAbstractItemView>
@@ -47,9 +47,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #include <QKeyCombination>
-#endif
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QList>
@@ -97,8 +95,9 @@
 #include "lua_debugger_goto_line_frame.h"
 #include "lua_debugger_utils.h"
 #include "main_application.h"
+#include <ui/qt/utils/font_manager.h>
 #include "main_window.h"
-#include "utils/stock_icon.h"
+#include "utils/themes/themed_icon.h"
 #include "widgets/collapsible_section.h"
 #include "wsutil/filesystem.h"
 #include <epan/prefs.h>
@@ -107,6 +106,7 @@
 #include <ui/capture.h>
 #endif
 #include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/theme_manager.h>
 #include <ui/qt/utils/qt_ui_utils.h>
 #include <ui/qt/widgets/wireshark_file_dialog.h>
 
@@ -131,6 +131,7 @@ class LuaDebuggerCaptureSuppression
     /** @brief True when a live capture currently has the debugger force-disabled. */
     static bool isActive();
 
+#ifdef HAVE_LIBPCAP
     /** @brief Enter suppression. Snapshots the user's pre-capture enabled
      *  intent so we can restore it on @ref exit. Idempotent: returns true
      *  iff this call actually transitioned the state. */
@@ -140,13 +141,16 @@ class LuaDebuggerCaptureSuppression
      *  unless the user has since explicitly disabled the debugger.
      *  Idempotent: returns true iff this call actually transitioned the state. */
     static bool exit();
+#endif
 
     /** @brief Re-apply suppression at dialog startup so any constructor-time
      *  paths that re-enabled the core get reverted. */
     static void reconcileOnStartup(LuaDebuggerDialog *dialog);
 
+#ifdef HAVE_LIBPCAP
     /** @brief Capture-session observer registered at process start. */
     static void onCaptureSessionEvent(int event, struct _capture_session *cap_session, void *user_data);
+#endif
 
     /** @brief Update the "restore on capture stop" intent. */
     static void setPrevEnabled(bool enabled);
@@ -162,6 +166,7 @@ bool LuaDebuggerCaptureSuppression::isActive()
     return g_captureSuppressionActive;
 }
 
+#ifdef HAVE_LIBPCAP
 bool LuaDebuggerCaptureSuppression::enter()
 {
     /* Suppress on the very first start-ish event of a session.
@@ -198,6 +203,7 @@ bool LuaDebuggerCaptureSuppression::exit()
     }
     return true;
 }
+#endif
 
 void LuaDebuggerCaptureSuppression::reconcileOnStartup(LuaDebuggerDialog *dialog)
 {
@@ -226,13 +232,13 @@ void LuaDebuggerCaptureSuppression::reconcileOnStartup(LuaDebuggerDialog *dialog
     }
 }
 
+#ifdef HAVE_LIBPCAP
 void LuaDebuggerCaptureSuppression::onCaptureSessionEvent(int event, struct _capture_session *cap_session,
                                                           void *user_data)
 {
     Q_UNUSED(cap_session);
     Q_UNUSED(user_data);
 
-#ifdef HAVE_LIBPCAP
     bool state_changed = false;
 
     switch (event)
@@ -258,10 +264,8 @@ void LuaDebuggerCaptureSuppression::onCaptureSessionEvent(int event, struct _cap
             dialog->refreshDebuggerStateUi();
         }
     }
-#else
-    Q_UNUSED(event);
-#endif
 }
+#endif
 
 void LuaDebuggerCaptureSuppression::setPrevEnabled(bool enabled)
 {
@@ -487,15 +491,15 @@ LuaDebuggerDialog::LuaDebuggerDialog(QWidget *parent)
 
     ui->actionRunToLine->setToolTip(tr("Run to line (%1)").arg(kLuaDbgCtxRunToLine.toString(QKeySequence::NativeText)));
 
-    ui->actionOpenFile->setIcon(StockIcon("document-open"));
+    ui->actionOpenFile->setIcon(ThemedIcon("document-open"));
     ui->actionOpenFile->setToolTip(tr("Open Lua Script"));
 
-    ui->actionSaveFile->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
+    ui->actionSaveFile->setIcon(ThemedIcon("file-save"));
     ui->actionSaveFile->setToolTip(tr("Save (%1)").arg(QKeySequence(QKeySequence::Save).toString(QKeySequence::NativeText)));
     ui->actionSaveFile->setShortcut(QKeySequence::Save);
     ui->actionSaveFile->setShortcutContext(Qt::WidgetWithChildrenShortcut);
 
-    ui->actionReloadLuaPlugins->setIcon(StockIcon("view-refresh"));
+    ui->actionReloadLuaPlugins->setIcon(ThemedIcon("view-refresh"));
     ui->actionReloadLuaPlugins->setToolTip(tr("Reload Lua Plugins (Ctrl+Shift+L)"));
     ui->actionReloadLuaPlugins->setShortcut(kLuaDbgCtxReloadLuaPlugins);
     ui->actionReloadLuaPlugins->setShortcutContext(Qt::WidgetWithChildrenShortcut);
@@ -564,23 +568,20 @@ LuaDebuggerDialog::LuaDebuggerDialog(QWidget *parent)
 
     if (mainApp)
     {
-        connect(mainApp, &MainApplication::zoomMonospaceFont, this, &LuaDebuggerDialog::onMonospaceFontUpdated,
-                Qt::UniqueConnection);
-        connect(mainApp, &MainApplication::appInitialized, this, &LuaDebuggerDialog::onMainAppInitialized,
+        connect(FontManager::instance(), &FontManager::monospaceFontChanged, this, &LuaDebuggerDialog::onMonospaceFontUpdated,
                 Qt::UniqueConnection);
         connect(mainApp, &MainApplication::preferencesChanged, this, &LuaDebuggerDialog::onPreferencesChanged,
                 Qt::UniqueConnection);
         /*
-         * Connect to colorsChanged signal to update code view themes when
+         * Connect to themeChanged signal to update code view themes when
          * Wireshark's color scheme changes. This is important when the debugger
          * theme preference is set to "Auto (follow color scheme)".
          */
-        connect(mainApp, &MainApplication::colorsChanged, this, &LuaDebuggerDialog::onColorsChanged,
+        connect(ThemeManager::instance(), &ThemeManager::themeChanged, this, &LuaDebuggerDialog::onColorsChanged,
                 Qt::UniqueConnection);
-        if (mainApp->isInitialized())
-        {
-            onMainAppInitialized();
-        }
+        // Run now if the app is already up (the usual case for this on-demand
+        // dialog), otherwise once it finishes initializing.
+        mainApp->whenInitialized(this, [this]() { onMainAppInitialized(); });
     }
 
     filesController_.refreshAvailableScripts();
@@ -1357,7 +1358,7 @@ void LuaDebuggerDialog::onColorsChanged()
      * When Wireshark's color scheme changes and the debugger theme is set to
      * "Auto (follow color scheme)", we need to re-apply themes to all code
      * views. The applyCodeViewThemes() function will query
-     * ColorUtils::themeIsDark() to determine the effective theme.
+     * ThemeManager::instance()->isDark() to determine the effective theme.
      */
     applyCodeViewThemes();
     watchController_.refreshDisplay();
@@ -1375,13 +1376,12 @@ void LuaDebuggerDialog::updateStyleSheets()
     ui->luaDebuggerFindFrame->updateStyleSheet();
     ui->luaDebuggerGoToLineFrame->updateStyleSheet();
 
-    /* StockIcon template glyphs use qApp->palette(); re-resolve when the
-     * scheme changes (same idea as StockIconToolButton). */
-    ui->actionContinue->setIcon(StockIcon(QStringLiteral("x-lua-debug-continue")));
-    ui->actionStepOver->setIcon(StockIcon(QStringLiteral("x-lua-debug-step-over")));
-    ui->actionStepIn->setIcon(StockIcon(QStringLiteral("x-lua-debug-step-in")));
-    ui->actionStepOut->setIcon(StockIcon(QStringLiteral("x-lua-debug-step-out")));
-    ui->actionRunToLine->setIcon(StockIcon(QStringLiteral("x-lua-debug-run-to-line")));
+    /* ThemedIcon handles palette changes */
+    ui->actionContinue->setIcon(ThemedIcon("lua-debug-continue"));
+    ui->actionStepOver->setIcon(ThemedIcon("lua-debug-step-over"));
+    ui->actionStepIn->setIcon(ThemedIcon("lua-debug-step-in"));
+    ui->actionStepOut->setIcon(ThemedIcon("lua-debug-step-out"));
+    ui->actionRunToLine->setIcon(ThemedIcon("lua-debug-run-to-line"));
 }
 
 void LuaDebuggerDialog::applyCodeViewThemes()
@@ -1587,7 +1587,7 @@ void LuaDebuggerDialog::updateStatusLabel()
      * indicator in the title. */
     QString title = QStringLiteral("[*]%1").arg(tr("Lua Debugger"));
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     // On macOS we separate with a unicode em dash
     title += QString(" " UTF8_EM_DASH " ");
 #else
@@ -2028,14 +2028,14 @@ void LuaDebuggerLuaReloadCoordinator::onReloadLuaPluginsRequested()
     }
 
     reloadUiRequestWasEnabled_ = false;
-    if (!host_->codeTabsController().ensureUnsavedChangesHandled(host_->tr("Reload Lua Plugins")))
+    if (!host_->codeTabsController().ensureUnsavedChangesHandled(QObject::tr("Reload Lua Plugins")))
     {
         return;
     }
 
     const QMessageBox::StandardButton reply =
-        QMessageBox::question(host_, host_->tr("Reload Lua Plugins"),
-                              host_->tr("Are you sure you want to reload all Lua plugins?\n\nThis will "
+        QMessageBox::question(host_, QObject::tr("Reload Lua Plugins"),
+                              QObject::tr("Are you sure you want to reload all Lua plugins?\n\nThis will "
                                         "restart all Lua "
                                         "scripts and may affect capture analysis."),
                               QMessageBox::Yes | QMessageBox::No, QMessageBox::No);

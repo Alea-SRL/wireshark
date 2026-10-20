@@ -48,8 +48,8 @@ public:
      */
     struct Position
     {
-        int start;  /**< The starting byte offset. */
-        int length; /**< The length in bytes. */
+        unsigned start;  /**< The starting byte offset. */
+        unsigned length; /**< The length in bytes. */
     };
 
     /**
@@ -156,7 +156,7 @@ public:
      * @brief Gets the printable data for the field.
      * @return A QByteArray containing the printable data.
      */
-    const QByteArray printableData();
+    const QByteArray printableData() override;
 
 private:
 

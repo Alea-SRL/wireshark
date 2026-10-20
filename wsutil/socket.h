@@ -74,6 +74,32 @@ WS_DLL_PUBLIC void ws_cleanup_sockets(void);
  */
 WS_DLL_PUBLIC int ws_socket_ptoa(struct sockaddr_storage *dst, const char *src, uint16_t def_port);
 
+/**
+ * @brief Verify the credentials of the peer connected to a Unix domain socket
+ *
+ * Verifies that the UID of the peer process that is connected to a Unix domain socket
+ * is the same as the effective UID of the current process, if possible.
+ *
+ * @param sock A socket handle (on UN*X, file descriptor)
+ * @return true on success, or false on failure (including if unsupported).
+ */
+WS_DLL_PUBLIC bool ws_verify_peercred(socket_handle_t sock);
+
+/**
+ * @brief Creates an unbound pair of AF_UNIX sockets of a specified type.
+ *
+ * Calls socketpair(AF_UNIX, type, 0, sv[0]) on systems that have it
+ * (POSIX), and implements it on those that don't.
+ *
+ * @note Windows only supports SOCK_STREAM type sockets with AF_UNIX, so only
+ * that has cross-platform support currently.
+ *
+ * @param type The type of socket, optionally ORd with flags.
+ * @param sv Socket vector to hold the created socket pair
+ * @return 0 on success, -1 otherwise with errno/last-error set.
+ */
+WS_DLL_PUBLIC int ws_socketpair(int type, socket_handle_t sv[2]);
+
 #ifdef	__cplusplus
 }
 #endif

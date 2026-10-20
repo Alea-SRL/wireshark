@@ -37,7 +37,7 @@
           <File Id="filREADME_txt" KeyPath="yes" Source="$(var.Staging.Dir)\README.txt" />
         </Component>
         <Component Id="cmpWka" Guid="*">
-          <File Id="filWka" KeyPath="yes" Source="$(var.Staging.Dir)\wka" />
+          <File Id="filWka" KeyPath="yes" Source="$(var.Staging.Datafile.Dir)\wka" />
         </Component>
         <Component Id="cmpPdml2html_xsl" Guid="*">
           <File Id="filPdml2html_xsl" KeyPath="yes" Source="$(var.Staging.Dir)\pdml2html.xsl" />
@@ -61,7 +61,7 @@
           <File Id="filExtcap_html" KeyPath="yes" Source="$(var.Staging.Dir)\extcap.html" />
         </Component>
         <Component Id="cmpIpmap_html" Guid="*">
-          <File Id="filIpmap_html" KeyPath="yes" Source="$(var.Staging.Dir)\ipmap.html" />
+          <File Id="filIpmap_html" KeyPath="yes" Source="$(var.Staging.Datafile.Dir)\ipmap.html" />
         </Component>
         <Component Id="cmpReleaseNotes_html" Guid="*">
           <File Id="filReleaseNotes_html" KeyPath="yes" Source="$(var.Staging.Dir)\Wireshark Release Notes.html" />
@@ -93,23 +93,23 @@
     <Fragment>
       <DirectoryRef Id="INSTALLFOLDER">
         <Component Id="cmpCfilters" Guid="*">
-          <File Id="filCfilters" KeyPath="yes" Source="$(var.Staging.Dir)\cfilters" />
+          <File Id="filCfilters" KeyPath="yes" Source="$(var.Staging.Datafile.Dir)\cfilters" />
         </Component>
-        <Component Id="cmpColorfilters" Guid="*">
-          <File Id="filColorfilters" KeyPath="yes" Source="$(var.Staging.Dir)\colorfilters" />
+        <Component Id="cmpColoringRules" Guid="*">
+          <File Id="filColoringRules" KeyPath="yes" Source="$(var.Staging.Datafile.Dir)\coloring_rules.jsonc" />
         </Component>
         <Component Id="cmpDfilters" Guid="*">
-          <File Id="filDfilters" KeyPath="yes" Source="$(var.Staging.Dir)\dfilters" />
+          <File Id="filDfilters" KeyPath="yes" Source="$(var.Staging.Datafile.Dir)\dfilters" />
         </Component>
         <Component Id="cmpSmi_modules" Guid="*">
-          <File Id="filSmi_modules" KeyPath="yes" Source="$(var.Staging.Dir)\smi_modules" />
+          <File Id="filSmi_modules" KeyPath="yes" Source="$(var.Staging.Datafile.Dir)\smi_modules" />
         </Component>
       </DirectoryRef>
     </Fragment>
     <Fragment>
-      <ComponentGroup Id="CG.ColorFilters">
+      <ComponentGroup Id="CG.ColoringRules">
         <ComponentRef Id="cmpCfilters" />
-        <ComponentRef Id="cmpColorfilters" />
+        <ComponentRef Id="cmpColoringRules" />
         <ComponentRef Id="cmpDfilters" />
         <ComponentRef Id="cmpSmi_modules" />
       </ComponentGroup>
@@ -303,16 +303,16 @@
   <Fragment>
     <DirectoryRef Id="dirProfiles">
       <Directory Id="dirBluetooth" Name="Bluetooth">
-        <Component Id="cmpBluetooth_colorfilters" Guid="*">
-          <File Id="filBluetooth_colorfilters" KeyPath="yes" Source="$(var.Profiles.Dir)\Bluetooth\colorfilters" />
+        <Component Id="cmpBluetooth_coloring_rules" Guid="*">
+          <File Id="filBluetooth_coloring_rules" KeyPath="yes" Source="$(var.Profiles.Dir)\Bluetooth\coloring_rules.jsonc" />
         </Component>
         <Component Id="cmpBluetooth_preferences" Guid="*">
           <File Id="filBluetooth_preferences" KeyPath="yes" Source="$(var.Profiles.Dir)\Bluetooth\preferences" />
         </Component>
       </Directory>
       <Directory Id="dirClassic" Name="Classic">
-        <Component Id="cmpClassic_colorfilters" Guid="*">
-          <File Id="filClassic_colorfilters" KeyPath="yes" Source="$(var.Profiles.Dir)\Classic\colorfilters" />
+        <Component Id="cmpClassic_coloring_rules" Guid="*">
+          <File Id="filClassic_coloring_rules" KeyPath="yes" Source="$(var.Profiles.Dir)\Classic\coloring_rules.jsonc" />
         </Component>
       </Directory>
       <Directory Id="dirNoReassembly" Name="No Reassembly">
@@ -324,9 +324,9 @@
   </Fragment>
   <Fragment>
     <ComponentGroup Id="CG.Plugins.ConfigurationProfiles">
-      <ComponentRef Id="cmpBluetooth_colorfilters" />
+      <ComponentRef Id="cmpBluetooth_coloring_rules" />
       <ComponentRef Id="cmpBluetooth_preferences" />
-      <ComponentRef Id="cmpClassic_colorfilters" />
+      <ComponentRef Id="cmpClassic_coloring_rules" />
       <ComponentRef Id="cmpNoReassembly_preferences" />
     </ComponentGroup>
   </Fragment>
@@ -527,7 +527,7 @@
     </DirectoryRef>
   </Fragment>
   <Fragment>
-    <ComponentGroup Id="CG.Tools.Androiddump">
+    <ComponentGroup Id="CG.Extcap.Androiddump">
       <ComponentRef Id="cmpAndroiddump_exe" />
       <ComponentRef Id="cmpAndroiddump_html" />
     </ComponentGroup>
@@ -547,7 +547,7 @@
     </DirectoryRef>
   </Fragment>
   <Fragment>
-    <ComponentGroup Id="CG.Tools.Randpktdump">
+    <ComponentGroup Id="CG.Extcap.Randpktdump">
       <ComponentRef Id="cmpRandpktdump_exe" />
       <ComponentRef Id="cmpRandpktdump_html" />
     </ComponentGroup>
@@ -567,7 +567,7 @@
     </DirectoryRef>
   </Fragment>
   <Fragment>
-    <ComponentGroup Id="CG.Tools.Etwdump">
+    <ComponentGroup Id="CG.Extcap.Etwdump">
       <ComponentRef Id="cmpEtwdump_exe" />
       <ComponentRef Id="cmpEtwdump_html" />
     </ComponentGroup>
@@ -587,7 +587,7 @@
     </DirectoryRef>
   </Fragment>
   <Fragment>
-    <ComponentGroup Id="CG.Tools.Sshdump">
+    <ComponentGroup Id="CG.Extcap.Sshdump">
       <ComponentRef Id="cmpSshdump_exe" />
       <ComponentRef Id="cmpSshdump_html" />
     </ComponentGroup>
@@ -607,7 +607,7 @@
     </DirectoryRef>
   </Fragment>
   <Fragment>
-    <ComponentGroup Id="CG.Tools.Ciscodump">
+    <ComponentGroup Id="CG.Extcap.Ciscodump">
       <ComponentRef Id="cmpCiscodump_exe" />
       <ComponentRef Id="cmpCiscodump_html" />
     </ComponentGroup>
@@ -627,7 +627,7 @@
     </DirectoryRef>
   </Fragment>
   <Fragment>
-    <ComponentGroup Id="CG.Tools.Wifidump">
+    <ComponentGroup Id="CG.Extcap.Wifidump">
       <ComponentRef Id="cmpWifidump_exe" />
       <ComponentRef Id="cmpWifidump_html" />
     </ComponentGroup>
@@ -647,7 +647,7 @@
     </DirectoryRef>
   </Fragment>
   <Fragment>
-    <ComponentGroup Id="CG.Tools.Udpdump">
+    <ComponentGroup Id="CG.Extcap.Udpdump">
       <ComponentRef Id="cmpUdpdump_exe" />
       <ComponentRef Id="cmpUdpdump_html" />
     </ComponentGroup>
@@ -954,13 +954,6 @@
     <ComponentGroup Id="CG.gcrypt">
       <ComponentRef Id="gpg4win_etc_gcrypt" />
     </ComponentGroup>
-  </Fragment>
-
-  <!-- C-runtime redistributable -->
-  <Fragment>
-    <DirectoryRef Id="TARGETDIR">
-      <Merge Id="VCRedist" SourceFile="$(var.VCRedistDir)\Microsoft_$(var.VCRedistVersion)_CRT_$(var.Platform).msm" DiskId="1" Language="0"/>
-    </DirectoryRef>
   </Fragment>
 
 </Include>

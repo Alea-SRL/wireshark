@@ -63,7 +63,6 @@
 #include <app/application_flavor.h>
 #include <wsutil/file_compressed.h>
 #include <wsutil/privileges.h>
-#include <cli_main.h>
 #include <wsutil/version_info.h>
 #include <wsutil/report_message.h>
 #include <wiretap/wtap_opttypes.h>
@@ -1278,7 +1277,6 @@ process_cap_file(const char *filename, bool need_separator)
             }
         }
 
-        wtap_rec_reset(&rec);
     } /* while */
     wtap_rec_cleanup(&rec);
 

@@ -24,17 +24,22 @@
 #include <shlobj.h>
 #include <wsutil/unicode-utils.h>
 #else /* _WIN32 */
+/* Unix-like enough for our purposes */
 #ifdef ENABLE_APPLICATION_BUNDLE
 #include <mach-o/dyld.h>
-#endif
+#endif /* ENABLE_APPLICATION_BUNDLE */
 #ifdef __FreeBSD__
 #include <sys/types.h>
 #include <sys/sysctl.h>
-#endif
+#endif /* __FreeBSD__ */
 #ifdef HAVE_DLGET
 #include <dlfcn.h>
-#endif
+#endif /* HAVE_DLGET */
 #include <pwd.h>
+#ifdef __HAIKU__
+#include <FindDirectory.h>
+#include <fs_info.h>
+#endif /* __HAIKU__ */
 #endif /* _WIN32 */
 
 #include <wsutil/file_util.h>
@@ -47,8 +52,6 @@
 #define PROFILES_DIR    "profiles"
 #define PLUGINS_DIR_NAME    "plugins"
 #define EXTCAP_DIR_NAME     "extcap"
-
-#define _S G_DIR_SEPARATOR_S
 
 static char *persconffile_dir;
 static char *datafile_dir;
@@ -634,7 +637,7 @@ configuration_init_w32(const char* app_flavor, const char* arg0 _U_)
      * If the program_dir ends with "bin" then assume we are running with a
      * UN*X-like directory layout, and vice versa.
      */
-    if (g_str_has_suffix(progfile_dir, _S"bin")) {
+    if (strcmp(get_basename(progfile_dir), "bin") == 0) {
         running_in_posix_directory_flag = true;
         install_prefix = trim_last_dir_from_path(progfile_dir);
     }
@@ -789,6 +792,15 @@ configuration_init_posix(const char* app_flavor, const char* arg0)
         }
     }
 
+#if defined(__HAIKU__)
+    char buffer[PATH_MAX + 1];
+
+    char *res = realpath(prog_pathname, buffer);
+    if (res != NULL) {
+        prog_pathname = g_strdup(buffer);
+    }
+#endif
+
     /*
      * OK, we have what we think is the pathname
      * of the program.
@@ -895,7 +907,7 @@ configuration_init_posix(const char* app_flavor, const char* arg0)
      * the program_dir.
      */
     g_free(install_prefix);
-    if (g_str_has_suffix(progfile_dir, _S"bin")) {
+    if (strcmp(get_basename(progfile_dir), "bin") == 0) {
         install_prefix = trim_last_dir_from_path(progfile_dir);
     }
     else {
@@ -1038,7 +1050,14 @@ get_datafile_dir(const char* app_env_var_prefix)
          * If so, perhaps we should read that from the registry,
          * instead.
          */
-        if (progfile_dir != NULL) {
+        if (progfile_dir != NULL && running_in_build_directory_flag) {
+            /*
+             * We're running from the build directory, where
+             * each application has its own share/<app> data
+             * subdirectory.
+             */
+            datafile_dir = g_build_filename(progfile_dir, "share", app_lower, (char *)NULL);
+        } else if (progfile_dir != NULL) {
             /*
              * Yes, we do; use that.
              */
@@ -1062,11 +1081,13 @@ get_datafile_dir(const char* app_env_var_prefix)
          * if we're started with special privileges, so we need
          * only check it; we don't need to call started_with_special_privs().)
          *
-         * Data files (dtds/, radius/, etc.) are copied to the build
-         * directory during the build which also contains executables. A special
-         * exception is macOS (when built with an app bundle).
+         * Data files (dtds/, radius/, etc.) are copied to the share/<app>
+         * subdirectory of the build directory during the build. The
+         * build directory also contains executables, and is shared by
+         * all applications. A special exception is macOS (when built with
+         * an app bundle).
          */
-        datafile_dir = g_strdup(progfile_dir);
+        datafile_dir = g_build_filename(progfile_dir, "share", app_lower, (char *)NULL);
     } else {
         if (g_path_is_absolute(DATA_DIR)) {
             datafile_dir = g_build_filename(DATA_DIR, app_lower, (char *)NULL);
@@ -1230,7 +1251,7 @@ static void
 init_plugin_pers_dir(const char* app_env_var_prefix _U_)
 {
 #if defined(HAVE_PLUGINS) || defined(HAVE_LUA)
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__HAIKU__)
     plugin_pers_dir = get_persconffile_path(PLUGINS_DIR_NAME, false, app_env_var_prefix);
 #else
     char* app_lower = g_ascii_strdown(app_env_var_prefix, -1);
@@ -1417,8 +1438,10 @@ running_in_build_directory(void)
 const char *
 get_systemfile_dir(const char* app_env_var_prefix _U_)
 {
-#ifdef _WIN32
+#if defined(_WIN32)
     return get_datafile_dir(app_env_var_prefix);
+#elif defined(__HAIKU__)
+    return "/boot/system/settings/etc";
 #else
     return "/etc";
 #endif
@@ -1555,7 +1578,7 @@ get_persconffile_dir_no_profile(const char* app_env_var_prefix)
         goto return_dir;
     }
 
-#ifdef _WIN32
+#if defined(_WIN32)
     /*
      * Use %APPDATA% or %USERPROFILE%, so that configuration
      * files are stored in the user profile, rather than in
@@ -1587,6 +1610,12 @@ get_persconffile_dir_no_profile(const char* app_env_var_prefix)
      */
     persconffile_dir = g_build_filename("C:", app_proper, NULL);
     goto return_dir;
+#elif defined(__HAIKU__)
+    char buffer[B_PATH_NAME_LENGTH+B_FILE_NAME_LENGTH];
+
+    find_directory(B_USER_SETTINGS_DIRECTORY, dev_for_path("/boot"), true, buffer, sizeof(buffer));
+    persconffile_dir = g_build_filename(buffer, app_lower, NULL);
+    return persconffile_dir;
 #else
     char *xdg_path, *path;
     struct passwd *pwd;
@@ -1663,6 +1692,32 @@ get_profiles_dir(const char* app_env_var_prefix)
                     G_DIR_SEPARATOR_S, PROFILES_DIR);
 }
 
+static char *
+get_profiles_dir_with_trailing_sep(const char* app_env_var_prefix, bool is_global)
+{
+    /* We use this for prefix comparison so we always want the canonical
+     * directory separator (G_DIR_SEPARATOR_S). The second parameter in
+     * g_canonicalize_filename has to be an absolute path, or NULL (for
+     * current directory), though it's not used if the first parameter is
+     * an absolute path.
+     *
+     * We don't currently guarantee that get_datafile_dir and
+     * get_persconffile_dir_no_profile return canonicalized paths with the
+     * platform default directory separator or even absolute paths, but
+     * we might want to do so. Since they're not, we can't necessarily use
+     * them as the second parameter here with PROFILES_DIR as the first
+     * parameter, so we do this. Note that g_canonicalize_filename never
+     * returns a string with a trailing dir sep, so we have to add it
+     * separately anyway. */
+    char *canonical_conf_dir = g_canonicalize_filename(is_global ? get_datafile_dir(app_env_var_prefix) :
+                                        get_persconffile_dir_no_profile(app_env_var_prefix), NULL);
+
+    char *dir_with_sep = g_build_filename(canonical_conf_dir, PROFILES_DIR,
+                                        G_DIR_SEPARATOR_S, NULL);
+    g_free(canonical_conf_dir);
+    return dir_with_sep;
+}
+
 int
 create_profiles_dir(const char* app_env_var_prefix, char **pf_dir_path_return)
 {
@@ -1710,47 +1765,52 @@ get_global_profiles_dir(const char* app_env_var_prefix)
 }
 
 static char *
-get_persconffile_dir(const char* app_env_var_prefix, const char *profilename)
+get_profile_dir_internal(const char* app_env_var_prefix, const char *profilename, bool is_global, bool *ok)
 {
-    char *persconffile_profile_dir = NULL, *profile_dir;
+    char *profile_dir = NULL, *profiles_dir;
 
+    if (ok) {
+        *ok = true;
+    }
     if (profilename && strlen(profilename) > 0 &&
         strcmp(profilename, DEFAULT_PROFILE) != 0) {
-      profile_dir = get_profiles_dir(app_env_var_prefix);
-      persconffile_profile_dir = ws_strdup_printf ("%s%s%s", profile_dir,
-                              G_DIR_SEPARATOR_S, profilename);
-      g_free(profile_dir);
-    } else {
-      persconffile_profile_dir = g_strdup (get_persconffile_dir_no_profile(app_env_var_prefix));
+        /* Test to make sure we haven't left the profiles directory sandbox.
+         * g_canonicalize_filename never returns a string with a trailing
+         * directory separator, so checking to see if it has as prefix the
+         * profiles directory _with_ the separator prevents, e.g., "." resolving
+         * to the profiles directory itself. */
+        profiles_dir = get_profiles_dir_with_trailing_sep(app_env_var_prefix, is_global);
+        profile_dir = g_canonicalize_filename(profilename, profiles_dir);
+        if (!g_str_has_prefix(profile_dir, profiles_dir)) {
+            /* Report this as invalid and provide the default directory as a
+             * fallback for callers that expect some result. */
+            if (ok) {
+                *ok = false;
+            }
+            g_free(profile_dir);
+            profile_dir = NULL;
+        }
+        g_free(profiles_dir);
     }
 
-    return persconffile_profile_dir;
+    if (profile_dir == NULL) {
+        profile_dir = g_strdup(is_global ? get_datafile_dir(app_env_var_prefix) :
+                               get_persconffile_dir_no_profile(app_env_var_prefix));
+    }
+
+    return profile_dir;
+}
+
+static char *
+get_persconffile_dir(const char* app_env_var_prefix, const char *profilename, bool *ok)
+{
+    return get_profile_dir_internal(app_env_var_prefix, profilename, false, ok);
 }
 
 char *
 get_profile_dir(const char* app_env_var_prefix, const char *profilename, bool is_global)
 {
-    char *profile_dir;
-
-    if (is_global) {
-        if (profilename && strlen(profilename) > 0 &&
-            strcmp(profilename, DEFAULT_PROFILE) != 0)
-        {
-            char *global_path = get_global_profiles_dir(app_env_var_prefix);
-            profile_dir = g_build_filename(global_path, profilename, NULL);
-            g_free(global_path);
-        } else {
-            profile_dir = g_strdup(get_datafile_dir(app_env_var_prefix));
-        }
-    } else {
-        /*
-         * If we didn't supply a profile name, i.e. if profilename is
-         * null, get_persconffile_dir() returns the default profile.
-         */
-        profile_dir = get_persconffile_dir(app_env_var_prefix, profilename);
-    }
-
-    return profile_dir;
+    return get_profile_dir_internal(app_env_var_prefix, profilename, is_global, NULL);
 }
 
 bool
@@ -1766,8 +1826,11 @@ profile_exists(const char* app_env_var_prefix, const char *profilename, bool glo
     if (global && !profilename)
         return false;
 
-    path = get_profile_dir(app_env_var_prefix, profilename, global);
-    exists = (test_for_directory(path) == EISDIR) ? true : false;
+    path = get_profile_dir_internal(app_env_var_prefix, profilename, global, &exists);
+    if (exists) {
+        exists = (test_for_directory(path) == EISDIR) ? true : false;
+    }
+    /* XXX - else a separate error message for "that's not a valid name?" */
 
     g_free(path);
     return exists;
@@ -1795,6 +1858,10 @@ delete_directory (const char *directory, char **pf_dir_path_return)
 #endif
             }
             if (ret != 0) {
+                /* XXX - Should we always return the directory name? The message
+                 * boxes that the callers spawn expect the directory name, not
+                 * the filename that couldn't be removed.
+                 * reset_default_profile() always returns the directory name. */
                 *pf_dir_path_return = filename;
                 break;
             }
@@ -1838,6 +1905,10 @@ copy_directory(const char *from_dir, const char *to_dir, char **pf_filename_retu
             } else {
                 /* The user has manually created a directory in the profile
                  * directory. Do not copy the directory recursively (yet?)
+                 *
+                 * Note that not copying directories prevents some unexpected
+                 * behavior if the from or to directory is the default path
+                 * (the personal configuration directory.)
                  */
 #endif
             }
@@ -1852,7 +1923,7 @@ copy_directory(const char *from_dir, const char *to_dir, char **pf_filename_retu
 static int
 reset_default_profile(const char* app_env_var_prefix, char **pf_dir_path_return)
 {
-    char *profile_dir = get_persconffile_dir(app_env_var_prefix, NULL);
+    const char *profile_dir = get_persconffile_dir_no_profile(app_env_var_prefix);
     char *filename, *del_file;
     GList *files, *file;
     int ret = 0;
@@ -1866,7 +1937,7 @@ reset_default_profile(const char* app_env_var_prefix, char **pf_dir_path_return)
         if (file_exists(del_file)) {
             ret = ws_remove(del_file);
             if (ret != 0) {
-                *pf_dir_path_return = profile_dir;
+                *pf_dir_path_return = g_strdup(profile_dir);
                 g_free(del_file);
                 break;
             }
@@ -1877,18 +1948,23 @@ reset_default_profile(const char* app_env_var_prefix, char **pf_dir_path_return)
     }
     g_list_free(files);
 
-    g_free(profile_dir);
     return ret;
 }
 
 int
 delete_persconffile_profile(const char* app_env_var_prefix, const char *profilename, char **pf_dir_path_return)
 {
-    if (strcmp(profilename, DEFAULT_PROFILE) == 0) {
+    bool ok;
+    if (!profilename || strcmp(profilename, DEFAULT_PROFILE) == 0) {
         return reset_default_profile(app_env_var_prefix, pf_dir_path_return);
     }
 
-    char *profile_dir = get_persconffile_dir(app_env_var_prefix, profilename);
+    char *profile_dir = get_persconffile_dir(app_env_var_prefix, profilename, &ok);
+    if (!ok) {
+        *pf_dir_path_return = profile_dir;
+        errno = EINVAL;
+        return -1;
+    }
     int ret = 0;
 
     if (test_for_directory (profile_dir) == EISDIR) {
@@ -1903,8 +1979,19 @@ int
 rename_persconffile_profile(const char* app_env_var_prefix, const char *fromname, const char *toname,
                 char **pf_from_dir_path_return, char **pf_to_dir_path_return)
 {
-    char *from_dir = get_persconffile_dir(app_env_var_prefix, fromname);
-    char *to_dir = get_persconffile_dir(app_env_var_prefix, toname);
+    /* We don't need to check if these fail; if either from_dir or to_dir is
+     * the default profile directory (the personal configuration directory),
+     * then one of the following conditions must hold:
+     * 1. to_dir and from_dir are the same (both are persconffile_dir)
+     * 2. to_dir has from_dir as a path prefix (from is persconffile_dir)
+     * 3. to_dir exists and is not empty (to is persconffile_dir, from exists)
+     * 4. from_dir does not exist (to is persconffile_dir and from DNE.)
+     * ws_rename will definitely fail in conditions 2-4; condition 1 may,
+     * depending on the OS, either silently succeed as a a no-op or fail,
+     * but either way it's not a problem. (We could have some extra logging.)
+     */
+    char *from_dir = get_persconffile_dir(app_env_var_prefix, fromname, NULL);
+    char *to_dir = get_persconffile_dir(app_env_var_prefix, toname, NULL);
     int ret = 0;
 
     ret = ws_rename (from_dir, to_dir);
@@ -1938,6 +2025,7 @@ create_persconffile_profile(const char* app_env_var_prefix, const char *profilen
 #endif
     ws_statb64 s_buf;
     int ret;
+    bool ok;
 
     if (profilename) {
         /*
@@ -1948,7 +2036,13 @@ create_persconffile_profile(const char* app_env_var_prefix, const char *profilen
         }
     }
 
-    pf_dir_path = get_persconffile_dir(app_env_var_prefix, profilename);
+    pf_dir_path = get_persconffile_dir(app_env_var_prefix, profilename, &ok);
+    if (!ok) {
+        g_free(pf_dir_path);
+        *pf_dir_path_return = ws_strdup_printf("%s (invalid profile name)", profilename);
+        errno = EINVAL;
+        return -1;
+    }
     if (ws_stat64(pf_dir_path, &s_buf) != 0) {
         if (errno != ENOENT) {
             /* Some other problem; give up now. */
@@ -2035,16 +2129,30 @@ copy_persconffile_profile(const char* app_env_var_prefix, const char *toname, co
               char **pf_filename_return, char **pf_to_dir_path_return, char **pf_from_dir_path_return)
 {
     int ret = 0;
+    bool from_ok, to_ok;
     char *from_dir;
-    char *to_dir = get_persconffile_dir(app_env_var_prefix, toname);
+    char *to_dir;
     char *from_file, *to_file;
     const char *filename;
     GHashTableIter files;
     void * file;
 
-    from_dir = get_profile_dir(app_env_var_prefix, fromname, from_global);
-
-    if (!profile_files || do_store_persconffiles) {
+    from_dir = get_profile_dir_internal(app_env_var_prefix, fromname, from_global, &from_ok);
+    to_dir = get_persconffile_dir(app_env_var_prefix, toname, &to_ok);
+    if (!from_ok) {
+        /* This shouldn't happen, because all the callers call
+         * profile_exists first or otherwise ensure that the
+         * first profile exists. */
+        *pf_filename_return = ws_strdup_printf("<invalid old profile name %s>", fromname);
+        ret = -1;
+        errno = EINVAL;
+    } else if (!to_ok) {
+        /* This shouldn't happen, because all the callers call
+         * create_persconffile_profile first. */
+        *pf_filename_return = ws_strdup_printf("<invalid new profile name %s>", toname);
+        ret = -1;
+        errno = EINVAL;
+    } else if (!profile_files || do_store_persconffiles) {
         /* Either the profile_files hashtable does not exist yet
          * (this is very early in startup) or we are still adding
          * files to it. Just copy all the non-directories.
@@ -2161,10 +2269,10 @@ get_persconffile_path(const char *filename, bool from_profile, const char* app_e
     if (from_profile) {
         /* Store filenames so we know which filenames belongs to a configuration profile */
         profile_register_persconffile(filename);
-
-        dir = get_persconffile_dir(app_env_var_prefix, persconfprofile);
+        /* If this fails, just use the default directory. */
+        dir = get_persconffile_dir(app_env_var_prefix, persconfprofile, NULL);
     } else {
-        dir = get_persconffile_dir(app_env_var_prefix, NULL);
+        dir = g_strdup(get_persconffile_dir_no_profile(app_env_var_prefix));
     }
     path = g_build_filename(dir, filename, NULL);
 
@@ -2224,7 +2332,7 @@ const char *
 file_open_error_message(int err, bool for_writing)
 {
     const char *errmsg;
-    static char errmsg_errno[1024+1];
+    static WS_THREAD_LOCAL char errmsg_errno[1024+1];
 
     switch (err) {
 
@@ -2329,7 +2437,7 @@ const char *
 file_write_error_message(int err)
 {
     const char *errmsg;
-    static char errmsg_errno[1024+1];
+    static WS_THREAD_LOCAL char errmsg_errno[1024+1];
 
     switch (err) {
 
@@ -2418,7 +2526,7 @@ typedef struct {
 #endif
 } file_hash_key;
 
-bool
+static bool
 files_identical_key(const void* fname, file_hash_key *key)
 {
     /* Two different implementations, because st_ino isn't filled in with
@@ -2633,6 +2741,11 @@ copy_file_binary_mode(const char *from_filename, const char *to_filename)
         goto done;
     }
 
+    /* Avoid truncating the file if they are the same. */
+    if (files_identical(from_filename, to_filename)) {
+        report_open_failure(to_filename, EINVAL, true);
+    }
+
     /* Use open() instead of creat() so that we can pass the O_BINARY
        flag, which is relevant on Win32; it appears that "creat()"
        may open the file in text mode, not binary mode, but we want
@@ -2645,6 +2758,8 @@ copy_file_binary_mode(const char *from_filename, const char *to_filename)
         goto done;
     }
 
+    /* TODO - Use copy_file_range on Linux and FreeBSD, [f]copyfile on macOS,
+     * and CopyFileEx on Windows to perform in-kernel copies, */
 #define FS_READ_SIZE 65536
     pd = (uint8_t *)g_malloc(FS_READ_SIZE);
     while ((nread = ws_read(from_fd, pd, FS_READ_SIZE)) > 0) {

@@ -183,6 +183,7 @@ static int hf_btavrcp_feature_uid_persistency;
 static int hf_btavrcp_feature_number_of_items;
 static int hf_btavrcp_feature_cover_art;
 static int hf_btavrcp_reassembled;
+static int hf_btavrcp_reassembled_too_long_fragment;
 static int hf_btavrcp_current_path;
 static int hf_btavrcp_response_time;
 static int hf_btavrcp_command_in_frame;
@@ -481,6 +482,7 @@ static const value_string attribute_id_vals[] = {
     { 0x05,   "Total Number of Media" },
     { 0x06,   "Genre" },
     { 0x07,   "Playing Time" },
+    { 0x08,   "Default Cover Art" },
     { 0, NULL }
 };
 
@@ -595,7 +597,7 @@ void proto_register_btavrcp(void);
 void proto_reg_handoff_btavrcp(void);
 
 static  int
-dissect_attribute_id_list(tvbuff_t *tvb, proto_tree *tree, int offset,
+dissect_attribute_id_list(tvbuff_t *tvb, proto_tree *tree, unsigned offset,
                           unsigned count)
 {
     unsigned    i_attribute;
@@ -661,7 +663,7 @@ dissect_attribute_entries(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 
 static int
-dissect_item_mediaplayer(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
+dissect_item_mediaplayer(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, unsigned offset)
 {
     unsigned    displayable_name_length;
     unsigned    item_length;
@@ -878,7 +880,7 @@ dissect_item_media_element(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 
 static int
-dissect_item_folder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
+dissect_item_folder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, unsigned offset)
 {
     unsigned    displayable_name_length;
     unsigned    item_length;
@@ -953,7 +955,7 @@ dissect_passthrough(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 
 static int
-dissect_unit(tvbuff_t *tvb, proto_tree *tree, int offset, bool is_command)
+dissect_unit(tvbuff_t *tvb, proto_tree *tree, unsigned offset, bool is_command)
 {
     if (is_command) {
         proto_tree_add_item(tree, hf_btavrcp_data, tvb, offset, 5, ENC_NA);
@@ -973,7 +975,7 @@ dissect_unit(tvbuff_t *tvb, proto_tree *tree, int offset, bool is_command)
 
 
 static int
-dissect_subunit(tvbuff_t *tvb, proto_tree *tree, int offset, bool is_command)
+dissect_subunit(tvbuff_t *tvb, proto_tree *tree, unsigned offset, bool is_command)
 {
     proto_tree_add_item(tree, hf_btavrcp_subunit_page, tvb, offset, 1, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_btavrcp_subunit_extension_code, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -1187,15 +1189,24 @@ dissect_vendor_dependent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 wmem_tree_insert32(fragment->fragments, fragment->count, data_fragment);
             }
             /* reassembling*/
+            /* XXX - Use the standard reassembly API; among other things, to
+             * handle depended upon frames. */
             length = 0;
             if  (fragment->state == 2) {
-                unsigned    i_length = 0;
+                unsigned    i_length = 0, new_i_length;
                 uint8_t    *reassembled;
+                bool        too_long = false;
 
                 for (i_frame = 1; i_frame <= fragment->count; ++i_frame) {
                     data_fragment = (data_fragment_t *)wmem_tree_lookup32_le(fragment->fragments, i_frame);
-                    if (data_fragment)
-                        length += data_fragment->length;
+                    if (data_fragment) {
+                        if (ckd_add(&length, length, data_fragment->length) || length > INT32_MAX) {
+                            // Unsigned lengths are not yet fully supported (#20103, but
+                            // also possibly a Qt limitation.)
+                            length = INT32_MAX;
+                            break;
+                        }
+                    }
                 }
 
                 reassembled = (uint8_t *) wmem_alloc(pinfo->pool, length);
@@ -1203,10 +1214,17 @@ dissect_vendor_dependent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 for (i_frame = 1; i_frame <= fragment->count; ++i_frame) {
                     data_fragment = (data_fragment_t *)wmem_tree_lookup32_le(fragment->fragments, i_frame);
                     if (data_fragment) {
+                        if (ckd_add(&new_i_length, i_length, data_fragment->length) || new_i_length > length) {
+                            memcpy(reassembled + i_length,
+                                    data_fragment->data,
+                                    length - i_length);
+                            too_long = true;
+                            break;
+                        }
                         memcpy(reassembled + i_length,
                                 data_fragment->data,
                                 data_fragment->length);
-                        i_length += data_fragment->length;
+                        i_length = new_i_length;
                     }
                 }
 
@@ -1218,6 +1236,10 @@ dissect_vendor_dependent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
                 pitem = proto_tree_add_item(tree, hf_btavrcp_reassembled, tvb, offset, 0, ENC_NA);
                 proto_item_set_generated(pitem);
+
+                if (too_long) {
+                    proto_item_set_generated(proto_tree_add_boolean(tree, hf_btavrcp_reassembled_too_long_fragment, tvb, 0, 0, true));
+                }
             }
         }
     }
@@ -1271,8 +1293,7 @@ dissect_vendor_dependent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 unsigned number_of_attributes;
                 unsigned i_attribute;
 
-                proto_tree_add_item(tree, hf_btavrcp_number_of_settings, tvb, offset, 1, ENC_BIG_ENDIAN);
-                number_of_attributes = tvb_get_uint8(tvb, offset);
+                proto_tree_add_item_ret_uint(tree, hf_btavrcp_number_of_settings, tvb, offset, 1, ENC_BIG_ENDIAN, &number_of_attributes);
                 offset += 1;
 
                 for (i_attribute = 0; i_attribute < number_of_attributes; ++i_attribute) {
@@ -1289,8 +1310,7 @@ dissect_vendor_dependent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 unsigned number_of_values;
                 unsigned i_value;
 
-                proto_tree_add_item(tree, hf_btavrcp_number_of_settings, tvb, offset, 1, ENC_BIG_ENDIAN);
-                number_of_values = tvb_get_uint8(tvb, offset);
+                proto_tree_add_item_ret_uint(tree, hf_btavrcp_number_of_settings, tvb, offset, 1, ENC_BIG_ENDIAN, &number_of_values);
                 offset += 1;
 
                 for (i_value = 0; i_value < number_of_values; ++i_value) {
@@ -1304,8 +1324,7 @@ dissect_vendor_dependent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 unsigned number_of_attributes;
                 unsigned i_attribute;
 
-                proto_tree_add_item(tree, hf_btavrcp_number_of_settings, tvb, offset, 1, ENC_BIG_ENDIAN);
-                number_of_attributes = tvb_get_uint8(tvb, offset);
+                proto_tree_add_item_ret_uint(tree, hf_btavrcp_number_of_settings, tvb, offset, 1, ENC_BIG_ENDIAN, &number_of_attributes);
                 offset += 1;
 
                 for (i_attribute = 0; i_attribute < number_of_attributes; ++i_attribute) {
@@ -1350,8 +1369,7 @@ dissect_vendor_dependent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 unsigned number_of_attributes;
                 unsigned i_attribute;
 
-                proto_tree_add_item(tree, hf_btavrcp_number_of_settings, tvb, offset, 1, ENC_BIG_ENDIAN);
-                number_of_attributes = tvb_get_uint8(tvb, offset);
+                proto_tree_add_item_ret_uint(tree, hf_btavrcp_number_of_settings, tvb, offset, 1, ENC_BIG_ENDIAN, &number_of_attributes);
                 offset += 1;
 
                 for (i_attribute = 0; i_attribute < number_of_attributes; ++i_attribute) {
@@ -1363,8 +1381,7 @@ dissect_vendor_dependent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 unsigned i_attribute;
                 unsigned attribute_name_length;
 
-                proto_tree_add_item(tree, hf_btavrcp_number_of_settings, tvb, offset, 1, ENC_BIG_ENDIAN);
-                number_of_attributes = tvb_get_uint8(tvb, offset);
+                proto_tree_add_item_ret_uint(tree, hf_btavrcp_number_of_settings, tvb, offset, 1, ENC_BIG_ENDIAN, &number_of_attributes);
                 offset += 1;
 
                 for (i_attribute = 0; i_attribute < number_of_attributes; ++i_attribute) {
@@ -1389,8 +1406,7 @@ dissect_vendor_dependent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
                 proto_tree_add_item(tree, hf_btavrcp_settings_attribute, tvb, offset, 1, ENC_BIG_ENDIAN);
                 offset += 1;
-                proto_tree_add_item(tree, hf_btavrcp_number_of_settings, tvb, offset, 1, ENC_BIG_ENDIAN);
-                number_of_values = tvb_get_uint8(tvb, offset);
+                proto_tree_add_item_ret_uint(tree, hf_btavrcp_number_of_settings, tvb, offset, 1, ENC_BIG_ENDIAN, &number_of_values);
                 offset += 1;
 
                 for (i_value = 0; i_value < number_of_values; ++i_value) {
@@ -1991,6 +2007,79 @@ dissect_browsing(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     return offset;
 }
 
+static bool
+is_cover_art_obex_channel(packet_info *pinfo, btl2cap_data_t *l2cap_data)
+{
+    bool             is_cover_art = false;
+    wmem_tree_key_t  key[10];
+    uint32_t         interface_id;
+    uint32_t         adapter_id;
+    uint32_t         sdp_psm;
+    uint32_t         direction;
+    uint32_t         bd_addr_oui;
+    uint32_t         bd_addr_id;
+    uint32_t         service_type;
+    uint32_t         service_channel;
+    uint32_t         frame_number;
+    service_info_t  *service_info;
+
+    interface_id = l2cap_data->interface_id;
+    adapter_id   = l2cap_data->adapter_id;
+    sdp_psm      = SDP_PSM_DEFAULT;
+    direction    = (l2cap_data->is_local_psm) ? P2P_DIR_SENT : P2P_DIR_RECV;
+
+    if (direction == P2P_DIR_RECV) {
+        bd_addr_oui = l2cap_data->remote_bd_addr_oui;
+        bd_addr_id  = l2cap_data->remote_bd_addr_id;
+    } else {
+        bd_addr_oui = 0;
+        bd_addr_id  = 0;
+    }
+
+    service_type    = BTSDP_L2CAP_PROTOCOL_UUID;
+    service_channel = l2cap_data->psm;
+    frame_number    = pinfo->num;
+
+    key[0].length = 1;
+    key[0].key = &interface_id;
+    key[1].length = 1;
+    key[1].key = &adapter_id;
+    key[2].length = 1;
+    key[2].key = &sdp_psm;
+    key[3].length = 1;
+    key[3].key = &direction;
+    key[4].length = 1;
+    key[4].key = &bd_addr_oui;
+    key[5].length = 1;
+    key[5].key = &bd_addr_id;
+    key[6].length = 1;
+    key[6].key = &service_type;
+    key[7].length = 1;
+    key[7].key = &service_channel;
+    key[8].length = 1;
+    key[8].key = &frame_number;
+    key[9].length = 0;
+    key[9].key = NULL;
+
+    service_info = btsdp_get_service_info(key);
+    if (service_info && service_info->interface_id == interface_id &&
+            service_info->adapter_id == adapter_id &&
+            service_info->sdp_psm == sdp_psm &&
+            service_info->bd_addr_oui == bd_addr_oui &&
+            service_info->bd_addr_id == bd_addr_id &&
+            service_info->type == service_type &&
+            service_info->channel == service_channel) {
+        /* cover art PSM is from AVRCP target SDP record, is dynamic, and is from the
+           first or second entry in the SDP additional protocol descriptor list */
+        if (service_info->uuid.bt_uuid == BTSDP_AVRCP_TG_SERVICE_UUID &&
+                service_info->channel > BTL2CAP_DYNAMIC_PSM_START &&
+                (service_info->protocol_order == 1 || service_info->protocol_order == 2)) {
+            is_cover_art = true;
+        }
+    }
+    return is_cover_art;
+}
+
 static int
 dissect_btavrcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
@@ -2024,6 +2113,25 @@ dissect_btavrcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         avrcp_proto_data.channel      = avctp_data->psm;
 
         is_command = !avctp_data->cr;
+    } else if (previous_proto == proto_btl2cap) {
+        btl2cap_data_t  *l2cap_data;
+
+        l2cap_data = (btl2cap_data_t *) data;
+
+        avrcp_proto_data.interface_id = l2cap_data->interface_id;
+        avrcp_proto_data.adapter_id   = l2cap_data->adapter_id;
+        avrcp_proto_data.chandle      = l2cap_data->chandle;
+        avrcp_proto_data.channel      = l2cap_data->psm;
+
+        is_command = (pinfo->p2p_dir == P2P_DIR_SENT);
+
+        /* cover art transactions are handled on OBEX connection */
+        if (is_cover_art_obex_channel(pinfo, l2cap_data)) {
+            dissector_handle_t obex_handle = find_dissector_add_dependency("obex", proto_btavrcp);
+            if (obex_handle) {
+                return call_dissector_with_data(obex_handle, tvb, pinfo, tree, data);
+            }
+        }
     } else {
         avrcp_proto_data.interface_id = HCI_INTERFACE_DEFAULT;
         avrcp_proto_data.adapter_id   = HCI_ADAPTER_DEFAULT;
@@ -3040,6 +3148,11 @@ proto_register_btavrcp(void)
         { &hf_btavrcp_reassembled,
             { "Reassembled",                     "btavrcp.reassembled",
             FT_NONE, BASE_NONE, NULL, 0x00,
+            NULL, HFILL }
+        },
+        { &hf_btavrcp_reassembled_too_long_fragment,
+            { "Reassembled PDU too long",        "btavrcp.reassembled.too_long_fragment",
+            FT_BOOLEAN, BASE_NONE, NULL, 0x0,
             NULL, HFILL }
         },
         { &hf_btavrcp_response_time,

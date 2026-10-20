@@ -193,18 +193,6 @@ static const value_string mtype_names[] = {
     { 0,  NULL }
 };
 
-static proto_tree *top_tree;
-
-static void set_message_label(asn1_ctx_t *actx, int type)
-{
-  const char *label = val_to_str_const(type, mtype_names, "Unknown");
-  col_append_sep_str(actx->pinfo->cinfo, COL_INFO, NULL, label);
-  proto_item_append_text(top_tree, " (%s)", label);
-}
-
-
-
-
 /* Temporary private info to remember while dissecting frame */
 struct e2ap_private_data {
   uint32_t procedure_code;
@@ -217,6 +205,7 @@ struct e2ap_private_data {
   uint8_t gnb_id_bytes[MAX_GNB_ID_BYTES];
   dissector_handle_t component_configuration_dissector;
   struct e2ap_tap_t *stats_tap;
+  proto_tree *top_tree;
 };
 
 /* Lookup temporary private info */
@@ -229,6 +218,14 @@ e2ap_get_private_data(packet_info *pinfo)
     p_add_proto_data(pinfo->pool, pinfo, proto_e2ap, 0, e2ap_data);
   }
   return e2ap_data;
+}
+
+static void set_message_label(asn1_ctx_t *actx, int type)
+{
+  struct e2ap_private_data *priv_data = e2ap_get_private_data(actx->pinfo);
+  const char *label = val_to_str_const(type, mtype_names, "Unknown");
+  col_append_sep_str(actx->pinfo->cinfo, COL_INFO, NULL, label);
+  proto_item_append_text(priv_data->top_tree, " (%s)", label);
 }
 
 /****************************************************************************************************************/
@@ -407,7 +404,7 @@ void e2ap_store_ran_function_mapping(packet_info *pinfo, proto_tree *tree, tvbuf
 
         bool found = false;
         for (unsigned n=0; n<s_gnb_ran_functions_table.num_gnbs; n++) {
-            if ((s_gnb_ran_functions_table.gnb[n].id_len = id_len) &&
+            if ((s_gnb_ran_functions_table.gnb[n].id_len == id_len) &&
                 (memcmp(s_gnb_ran_functions_table.gnb[n].id_value, id_value, id_len) == 0)) {
                 /* Already have an entry for this gnb. */
                 found = true;
@@ -643,7 +640,7 @@ static void update_conversation_from_gnb_id(asn1_ctx_t *actx)
         uint8_t *id_value = &e2ap_data->gnb_id_bytes[0];
 
         for (unsigned n=0; n<s_gnb_ran_functions_table.num_gnbs; n++) {
-            if ((s_gnb_ran_functions_table.gnb[n].id_len = id_len) &&
+            if ((s_gnb_ran_functions_table.gnb[n].id_len == id_len) &&
                 (memcmp(s_gnb_ran_functions_table.gnb[n].id_value, id_value, id_len) == 0)) {
 
                 /* Have an entry for this gnb.  Set direct pointer to existing data (used by original conversation). */
@@ -786,7 +783,7 @@ dissect_e2ap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
   priv_data->stats_tap = tap_info;
 
   /* Store top-level tree */
-  top_tree = e2ap_tree;
+  priv_data->top_tree = e2ap_tree;
 
   /* create the e2ap protocol tree */
   e2ap_item = proto_tree_add_item(tree, proto_e2ap, tvb, 0, -1, ENC_NA);
@@ -801,7 +798,7 @@ dissect_e2ap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 
 static void e2ap_init_protocol(void)
 {
-  s_gnb_ran_functions_table.num_gnbs = 0;
+  memset(&s_gnb_ran_functions_table, 0, sizeof(s_gnb_ran_functions_table));
 }
 
 

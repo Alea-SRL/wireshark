@@ -64,11 +64,13 @@
 #include <epan/srt_table.h>
 #include <epan/tfs.h>
 #include <epan/read_keytab_file.h>
+#include <epan/keytab_krb5_ctx.h>
 #include <wsutil/wsgcrypt.h>
 #include <wsutil/file_util.h>
 #include <wsutil/str_util.h>
 #include <wsutil/pint.h>
 #include <wsutil/array.h>
+#include <wsutil/utf8_entities.h>
 #include "packet-kerberos.h"
 #include "packet-netbios.h"
 #include "packet-tcp.h"
@@ -81,6 +83,7 @@
 #include "packet-dcerpc.h"
 
 #include "packet-gssapi.h"
+#include "packet-pkix1explicit.h"
 #include "packet-x509af.h"
 
 #define KEY_USAGE_FAST_REQ_CHKSUM       50
@@ -198,6 +201,8 @@ static unsigned dissect_kerberos_PA_S4U2Self(bool implicit_tag _U_, tvbuff_t *tv
 static unsigned dissect_kerberos_PA_S4U_X509_USER(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
 static unsigned dissect_kerberos_ETYPE_INFO(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
 static unsigned dissect_kerberos_ETYPE_INFO2(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+static unsigned dissect_kerberos_TD_CMS_DIGEST_ALGORITHMS_DATA(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+static unsigned dissect_kerberos_TD_CERT_DIGEST_ALGORITHMS_DATA(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
 static unsigned dissect_kerberos_AD_IF_RELEVANT(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
 static unsigned dissect_kerberos_PA_AUTHENTICATION_SET_ELEM(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
 static unsigned dissect_kerberos_PA_FX_FAST_REQUEST(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
@@ -223,6 +228,7 @@ static unsigned dissect_kerberos_KRB5_SRP_PA_CLIENT_RESPONSE(bool implicit_tag _
 static unsigned dissect_kerberos_KRB5_SRP_PA_SERVER_VERIFIER(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
 static unsigned dissect_kerberos_AD_CAMMAC(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
 static unsigned dissect_kerberos_AD_AUTHENTICATION_INDICATOR(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
+static unsigned dissect_kerberos_IAKERB_FINISHED(bool implicit_tag _U_, tvbuff_t *tvb _U_, unsigned offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
 
 /* Desegment Kerberos over TCP messages */
 static bool krb_desegment = true;
@@ -247,6 +253,9 @@ static int hf_krb_gssapi_len;
 static int hf_krb_gssapi_bnd;
 static int hf_krb_gssapi_dlgopt;
 static int hf_krb_gssapi_dlglen;
+static int hf_krb_gssapi_ext_type;
+static int hf_krb_gssapi_ext_len;
+static int hf_krb_gssapi_ext_data;
 static int hf_krb_gssapi_c_flag_deleg;
 static int hf_krb_gssapi_c_flag_mutual;
 static int hf_krb_gssapi_c_flag_replay;
@@ -396,6 +405,7 @@ static expert_field ei_kerberos_decrypted_keytype;
 static expert_field ei_kerberos_learnt_keytype;
 static expert_field ei_kerberos_address;
 static expert_field ei_krb_gssapi_dlglen;
+static expert_field ei_krb_gssapi_extlen;
 
 static dissector_handle_t krb4_handle;
 
@@ -757,6 +767,31 @@ read_keytab_file_from_preferences(void)
 
 	keytab_file_read(last_keytab);
 }
+
+/* Like bytes_to_str_maxlen with a fixed maxlen of 4, and writing
+   into a preallocated static buffer. */
+static char*
+key_to_hexstr_maxfour(const uint8_t *keyvalue, unsigned keylength)
+{
+	// UTF8_HORIZONTAL_ELLIPSIS (U+2026) is 3 bytes, so the buffer must
+	// have room for 8 + 3 + 1 = 12 bytes.
+	static char keystr_buf[12];
+	char *keystr_end;
+	bool truncated = false;
+	unsigned len = keylength;
+	if (len > 4U) {
+		len = 4U;
+		truncated = true;
+	}
+	keystr_end = bytes_to_hexstr(keystr_buf, keyvalue, len);
+	if (truncated) {
+		g_stpcpy(keystr_end, UTF8_HORIZONTAL_ELLIPSIS);
+	} else {
+		*keystr_end = '\0';
+	}
+	return keystr_buf;
+}
+
 #endif /* HAVE_KERBEROS */
 
 #if defined(HAVE_HEIMDAL_KERBEROS) || defined(HAVE_MIT_KERBEROS)
@@ -856,8 +891,10 @@ add_encryption_key(packet_info *pinfo,
 	new_key->id = ++private_data->learnt_key_ids;
 	new_key->id_str = wmem_strdup_printf(key_scope, "%d.%u", new_key->fd_num, new_key->id);
 	new_key->keytype=keytype;
-	new_key->keylength=keylength;
-	memcpy(new_key->keyvalue, keyvalue, MIN(keylength, KRB_MAX_KEY_LENGTH));
+	/* XXX - Is there even a point in saving this if it's larger than the
+	 * max supported length? */
+	new_key->keylength=MIN(keylength, KRB_MAX_KEY_LENGTH);
+	memcpy(new_key->keyvalue, keyvalue, new_key->keylength);
 	new_key->src1 = src1;
 	new_key->src2 = src2;
 
@@ -873,30 +910,27 @@ add_encryption_key(packet_info *pinfo,
 
 	item = proto_tree_add_expert_format(key_tree, pinfo, &ei_kerberos_learnt_keytype,
 			key_tvb, 0, keylength,
-			"%s %s keytype %d (id=%d.%u) (%02x%02x%02x%02x...)",
+			"%s %s keytype %d (id=%d.%u) (%s)",
 			methodu, origin, keytype, pinfo->num, new_key->id,
-			keyvalue[0] & 0xFF, keyvalue[1] & 0xFF,
-			keyvalue[2] & 0xFF, keyvalue[3] & 0xFF);
+			key_to_hexstr_maxfour((const uint8_t*)keyvalue, keylength));
 	if (item != NULL && key_hidden_item != NULL) {
 		proto_tree_move_item(key_tree, key_hidden_item, item);
 	}
 	if (src1 != NULL) {
 		enc_key_t *sek = src1;
 		expert_add_info_format(pinfo, item, &ei_kerberos_learnt_keytype,
-				       "SRC1 %s keytype %d (id=%s same=%u) (%02x%02x%02x%02x...)",
+				       "SRC1 %s keytype %d (id=%s same=%u) (%s)",
 				       sek->key_origin, sek->keytype,
 				       sek->id_str, sek->num_same,
-				       sek->keyvalue[0] & 0xFF, sek->keyvalue[1] & 0xFF,
-				       sek->keyvalue[2] & 0xFF, sek->keyvalue[3] & 0xFF);
+				       key_to_hexstr_maxfour(sek->keyvalue, sek->keylength));
 	}
 	if (src2 != NULL) {
 		enc_key_t *sek = src2;
 		expert_add_info_format(pinfo, item, &ei_kerberos_learnt_keytype,
-				       "SRC2 %s keytype %d (id=%s same=%u) (%02x%02x%02x%02x...)",
+				       "SRC2 %s keytype %d (id=%s same=%u) (%s)",
 				       sek->key_origin, sek->keytype,
 				       sek->id_str, sek->num_same,
-				       sek->keyvalue[0] & 0xFF, sek->keyvalue[1] & 0xFF,
-				       sek->keyvalue[2] & 0xFF, sek->keyvalue[3] & 0xFF);
+				       key_to_hexstr_maxfour(sek->keyvalue, sek->keylength));
 	}
 
 	kerberos_key_list_append(private_data->learnt_keys, new_key);
@@ -1057,10 +1091,9 @@ static void used_encryption_key(proto_tree *tree, packet_info *pinfo,
 	item = proto_tree_add_expert_format(tree, pinfo, &ei_kerberos_decrypted_keytype,
 				     cryptotvb, 0, 0,
 				     "Decrypted keytype %d usage %d "
-				     "using %s (id=%s same=%u) (%02x%02x%02x%02x...)",
+				     "using %s (id=%s same=%u) (%s)",
 				     ek->keytype, usage, ek->key_origin, ek->id_str, ek->num_same,
-				     ek->keyvalue[0] & 0xFF, ek->keyvalue[1] & 0xFF,
-				     ek->keyvalue[2] & 0xFF, ek->keyvalue[3] & 0xFF);
+				     key_to_hexstr_maxfour(ek->keyvalue, ek->keylength));
 	expert_add_info_format(pinfo, item, &ei_kerberos_decrypted_keytype,
 			       "Used keymap=%s num_keys=%u num_tries=%u)",
 			       keymap_name,
@@ -1069,29 +1102,26 @@ static void used_encryption_key(proto_tree *tree, packet_info *pinfo,
 	if (ek->src1 != NULL) {
 		sek = ek->src1;
 		expert_add_info_format(pinfo, item, &ei_kerberos_decrypted_keytype,
-				       "SRC1 %s keytype %d (id=%s same=%u) (%02x%02x%02x%02x...)",
+				       "SRC1 %s keytype %d (id=%s same=%u) (%s)",
 				       sek->key_origin, sek->keytype,
 				       sek->id_str, sek->num_same,
-				       sek->keyvalue[0] & 0xFF, sek->keyvalue[1] & 0xFF,
-				       sek->keyvalue[2] & 0xFF, sek->keyvalue[3] & 0xFF);
+				       key_to_hexstr_maxfour(sek->keyvalue, sek->keylength));
 	}
 	if (ek->src2 != NULL) {
 		sek = ek->src2;
 		expert_add_info_format(pinfo, item, &ei_kerberos_decrypted_keytype,
-				       "SRC2 %s keytype %d (id=%s same=%u) (%02x%02x%02x%02x...)",
+				       "SRC2 %s keytype %d (id=%s same=%u) (%s)",
 				       sek->key_origin, sek->keytype,
 				       sek->id_str, sek->num_same,
-				       sek->keyvalue[0] & 0xFF, sek->keyvalue[1] & 0xFF,
-				       sek->keyvalue[2] & 0xFF, sek->keyvalue[3] & 0xFF);
+				       key_to_hexstr_maxfour(sek->keyvalue, sek->keylength));
 	}
 	sek = ek->same_list;
 	while (sek != NULL) {
 		expert_add_info_format(pinfo, item, &ei_kerberos_decrypted_keytype,
 				       "Decrypted keytype %d usage %d "
-				       "using %s (id=%s same=%u) (%02x%02x%02x%02x...)",
+				       "using %s (id=%s same=%u) (%s)",
 				       sek->keytype, usage, sek->key_origin, sek->id_str, sek->num_same,
-				       sek->keyvalue[0] & 0xFF, sek->keyvalue[1] & 0xFF,
-				       sek->keyvalue[2] & 0xFF, sek->keyvalue[3] & 0xFF);
+				       key_to_hexstr_maxfour(sek->keyvalue, sek->keylength));
 		sek = sek->same_list;
 	}
 	kerberos_key_list_append(private_data->decryption_keys, ek);
@@ -1175,11 +1205,10 @@ static void used_signing_key(proto_tree *tree, packet_info *pinfo,
 	item = proto_tree_add_expert_format(tree, pinfo, &ei_kerberos_decrypted_keytype,
 				     tvb, 0, 0,
 				     "%s checksum %d keytype %d "
-				     "using %s (id=%s same=%u) (%02x%02x%02x%02x...)",
+				     "using %s (id=%s same=%u) (%s)",
 				     reason, checksum, ek->keytype, ek->key_origin,
 				     ek->id_str, ek->num_same,
-				     ek->keyvalue[0] & 0xFF, ek->keyvalue[1] & 0xFF,
-				     ek->keyvalue[2] & 0xFF, ek->keyvalue[3] & 0xFF);
+				     key_to_hexstr_maxfour(ek->keyvalue, ek->keylength));
 	expert_add_info_format(pinfo, item, &ei_kerberos_decrypted_keytype,
 			       "Used keymap=%s num_keys=%u num_tries=%u)",
 			       keymap_name,
@@ -1189,11 +1218,10 @@ static void used_signing_key(proto_tree *tree, packet_info *pinfo,
 	while (sek != NULL) {
 		expert_add_info_format(pinfo, item, &ei_kerberos_decrypted_keytype,
 				       "%s checksum %d keytype %d "
-				       "using %s (id=%s same=%u) (%02x%02x%02x%02x...)",
+				       "using %s (id=%s same=%u) (%s)",
 				       reason, checksum, sek->keytype, sek->key_origin,
 				       sek->id_str, sek->num_same,
-				       sek->keyvalue[0] & 0xFF, sek->keyvalue[1] & 0xFF,
-				       sek->keyvalue[2] & 0xFF, sek->keyvalue[3] & 0xFF);
+				       key_to_hexstr_maxfour(sek->keyvalue, sek->keylength));
 		sek = sek->same_list;
 	}
 	kerberos_key_list_append(private_data->decryption_keys, ek);
@@ -1340,10 +1368,8 @@ decrypt_krb5_with_cb_try_key(void *__key _U_, void *value, void *userdata)
 		switch (state->usage) {
 		case KEY_USAGE_ENC_CHALLENGE_CLIENT:
 		case KEY_USAGE_ENC_CHALLENGE_KDC:
-			if (ek->fd_num == -1) {
-				/* Challenges are based on a long term key */
-				try_with_armor_key = true;
-			}
+			/* Challenges are based on a long term key */
+			try_with_armor_key = true;
 			break;
 		}
 
@@ -2541,28 +2567,41 @@ verify_krb5_pac(proto_tree *tree _U_, asn1_ctx_t *actx, tvbuff_t *pactvb)
 	ret = krb5_pac_get_buffer(keytab_krb5_ctx, state.pac, KRB5_PAC_SERVER_CHECKSUM,
 				  &checksum_data);
 	if (ret == 0) {
-		state.server_checksum = pletohu32(checksum_data.data);
+		/* The signature buffers start with the 4 byte checksum type. */
+		if (checksum_data.length >= 4) {
+			state.server_checksum = pletohu32(checksum_data.data);
+		}
 		krb5_free_data_contents(keytab_krb5_ctx, &checksum_data);
 	};
 	ret = krb5_pac_get_buffer(keytab_krb5_ctx, state.pac, KRB5_PAC_PRIVSVR_CHECKSUM,
 				  &checksum_data);
 	if (ret == 0) {
-		state.kdc_checksum = pletohu32(checksum_data.data);
+		if (checksum_data.length >= 4) {
+			state.kdc_checksum = pletohu32(checksum_data.data);
+		}
 		krb5_free_data_contents(keytab_krb5_ctx, &checksum_data);
 	};
 	ret = krb5_pac_get_buffer(keytab_krb5_ctx, state.pac,
 				  __KRB5_PAC_TICKET_CHECKSUM,
 				  &ticket_checksum_data);
 	if (ret == 0) {
-		state.ticket_checksum_data = &ticket_checksum_data;
-		state.ticket_checksum_type = pletohu32(ticket_checksum_data.data);
+		if (ticket_checksum_data.length >= 4) {
+			state.ticket_checksum_data = &ticket_checksum_data;
+			state.ticket_checksum_type = pletohu32(ticket_checksum_data.data);
+		} else {
+			krb5_free_data_contents(keytab_krb5_ctx, &ticket_checksum_data);
+		}
 	};
 	ret = krb5_pac_get_buffer(keytab_krb5_ctx, state.pac,
 				  __KRB5_PAC_FULL_CHECKSUM,
 				  &full_checksum_data);
 	if (ret == 0) {
-		state.full_checksum_data = &full_checksum_data;
-		state.full_checksum_type = pletohu32(full_checksum_data.data);
+		if (full_checksum_data.length >= 4) {
+			state.full_checksum_data = &full_checksum_data;
+			state.full_checksum_type = pletohu32(full_checksum_data.data);
+		} else {
+			krb5_free_data_contents(keytab_krb5_ctx, &full_checksum_data);
+		}
 	};
 
 	read_keytab_file_from_preferences();
@@ -3013,6 +3052,13 @@ static const value_string krb5_msg_types[] = {
 #define KRB5_GSS_C_CONF_FLAG              0x00000010
 #define KRB5_GSS_C_INTEG_FLAG             0x00000020
 #define KRB5_GSS_C_DCE_STYLE              0x00001000
+
+static const value_string krb_gssapi_ext_types[] = {
+	{ 0, "Channel binding" },
+	{ 1, "IAKERB finished (legacy)" },
+	{ 2, "IAKERB finished" },
+	{ 0, NULL }
+};
 
 static const true_false_string tfs_gss_flags_deleg = {
 	"Delegate credentials to remote peer",
@@ -3683,14 +3729,15 @@ dissect_kerberos_AD_TARGET_PRINCIPAL(bool implicit_tag _U_, tvbuff_t *tvb _U_,
 	return offset;
 }
 
-/* Dissect a GSSAPI checksum as per RFC1964. This is NOT ASN.1 encoded.
+/* Dissect a GSSAPI checksum as per RFC 4121 and RFC 6542. This is NOT ASN.1 encoded.
  */
 static unsigned
-dissect_krb5_rfc1964_checksum(asn1_ctx_t *actx _U_, proto_tree *tree, tvbuff_t *tvb)
+dissect_krb5_rfc1964_checksum(asn1_ctx_t *actx, proto_tree *tree, tvbuff_t *tvb)
 {
 	unsigned offset=0;
-	uint32_t len;
+	uint32_t len, flags, ext_type, ext_len;
 	uint16_t dlglen;
+	tvbuff_t *next_tvb;
 
 	/* Length of Bnd field */
 	len=tvb_get_letohl(tvb, offset);
@@ -3703,6 +3750,7 @@ dissect_krb5_rfc1964_checksum(asn1_ctx_t *actx _U_, proto_tree *tree, tvbuff_t *
 
 
 	/* flags */
+	flags=tvb_get_letohl(tvb, offset);
 	proto_tree_add_item(tree, hf_krb_gssapi_c_flag_dce_style, tvb, offset, 4, ENC_LITTLE_ENDIAN);
 	proto_tree_add_item(tree, hf_krb_gssapi_c_flag_integ, tvb, offset, 4, ENC_LITTLE_ENDIAN);
 	proto_tree_add_item(tree, hf_krb_gssapi_c_flag_conf, tvb, offset, 4, ENC_LITTLE_ENDIAN);
@@ -3712,31 +3760,50 @@ dissect_krb5_rfc1964_checksum(asn1_ctx_t *actx _U_, proto_tree *tree, tvbuff_t *
 	proto_tree_add_item(tree, hf_krb_gssapi_c_flag_deleg, tvb, offset, 4, ENC_LITTLE_ENDIAN);
 	offset += 4;
 
-	/* the next fields are optional so we have to check that we have
-	 * more data in our buffers */
-	if(tvb_reported_length_remaining(tvb, offset)<2){
-		return offset;
-	}
-	/* dlgopt identifier */
-	proto_tree_add_item(tree, hf_krb_gssapi_dlgopt, tvb, offset, 2, ENC_LITTLE_ENDIAN);
-	offset += 2;
-
-	if(tvb_reported_length_remaining(tvb, offset)<2){
-		return offset;
-	}
-	/* dlglen identifier */
-	dlglen=tvb_get_letohs(tvb, offset);
-	proto_tree_add_item(tree, hf_krb_gssapi_dlglen, tvb, offset, 2, ENC_LITTLE_ENDIAN);
-	offset += 2;
-
-	if(dlglen!=tvb_reported_length_remaining(tvb, offset)){
-		proto_tree_add_expert_format(tree, actx->pinfo, &ei_krb_gssapi_dlglen, tvb, 0, 0,
-				"Error: DlgLen:%d is not the same as number of bytes remaining:%d", dlglen, tvb_captured_length_remaining(tvb, offset));
-		return offset;
+	if (flags & KRB5_GSS_C_DELEG_FLAG) {
+		if (tvb_reported_length_remaining(tvb, offset) < 4) {
+			return offset;
+		}
+		proto_tree_add_item(tree, hf_krb_gssapi_dlgopt, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+		offset += 2;
+		dlglen=tvb_get_letohs(tvb, offset);
+		proto_tree_add_item(tree, hf_krb_gssapi_dlglen, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+		offset += 2;
+		if (dlglen > tvb_reported_length_remaining(tvb, offset)) {
+			proto_tree_add_expert_format(tree, actx->pinfo, &ei_krb_gssapi_dlglen, tvb, offset, -1,
+					"DlgLen:%u exceeds bytes remaining:%d", dlglen, tvb_reported_length_remaining(tvb, offset));
+			return offset;
+		}
+		next_tvb=tvb_new_subset_length(tvb, offset, dlglen);
+		dissect_kerberos_Applications(false, next_tvb, 0, actx, tree, /* hf_index */ -1);
+		offset += dlglen;
 	}
 
-	/* this should now be a KRB_CRED message */
-	offset=dissect_kerberos_Applications(false, tvb, offset, actx, tree, /* hf_index */ -1);
+	/* RFC 6542 extensions have a big-endian type and length. */
+	while (tvb_reported_length_remaining(tvb, offset) > 0) {
+		if (tvb_reported_length_remaining(tvb, offset) < 8) {
+			proto_tree_add_expert_format(tree, actx->pinfo, &ei_krb_gssapi_extlen, tvb, offset, -1,
+					"Incomplete GSSAPI extension header");
+			return offset;
+		}
+		ext_type=tvb_get_ntohl(tvb, offset);
+		proto_tree_add_item(tree, hf_krb_gssapi_ext_type, tvb, offset, 4, ENC_BIG_ENDIAN);
+		offset += 4;
+		ext_len=tvb_get_ntohl(tvb, offset);
+		proto_tree_add_item(tree, hf_krb_gssapi_ext_len, tvb, offset, 4, ENC_BIG_ENDIAN);
+		offset += 4;
+		if (ext_len > (uint32_t)tvb_reported_length_remaining(tvb, offset)) {
+			proto_tree_add_expert_format(tree, actx->pinfo, &ei_krb_gssapi_extlen, tvb, offset, -1,
+					"Extension length:%u exceeds bytes remaining:%d", ext_len, tvb_reported_length_remaining(tvb, offset));
+			return offset;
+		}
+		proto_tree_add_item(tree, hf_krb_gssapi_ext_data, tvb, offset, ext_len, ENC_NA);
+		if (ext_type == 1 || ext_type == 2) {
+			next_tvb=tvb_new_subset_length(tvb, offset, ext_len);
+			dissect_kerberos_IAKERB_FINISHED(false, next_tvb, 0, actx, tree, -1);
+		}
+		offset += ext_len;
+	}
 
 	return offset;
 }
@@ -4642,45 +4709,41 @@ kerberos_display_key(void *data _U_, void *userdata _U_)
 					    state->tvb,
 					    state->start,
 					    state->length,
-					    "%s %s keytype %d (id=%s same=%u) (%02x%02x%02x%02x...)",
+					    "%s %s keytype %d (id=%s same=%u) (%s)",
 					    state->name,
 					    ek->key_origin, ek->keytype,
 					    ek->id_str, ek->num_same,
-					    ek->keyvalue[0] & 0xFF, ek->keyvalue[1] & 0xFF,
-					    ek->keyvalue[2] & 0xFF, ek->keyvalue[3] & 0xFF);
+					    key_to_hexstr_maxfour(ek->keyvalue, ek->keylength));
 	if (ek->src1 != NULL) {
 		sek = ek->src1;
 		expert_add_info_format(state->pinfo,
 				       item,
 				       state->expindex,
-				       "SRC1 %s keytype %d (id=%s same=%u) (%02x%02x%02x%02x...)",
+				       "SRC1 %s keytype %d (id=%s same=%u) (%s)",
 				       sek->key_origin, sek->keytype,
 				       sek->id_str, sek->num_same,
-				       sek->keyvalue[0] & 0xFF, sek->keyvalue[1] & 0xFF,
-				       sek->keyvalue[2] & 0xFF, sek->keyvalue[3] & 0xFF);
+				       key_to_hexstr_maxfour(sek->keyvalue, sek->keylength));
 	}
 	if (ek->src2 != NULL) {
 		sek = ek->src2;
 		expert_add_info_format(state->pinfo,
 				       item,
 				       state->expindex,
-				       "SRC2 %s keytype %d (id=%s same=%u) (%02x%02x%02x%02x...)",
+				       "SRC2 %s keytype %d (id=%s same=%u) (%s)",
 				       sek->key_origin, sek->keytype,
 				       sek->id_str, sek->num_same,
-				       sek->keyvalue[0] & 0xFF, sek->keyvalue[1] & 0xFF,
-				       sek->keyvalue[2] & 0xFF, sek->keyvalue[3] & 0xFF);
+				       key_to_hexstr_maxfour(sek->keyvalue, sek->keylength));
 	}
 	sek = ek->same_list;
 	while (sek != NULL) {
 		expert_add_info_format(state->pinfo,
 				       item,
 				       state->expindex,
-				       "%s %s keytype %d (id=%s same=%u) (%02x%02x%02x%02x...)",
+				       "%s %s keytype %d (id=%s same=%u) (%s)",
 				       state->name,
 				       sek->key_origin, sek->keytype,
 				       sek->id_str, sek->num_same,
-				       sek->keyvalue[0] & 0xFF, sek->keyvalue[1] & 0xFF,
-				       sek->keyvalue[2] & 0xFF, sek->keyvalue[3] & 0xFF);
+				       key_to_hexstr_maxfour(sek->keyvalue, sek->keylength));
 		sek = sek->same_list;
 	}
 #endif /* HAVE_KERBEROS */
@@ -5116,6 +5179,15 @@ void proto_register_kerberos(void) {
 	{ &hf_krb_gssapi_dlglen, {
 		"DlgLen", "kerberos.gssapi.dlglen", FT_UINT16, BASE_DEC,
 		NULL, 0, "GSSAPI DlgLen", HFILL }},
+	{ &hf_krb_gssapi_ext_type, {
+		"Extension type", "kerberos.gssapi.extension.type", FT_UINT32, BASE_DEC,
+		VALS(krb_gssapi_ext_types), 0, NULL, HFILL }},
+	{ &hf_krb_gssapi_ext_len, {
+		"Extension length", "kerberos.gssapi.extension.length", FT_UINT32, BASE_DEC,
+		NULL, 0, NULL, HFILL }},
+	{ &hf_krb_gssapi_ext_data, {
+		"Extension data", "kerberos.gssapi.extension.data", FT_BYTES, BASE_NONE,
+		NULL, 0, NULL, HFILL }},
 	{ &hf_krb_midl_blob_len, {
 		"Blob Length", "kerberos.midl_blob_len", FT_UINT64, BASE_DEC,
 		NULL, 0, "Length of NDR encoded data that follows", HFILL }},
@@ -5503,7 +5575,8 @@ void proto_register_kerberos(void) {
 		{ &ei_kerberos_decrypted_keytype, { "kerberos.decrypted_keytype", PI_SECURITY, PI_CHAT, "Decrypted keytype", EXPFILL }},
 		{ &ei_kerberos_learnt_keytype, { "kerberos.learnt_keytype", PI_SECURITY, PI_CHAT, "Learnt keytype", EXPFILL }},
 		{ &ei_kerberos_address, { "kerberos.address.unknown", PI_UNDECODED, PI_WARN, "KRB Address: I don't know how to parse this type of address yet", EXPFILL }},
-		{ &ei_krb_gssapi_dlglen, { "kerberos.gssapi.dlglen.error", PI_MALFORMED, PI_ERROR, "DlgLen is not the same as number of bytes remaining", EXPFILL }},
+		{ &ei_krb_gssapi_dlglen, { "kerberos.gssapi.dlglen.error", PI_MALFORMED, PI_ERROR, "DlgLen exceeds bytes remaining", EXPFILL }},
+		{ &ei_krb_gssapi_extlen, { "kerberos.gssapi.extension.length.error", PI_MALFORMED, PI_ERROR, "Invalid GSSAPI extension length", EXPFILL }},
 	};
 
 	expert_module_t* expert_krb;

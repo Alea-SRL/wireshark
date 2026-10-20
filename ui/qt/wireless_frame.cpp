@@ -76,10 +76,8 @@ public:
         m_band = band;
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
         endFilterChange(QSortFilterProxyModel::Direction::Rows);
-#elif QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-        invalidateRowsFilter();
 #else
-        invalidateFilter();
+        invalidateRowsFilter();
 #endif
     }
     void addItem(const QString& text, enum ws80211_band_type band, const QVariant &data = QVariant())
@@ -137,10 +135,8 @@ public:
         m_mask = mask;
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
         endFilterChange(QSortFilterProxyModel::Direction::Rows);
-#elif QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-        invalidateRowsFilter();
 #else
-        invalidateFilter();
+        invalidateRowsFilter();
 #endif
     }
 
@@ -193,18 +189,10 @@ WirelessFrame::WirelessFrame(QWidget *parent) :
     proxy = new ChanTypeProxyModel(this);
     ui->channelTypeComboBox->setModel(proxy);
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    connect(ui->bandComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
-#else
     connect(ui->bandComboBox, &QComboBox::currentIndexChanged,
-#endif
             this, &WirelessFrame::bandComboBoxIndexChanged);
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    connect(ui->channelComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
-#else
     connect(ui->channelComboBox, &QComboBox::currentIndexChanged,
-#endif
             this, &WirelessFrame::channelComboBoxIndexChanged);
 
     updateInterfaceList();
@@ -481,7 +469,7 @@ void WirelessFrame::setInterfaceInfo()
         center_freq_s = qstring_strdup(QString::number(center_freq));
     }
 
-    ret = sync_interface_set_80211_chan(global_capture_opts.app_name, cur_iface.toUtf8().constData(),
+    ret = sync_interface_set_80211_chan(cur_iface.toUtf8().constData(),
                                         QString::number(frequency).toUtf8().constData(), chan_type_s,
                                         center_freq_s, NULL,
                                         &data, &primary_msg, &secondary_msg, main_window_update);

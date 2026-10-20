@@ -291,15 +291,15 @@ static int * const can_status_bits[] = {
 };
 
 static int * const can_mjr_hdr_bits[] = {
-	& hf_can_reserved_bytes,
-	& hf_can_LEC,
-	& hf_can_ERRP,
-	& hf_can_ERRW,
-	& hf_can_BOFF,
-	& hf_can_DLEC,
-	& hf_can_TEC,
-	& hf_can_REC,
-	& hf_can_CEL,
+	&hf_can_reserved_bytes,
+	&hf_can_LEC,
+	&hf_can_ERRP,
+	&hf_can_ERRW,
+	&hf_can_BOFF,
+	&hf_can_DLEC,
+	&hf_can_TEC,
+	&hf_can_REC,
+	&hf_can_CEL,
 	NULL
 };
 
@@ -1054,7 +1054,7 @@ static int dissect_ebhscr_flexray_frame_packet(tvbuff_t *tvb, packet_info *pinfo
 		header_data[1] |= 0x10;
 	}
 
-	hdr_tvb = tvb_new_real_data(header_data, 2U, 2U);
+	hdr_tvb = tvb_new_child_real_data(tvb, header_data, 2U, 2U);
 
 	tvb_composite_append(fr_tvb, hdr_tvb);
 	tvb_composite_append(fr_tvb, tvb_new_subset_length(tvb, 32, ebhscr_current_payload_length));

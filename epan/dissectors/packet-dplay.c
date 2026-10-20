@@ -901,7 +901,7 @@ static void dissect_dplay(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     uint16_t second_message_type = UINT16_MAX;
     uint16_t proto_version;
     uint32_t dplay_id;
-    uint8_t play_id[] = {'p','l','a','y'};
+    const uint8_t play_id[] = {'p','l','a','y'};
 
     dplay_id = tvb_get_letohl(tvb, 20);
     message_type = tvb_get_letohs(tvb, 24);
@@ -937,7 +937,7 @@ static void dissect_dplay(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         proto_tree *dplay_tree;
         proto_tree *dplay_header;
         proto_tree *dplay_data;
-        int offset = 0;
+        unsigned offset = 0;
 
         dplay_item = proto_tree_add_item(tree, proto_dplay, tvb, 0, -1, ENC_NA);
         dplay_tree = proto_item_add_subtree(dplay_item, ett_dplay);
@@ -1013,7 +1013,7 @@ static void dissect_dplay_player_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tr
         proto_item *dplay_item;
         proto_tree *dplay_tree;
         proto_tree *data_tree;
-        int offset = 0;
+        unsigned offset = 0;
 
         dplay_item = proto_tree_add_item(tree, proto_dplay, tvb, offset, -1, ENC_NA);
         dplay_tree = proto_item_add_subtree(dplay_item, ett_dplay);

@@ -102,6 +102,7 @@ static int hf_http_connection;
 static int hf_http_cookie;
 static int hf_http_cookie_pair;
 static int hf_http_accept;
+static int hf_http_accept_query;
 static int hf_http_referer;
 static int hf_http_accept_language;
 static int hf_http_accept_encoding;
@@ -153,10 +154,13 @@ static expert_field ei_http_tls_port;
 static expert_field ei_http_leading_crlf;
 static expert_field ei_http_excess_data;
 static expert_field ei_http_bad_header_name;
+static expert_field ei_http_header_name_trailing_ws;
+static expert_field ei_http_bad_header_value_nul;
 static expert_field ei_http_decompression_failed;
 static expert_field ei_http_decompression_disabled;
 static expert_field ei_http_response_code_invalid;
 static expert_field ei_http_request_uri_invalid;
+static expert_field ei_http_request_uri_whitespace;
 
 static dissector_handle_t http_handle;
 static dissector_handle_t http_tcp_handle;
@@ -386,6 +390,7 @@ static int is_http_request_or_reply(packet_info *pinfo, const char *data, unsign
 static unsigned chunked_encoding_dissector(tvbuff_t **tvb_ptr, packet_info *pinfo,
 					proto_tree *tree, unsigned offset);
 static bool valid_header_name(const unsigned char *line, unsigned header_len);
+static bool invalid_header_value_char(uint8_t c);
 static bool process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 			   const unsigned char *line, unsigned linelen, unsigned colon_offset,
 			   packet_info *pinfo, proto_tree *tree,
@@ -530,7 +535,7 @@ static int st_node_resps_by_srv_addr = -1;
 
 /* Parse HTTP path sub components RFC3986 Ch 3.3, 3.4 */
 void
-http_add_path_components_to_tree(tvbuff_t* tvb, packet_info* pinfo _U_, proto_item* item, unsigned offset, unsigned length)
+http_add_path_components_to_tree(tvbuff_t* tvb, packet_info* pinfo, proto_item* item, unsigned offset, unsigned length)
 {
 	proto_item* ti;
 	proto_tree* uri_tree;
@@ -578,6 +583,37 @@ http_add_path_components_to_tree(tvbuff_t* tvb, packet_info* pinfo _U_, proto_it
 			parameter_offset = end_offset;
 		}
 		proto_tree_add_item(query_tree, hf_http_request_query_parameter, tvb, offset, parameter_offset - offset, ENC_ASCII);
+
+		// RFC 8484 - DNS Queries over HTTPS (DoH)
+		if (!tvb_strneql(tvb, offset, "dns=", 4)) {
+			unsigned parameter_value_length = parameter_offset - offset - 4;
+			// The Base64 decode functions just silently skip over
+			// invalid bytes, so we check the length. (It might be
+			// nice for those functions to do the checking.)
+			// Padding is expressely omitted
+			// https://www.rfc-editor.org/info/rfc8484/#section-6
+			// as allowed by base64url
+			// https://www.rfc-editor.org/info/rfc4648/#section-5
+			// https://www.rfc-editor.org/info/rfc4648/#section-3.2
+			// which makes the expected length calculation a bit
+			// tedious.
+			// https://www.rfc-editor.org/info/rfc4648/#section-4
+			unsigned expected_dns_tvb_length = (parameter_value_length / 4) * 3;
+			// parameter_value_length % 4 == 1 should perhaps just
+			// be rejected, it's not valid encoding output.
+			expected_dns_tvb_length += ((parameter_value_length % 4) + 1) / 2;
+			tvbuff_t *dns_tvb = base64uri_tvb_to_new_tvb(tvb, offset + 4, parameter_value_length);
+			if (tvb_reported_length(dns_tvb) == expected_dns_tvb_length &&
+				expected_dns_tvb_length >= 30) {  // Check if parameter value was likely base64uri encoded DNS query
+				add_new_data_source(pinfo, dns_tvb, "DNS query");
+				const char *save_match_string = pinfo->match_string;
+				pinfo->match_string = "application/dns-message";  // The DNS dissector needs this for DOH
+				dissector_try_string_with_data(media_type_subdissector_table, "application/dns-message",
+					dns_tvb, pinfo, query_tree, true, NULL);
+				pinfo->match_string = save_match_string;
+			}
+		}
+
 		offset = parameter_offset + 1;
 	}
 }
@@ -976,7 +1012,7 @@ determine_http_location_target(wmem_allocator_t *scope, const char *base_url, co
 			}
 			/* Otherwise, it replaces the last element in the URI */
 			else {
-				char *end_of_path = g_strrstr(scheme_end, "/");
+				const char *end_of_path = g_strrstr(scheme_end, "/");
 
 				if (end_of_path != NULL) {
 					int base_through_path = (int) (end_of_path - base_url_no_query);
@@ -1096,7 +1132,7 @@ get_http_conversation_data(packet_info *pinfo, conversation_t **conversation)
 		conv_data = wmem_new0(wmem_file_scope(), http_conv_t);
 		conv_data->chunk_offsets_fwd = wmem_map_new(wmem_file_scope(), g_direct_hash, g_direct_equal);
 		conv_data->chunk_offsets_rev = wmem_map_new(wmem_file_scope(), g_direct_hash, g_direct_equal);
-		conv_data->req_list = NULL;
+		conv_data->req_list = wmem_list_new(wmem_file_scope());
 		conv_data->matches_table = wmem_map_new(wmem_file_scope(), g_direct_hash, g_direct_equal);
 
 		conversation_add_proto_data(*conversation, proto_http,
@@ -1189,15 +1225,13 @@ http_get_header_value(packet_info* pinfo, const char *name, bool the_other_direc
 	if (conv_data) {
 		const http_req_res_t *req_res = conv_data->req_res_tail;
 		if (req_res && req_res->private_data) {
-			const http_req_res_private_data_t *private = (http_req_res_private_data_t *)req_res->private_data;
-			if (private) {
-				wmem_map_t *headers = (conv_data->server_port == pinfo->destport && the_other_direction) || (
-					                      conv_data->server_port == pinfo->srcport && !the_other_direction)
-					                      ? private->response_headers
-					                      : private->request_headers;
-				if (headers) {
-					return wmem_map_lookup(headers, name);
-				}
+			const http_req_res_private_data_t *private_data = (http_req_res_private_data_t *)req_res->private_data;
+			wmem_map_t *headers = (conv_data->server_port == pinfo->destport && the_other_direction) || (
+									  conv_data->server_port == pinfo->srcport && !the_other_direction)
+									  ? private_data->response_headers
+									  : private_data->request_headers;
+			if (headers) {
+				return wmem_map_lookup(headers, name);
 			}
 		}
 	}
@@ -2585,7 +2619,7 @@ dissecting_body:
 	}
 
 	/* Detect protocol changes after receiving full response headers. */
-	if (http_type == MEDIA_CONTAINER_HTTP_RESPONSE && curr && pinfo->desegment_offset <= 0 && pinfo->desegment_len <= 0) {
+	if (http_type == MEDIA_CONTAINER_HTTP_RESPONSE && curr && pinfo->desegment_offset <= 0 && pinfo->desegment_len == 0) {
 		dissector_handle_t next_handle = NULL;
 		bool server_acked = false;
 
@@ -2670,6 +2704,15 @@ basic_request_dissector(packet_info *pinfo, tvbuff_t *tvb, proto_tree *tree,
 		curr->request_uri = wmem_strdup(wmem_file_scope(), request_uri);
 	}
 	ti = proto_tree_add_string(tree, hf_http_request_uri, tvb, offset, tokenlen, request_uri);
+	const char *p;
+
+	/* RFC 9112 §3.2: No whitespace is allowed in the request-target. */
+	for (p = request_uri; *p != '\0'; p++) {
+		if (*p == ' ' || *p == '\t') {
+			expert_add_info(pinfo, ti, &ei_http_request_uri_whitespace);
+			break;
+		}
+	}
 	http_add_path_components_to_tree(tvb, pinfo, ti, offset, tokenlen);
 	offset += (unsigned) (next_token - line);
 	line = next_token;
@@ -3005,7 +3048,7 @@ http_conversation_is_connect(conversation_t *conv, uint32_t frame_num)
 /* Call a subdissector to handle HTTP CONNECT's traffic */
 static void
 http_payload_subdissector(tvbuff_t *tvb, proto_tree *tree,
-			  packet_info *pinfo, http_conv_t *conv_data, void* data)
+			  packet_info *pinfo, http_conv_t *conv_data, struct tcpinfo *tcpinfo)
 {
 	uint32_t *ptr = NULL;
 	uint32_t uri_port, saved_port, srcport, destport;
@@ -3096,7 +3139,7 @@ http_payload_subdissector(tvbuff_t *tvb, proto_tree *tree,
 			*ptr = uri_port;
 			decode_tcp_ports(tvb, 0, pinfo, tree,
 				pinfo->srcport, pinfo->destport, NULL,
-				(struct tcpinfo *)data);
+				tcpinfo);
 			*ptr = saved_port;
 			copy_address_shallow(addrp, &saved_addr);
 		}
@@ -3185,7 +3228,8 @@ is_http_request_or_reply(packet_info *pinfo, const char *data, unsigned linelen,
 				strncmp(data, "TRACE", indx) == 0 ||
 				strncmp(data, "PATCH", indx) == 0 ||  /* RFC 5789 */
 				strncmp(data, "LABEL", indx) == 0 ||  /* RFC 3253 8.2 */
-				strncmp(data, "MERGE", indx) == 0) {  /* RFC 3253 11.2 */
+				strncmp(data, "MERGE", indx) == 0 ||  /* RFC 3253 11.2 */
+				strncmp(data, "QUERY", indx) == 0) {  /* RFC 10008 */
 				*type = MEDIA_CONTAINER_HTTP_REQUEST;
 				isHttpRequestOrReply = true;
 			}
@@ -3342,6 +3386,7 @@ static const header_info headers[] = {
 	{ "Connection", &hf_http_connection, HDR_NO_SPECIAL },
 	{ "Cookie", &hf_http_cookie, HDR_COOKIE },
 	{ "Accept", &hf_http_accept, HDR_NO_SPECIAL },
+	{ "Accept-Query", &hf_http_accept_query, HDR_NO_SPECIAL },
 	{ "Referer", &hf_http_referer, HDR_REFERER },
 	{ "Accept-Language", &hf_http_accept_language, HDR_NO_SPECIAL },
 	{ "Accept-Encoding", &hf_http_accept_encoding, HDR_NO_SPECIAL },
@@ -3543,6 +3588,13 @@ valid_header_name(const unsigned char *line, unsigned header_len)
 }
 
 static bool
+invalid_header_value_char(uint8_t c)
+{
+    /* NUL is not allowed in field values. */
+    return c == '\0';
+}
+
+static bool
 process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 	       const unsigned char *line, unsigned linelen, unsigned colon_offset,
 	       packet_info *pinfo, proto_tree *tree, headers_t *eh_ptr,
@@ -3561,8 +3613,10 @@ process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 	char *header_name;
 	char *p;
 	unsigned char *up;
-	proto_item *hdr_item, *it;
+	proto_item *hdr_item = NULL, *it;
 	unsigned f;
+	bool header_name_trailing_ws;
+	bool header_value_bad_char;
 	int* hf_id;
 	tap_credential_t* auth;
 	http_req_res_t  *curr_req_res = (http_req_res_t *)p_get_proto_data(wmem_file_scope(), pinfo,
@@ -3574,6 +3628,9 @@ process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 	len = next_offset - offset;
 	line_end_offset = offset + linelen;
 	header_len = colon_offset - offset;
+	header_name_trailing_ws = header_len > 0 &&
+	    (line[header_len - 1] == ' ' || line[header_len - 1] == '\t');
+	header_value_bad_char = false;
 
 	/**
 	 * Not a valid header name? Just add a line plus expert info.
@@ -3595,6 +3652,9 @@ process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 		it = proto_tree_add_item(tree, hf_index, tvb, offset, len, ENC_NA|ENC_ASCII);
 		proto_item_set_text(it, "%s", format_text(pinfo->pool, (char*)line, len));
 		expert_add_info(pinfo, it, &ei_http_bad_header_name);
+		if (header_name_trailing_ws) {
+			expert_add_info(pinfo, it, &ei_http_header_name_trailing_ws);
+		}
 		return false;
 	}
 
@@ -3648,6 +3708,12 @@ process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 	value_bytes = (uint8_t *)wmem_alloc(PINFO_FD_VISITED(pinfo) ? pinfo->pool : header_value_map_allocator, value_bytes_len+1);
 	memcpy(value_bytes, &line[value_offset - offset], value_bytes_len);
 	value_bytes[value_bytes_len] = '\0';
+	for (f = 0; f < value_bytes_len; f++) {
+		if (invalid_header_value_char(value_bytes[f])) {
+			header_value_bad_char = true;
+			break;
+		}
+	}
 	value = (char*)tvb_get_string_enc(pinfo->pool, tvb, value_offset, value_bytes_len, ENC_ASCII);
 	/* The length of the value might change after UTF-8 sanitization */
 	value_len = (int)strlen(value);
@@ -3667,22 +3733,22 @@ process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 			if (!hf_id) {
 				if (http_type == MEDIA_CONTAINER_HTTP_REQUEST ||
 					http_type == MEDIA_CONTAINER_HTTP_RESPONSE) {
-					it = proto_tree_add_item(tree,
+					hdr_item = proto_tree_add_item(tree,
 						http_type == MEDIA_CONTAINER_HTTP_RESPONSE ?
 						hf_http_response_line :
 						hf_http_request_line,
 						tvb, offset, len,
 						ENC_NA|ENC_ASCII);
-					proto_item_set_text(it, "%s",
+					proto_item_set_text(hdr_item, "%s",
 							format_text(pinfo->pool, (char*)line, len));
 				} else {
 					char* str = format_text(pinfo->pool, (char*)line, len);
-					proto_tree_add_string_format(tree, hf_http_unknown_header, tvb, offset,
+					hdr_item = proto_tree_add_string_format(tree, hf_http_unknown_header, tvb, offset,
 						len, str, "%s", str);
 				}
 
 			} else {
-				proto_tree_add_string_format(tree,
+				hdr_item = proto_tree_add_string_format(tree,
 					*hf_id, tvb, offset, len, value,
 					"%s", format_text(pinfo->pool, (char*)line, len));
 				if (http_type == MEDIA_CONTAINER_HTTP_REQUEST ||
@@ -3697,6 +3763,9 @@ process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 							format_text(pinfo->pool, (char*)line, len));
 					proto_item_set_hidden(it);
 				}
+			}
+			if (header_value_bad_char && hdr_item) {
+				expert_add_info(pinfo, hdr_item, &ei_http_bad_header_value_nul);
 			}
 		}
 	} else {
@@ -3752,6 +3821,10 @@ process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 			}
 		} else
 			hdr_item = NULL;
+
+		if (header_value_bad_char && hdr_item) {
+			expert_add_info(pinfo, hdr_item, &ei_http_bad_header_value_nul);
+		}
 
 		/*
 		 * Do any special processing that particular headers
@@ -4036,11 +4109,7 @@ process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 				req_trans->abs_time = pinfo->fd->abs_ts;
 				req_trans->request_uri = curr_req_res->request_uri;
 
-				/* XXX - This leaks if matching responses aren't
-				 * found (the data does not, but the list node
-				 * does.) A wmem_list would prevent that.
-				 */
-				conv_data->req_list = g_slist_append(conv_data->req_list, req_trans);
+				wmem_list_append(conv_data->req_list, req_trans);
 				curr_req_res->req_has_range = true;
 			}
 			}
@@ -4069,7 +4138,7 @@ process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 				request_trans_t *req_trans;
 				match_trans_t *match_trans = NULL;
 				nstime_t  ns;
-				GSList *iter = NULL;
+				wmem_list_frame_t *frame;
 
 				/* Note SP instead of '=' in ABNF. */
 				const char *pos = strchr(value, ' ');
@@ -4112,12 +4181,13 @@ process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 				* handling of such edge cases is more difficult.
 				*/
 				req_trans = NULL;
-				if (conv_data->req_list && conv_data->req_list->data) {
-					for (iter = conv_data->req_list; iter; iter = iter->next) {
-						if (((request_trans_t*)iter->data)->first_range_num == first_crange_num) {
-							req_trans = iter->data;
-							break;
-						}
+				for (frame = wmem_list_head(conv_data->req_list);
+						frame; frame = wmem_list_frame_next(frame)) {
+
+					request_trans_t* frame_req_trans = wmem_list_frame_data(frame);
+					if (frame_req_trans->first_range_num == first_crange_num) {
+						req_trans = frame_req_trans;
+						break;
 					}
 				}
 
@@ -4137,19 +4207,13 @@ process_header(tvbuff_t *tvb, unsigned offset, unsigned next_offset,
 
 					/* Remove and free all of the list entries up to and including the
 					*  matching one from req_list. */
-					if (conv_data->req_list) {
-						GSList *top_of_list = NULL;
+					while ((frame = wmem_list_head(conv_data->req_list))) {
 
-						top_of_list = conv_data->req_list;
-						while (top_of_list && top_of_list->data != req_trans) {
-
-						    top_of_list = g_slist_delete_link(top_of_list, top_of_list);
+						if (wmem_list_frame_data(frame) == req_trans) {
+							wmem_list_remove_frame(conv_data->req_list, frame);
+							break;
 						}
-						if (top_of_list && top_of_list->data == req_trans) {
-
-						    top_of_list = g_slist_delete_link(top_of_list, top_of_list);
-						}
-						conv_data->req_list = top_of_list;
+						wmem_list_remove_frame(conv_data->req_list, frame);
 					}
 				}
 			}
@@ -4513,7 +4577,7 @@ dissect_http_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
 			copy_address_wmem(wmem_file_scope(), &conv_data->server_addr, &pinfo->dst);
 			conv_data->server_port = pinfo->destport;
 		}
-		http_payload_subdissector(tvb, tree, pinfo, conv_data, data);
+		http_payload_subdissector(tvb, tree, pinfo, conv_data, tcpinfo);
 
 		return tvb_captured_length(tvb);
 	}
@@ -4825,6 +4889,10 @@ proto_register_http(void)
 	      { "Accept", "http.accept",
 		FT_STRING, BASE_NONE, NULL, 0x0,
 		"HTTP Accept", HFILL }},
+	    { &hf_http_accept_query,
+	      { "Accept-Query", "http.accept_query",
+		FT_STRING, BASE_NONE, NULL, 0x0,
+		"HTTP Accept-Query", HFILL }},
 	    { &hf_http_referer,
 	      { "Referer", "http.referer",
 		FT_STRING, BASE_NONE, NULL, 0x0,
@@ -4957,10 +5025,13 @@ proto_register_http(void)
 		{ &ei_http_excess_data, { "http.excess_data", PI_PROTOCOL, PI_WARN, "Excess data after a body (not a new request/response), previous Content-Length bogus?", EXPFILL }},
 		{ &ei_http_leading_crlf, { "http.leading_crlf", PI_MALFORMED, PI_ERROR, "Leading CRLF previous message in the stream may have extra CRLF", EXPFILL }},
 		{ &ei_http_bad_header_name, { "http.bad_header_name", PI_PROTOCOL, PI_WARN, "Illegal characters found in header name", EXPFILL }},
+		{ &ei_http_header_name_trailing_ws, { "http.header_name.trailing_whitespace", PI_PROTOCOL, PI_WARN, "Whitespace before header colon", EXPFILL }},
+		{ &ei_http_bad_header_value_nul, { "http.header_value.invalid_nul_char", PI_PROTOCOL, PI_WARN, "Invalid NUL byte in HTTP header value", EXPFILL }},
 		{ &ei_http_decompression_failed, { "http.decompression_failed", PI_UNDECODED, PI_WARN, "Decompression failed", EXPFILL }},
 		{ &ei_http_decompression_disabled, { "http.decompression_disabled", PI_UNDECODED, PI_CHAT, "Decompression disabled", EXPFILL }},
 		{ &ei_http_response_code_invalid, { "http.response.code.invalid", PI_MALFORMED, PI_WARN, "Invalid HTTP response status code token", EXPFILL }},
 		{ &ei_http_request_uri_invalid, { "http.request.uri.invalid", PI_MALFORMED, PI_ERROR, "Invalid request target", EXPFILL }},
+		{ &ei_http_request_uri_whitespace, { "http.request.uri.whitespace", PI_PROTOCOL, PI_WARN, "Request target contains whitespace", EXPFILL }},
 
 	};
 

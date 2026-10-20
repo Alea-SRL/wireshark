@@ -83,8 +83,6 @@
     #include "ui/failure_message.h"
 #endif
 
-#include <cli_main.h>
-
 #ifdef ANDROIDDUMP_USE_LIBPCAP
     #define EXTCAP_ENCAP_BLUETOOTH_H4_WITH_PHDR DLT_BLUETOOTH_H4_WITH_PHDR
     #define EXTCAP_ENCAP_WIRESHARK_UPPER_PDU    DLT_WIRESHARK_UPPER_PDU
@@ -938,7 +936,7 @@ static void new_interface(extcap_parameters * extcap_conf, const char *interface
             is_specified_interface(interface, INTERFACE_ANDROID_BLUETOOTH_EXTERNAL_PARSER) ||
             is_specified_interface(interface, INTERFACE_ANDROID_BLUETOOTH_BTSNOOP_NET)) {
 
-        extcap_base_register_interface_ext(extcap_conf, interface, ifdisplay, 99, "BluetoothH4", "Bluetooth HCI UART transport layer plus pseudo-header" );
+        extcap_base_register_interface_ext(extcap_conf, interface, ifdisplay, 99, "BluetoothH4", "Bluetooth HCI UART transport layer plus pseudo-header", EXTCAP_CONTROL_NONE);
     } else if (is_logcat_interface(interface) || is_logcat_text_interface(interface)) {
         extcap_base_register_interface(extcap_conf, interface, ifdisplay, 252, "Upper PDU" );
     } else if (is_specified_interface(interface, INTERFACE_ANDROID_TCPDUMP)) {
@@ -955,7 +953,7 @@ static void new_fake_interface_for_list_dlts(extcap_parameters * extcap_conf,
     if (is_specified_interface(ifname, INTERFACE_ANDROID_BLUETOOTH_HCIDUMP) ||
             is_specified_interface(ifname, INTERFACE_ANDROID_BLUETOOTH_EXTERNAL_PARSER) ||
             is_specified_interface(ifname, INTERFACE_ANDROID_BLUETOOTH_BTSNOOP_NET)) {
-        extcap_base_register_interface_ext(extcap_conf, ifname, ifname, 99, "BluetoothH4", "Bluetooth HCI UART transport layer plus pseudo-header" );
+        extcap_base_register_interface_ext(extcap_conf, ifname, ifname, 99, "BluetoothH4", "Bluetooth HCI UART transport layer plus pseudo-header", EXTCAP_CONTROL_NONE);
     } else if (is_logcat_interface(ifname) || is_logcat_text_interface(ifname)) {
         extcap_base_register_interface(extcap_conf, ifname, ifname, 252, "Upper PDU" );
     } else if (is_specified_interface(ifname, INTERFACE_ANDROID_TCPDUMP)) {
@@ -1948,7 +1946,7 @@ static int capture_android_bluetooth_btsnoop_net(char *interface, char *fifo,
         return EXIT_CODE_ERROR_WHILE_SENDING_ADB_PACKET_2;
     }
 
-    /* Read "btsnoop" header - 16 bytes */
+    /* Read "btsnoop" file header - 16 bytes */
     while (used_buffer_length < BTSNOOP_HDR_LEN) {
         length = recv(sock, packet + used_buffer_length,  (int)(BTSNOOP_HDR_LEN - used_buffer_length), 0);
         if (length <= 0) {
@@ -1979,9 +1977,26 @@ static int capture_android_bluetooth_btsnoop_net(char *interface, char *fifo,
 
         used_buffer_length += length;
 
-        while (used_buffer_length >= 24 &&
-                used_buffer_length >= (int) (24 + GINT32_FROM_BE(*captured_length))) {
+        while (used_buffer_length >= 24) {
+            /* We have the next record header. */
+            uint32_t record_reported_length = GUINT32_FROM_BE(*reported_length);
+            uint32_t record_captured_length = GUINT32_FROM_BE(*captured_length);
             int32_t direction;
+
+            /* Check that the captured length fits in our allocated packet buf,
+             * and that the reported length is at least as long as the captured
+             * length and won't overflow. */
+            if (record_captured_length > PACKET_LENGTH - sizeof(own_pcap_bluetooth_h4_header) - 24 ||
+                    record_reported_length < record_captured_length ||
+                    record_reported_length > UINT32_MAX - sizeof(own_pcap_bluetooth_h4_header)) {
+                ws_warning("Invalid btsnoop packet length.");
+                closesocket(sock);
+                return EXIT_CODE_GENERIC;
+            }
+
+            /* Check if we have the entire record. */
+            if ((size_t)used_buffer_length < 24 + record_captured_length)
+                break;
 
             ts = GINT64_FROM_BE(*timestamp);
             ts -= BTSNOOP_TIMESTAMP_BASE;
@@ -1991,12 +2006,12 @@ static int capture_android_bluetooth_btsnoop_net(char *interface, char *fifo,
 
             endless_loop = extcap_dumper_dump(extcap_dumper, fifo,
                     payload - sizeof(own_pcap_bluetooth_h4_header),
-                    GINT32_FROM_BE(*captured_length) + sizeof(own_pcap_bluetooth_h4_header),
-                    GINT32_FROM_BE(*reported_length) + sizeof(own_pcap_bluetooth_h4_header),
+                    (ssize_t)(record_captured_length + sizeof(own_pcap_bluetooth_h4_header)),
+                    (ssize_t)(record_reported_length + sizeof(own_pcap_bluetooth_h4_header)),
                     (uint32_t)(ts / 1000000),
                     ((uint32_t)(ts % 1000000)) * 1000);
 
-            used_buffer_length -= 24 + GINT32_FROM_BE(*captured_length);
+            used_buffer_length -= 24 + record_captured_length;
             if (used_buffer_length < 0) {
                 ws_warning("Internal Negative used buffer length.");
                 closesocket(sock);
@@ -2004,7 +2019,7 @@ static int capture_android_bluetooth_btsnoop_net(char *interface, char *fifo,
             }
 
             if  (used_buffer_length > 0)
-                memmove(packet + sizeof(own_pcap_bluetooth_h4_header), payload + GINT32_FROM_BE(*captured_length), used_buffer_length);
+                memmove(packet + sizeof(own_pcap_bluetooth_h4_header), payload + record_captured_length, used_buffer_length);
         }
     }
 
@@ -2511,7 +2526,7 @@ int main(int argc, char *argv[]) {
     cmdarg_err_init(extcap_log_cmdarg_err, extcap_log_cmdarg_err);
 
     /* Initialize log handler early so we can have proper logging during startup. */
-    extcap_log_init();
+    extcap_log_init(extcap_conf);
 
     /*
      * Get credential information for later use.

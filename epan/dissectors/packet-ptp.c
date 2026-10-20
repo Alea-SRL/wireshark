@@ -2043,7 +2043,7 @@ create_frame_info(packet_info *pinfo, uint8_t ptp_major, uint8_t ptp_minor, uint
 }
 
 static int
-dissect_ntp_msg_tlv(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_item *ti_root, proto_tree *tree, proto_tree *ptp_tlv_tree, uint16_t remaining_tlv_length) {
+dissect_ntp_msg_tlv(tvbuff_t *tvb, unsigned offset, packet_info *pinfo, proto_item *ti_root, proto_tree *tree, proto_tree *ptp_tlv_tree, uint16_t remaining_tlv_length) {
 
     int offset_start = offset;
 
@@ -2786,7 +2786,7 @@ dissect_ptp_v1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree) {
 
 /* Code to dissect PTPText */
 static void
-dissect_ptp_v2_text(tvbuff_t *tvb, int *cur_offset, proto_tree *tree, int hf_ptp_v2_mm_ptptext, int hf_ptp_v2_mm_ptptext_length) {
+dissect_ptp_v2_text(tvbuff_t *tvb, unsigned *cur_offset, proto_tree *tree, int hf_ptp_v2_mm_ptptext, int hf_ptp_v2_mm_ptptext_length) {
     uint8_t     length = 0;
     proto_item *ptptext_ti;
     proto_tree *ptptext_subtree;
@@ -2807,7 +2807,7 @@ dissect_ptp_v2_text(tvbuff_t *tvb, int *cur_offset, proto_tree *tree, int hf_ptp
 }
 
 void
-dissect_ptp_v2_timeInterval(tvbuff_t *tvb, int *cur_offset, proto_tree *tree, const char* name, int hf_ptp_v2_timeInterval_ns, int hf_ptp_v2_timeInterval_subns, proto_tree **tree_out, int64_t *ns_out) {
+dissect_ptp_v2_timeInterval(tvbuff_t *tvb, unsigned *cur_offset, proto_tree *tree, const char* name, int hf_ptp_v2_timeInterval_ns, int hf_ptp_v2_timeInterval_subns, proto_tree **tree_out, int64_t *ns_out) {
     double      time_double;
     int64_t     time_ns;
     uint16_t    time_subns;
@@ -2837,7 +2837,7 @@ dissect_ptp_v2_timeInterval(tvbuff_t *tvb, int *cur_offset, proto_tree *tree, co
 }
 
 static void
-dissect_ptp_v2_timetstamp(tvbuff_t *tvb, int *cur_offset, proto_tree *tree, const char* name, int hf_ptp_v2_timestamp_s, int hf_ptp_v2_timestamp_ns) {
+dissect_ptp_v2_timetstamp(tvbuff_t *tvb, unsigned *cur_offset, proto_tree *tree, const char* name, int hf_ptp_v2_timestamp_s, int hf_ptp_v2_timestamp_ns) {
     int64_t     time_s;
     uint32_t    time_ns;
     proto_tree *ptptimestamp_subtree;
@@ -2874,7 +2874,7 @@ dissect_ptp_v2_timetstamp(tvbuff_t *tvb, int *cur_offset, proto_tree *tree, cons
 /* Code to actually dissect the PTPv2 packets */
 
 static int
-dissect_ptp_v2_tlv_tlvtype_length(tvbuff_t *tvb, int offset_orig, proto_tree *ptp_tlv_tree) {
+dissect_ptp_v2_tlv_tlvtype_length(tvbuff_t *tvb, unsigned offset_orig, proto_tree *ptp_tlv_tree) {
     int offset = offset_orig;
 
     proto_tree_add_item(ptp_tlv_tree, hf_ptp_tlv_tlvtype, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -2887,7 +2887,7 @@ dissect_ptp_v2_tlv_tlvtype_length(tvbuff_t *tvb, int offset_orig, proto_tree *pt
 }
 
 static int
-dissect_ptp_v2_tlv_org_fields(tvbuff_t *tvb, int offset_orig, proto_tree *ptp_tlv_tree, int hf_orgsubtype) {
+dissect_ptp_v2_tlv_org_fields(tvbuff_t *tvb, unsigned offset_orig, proto_tree *ptp_tlv_tree, int hf_orgsubtype) {
     int offset = offset_orig + dissect_ptp_v2_tlv_tlvtype_length(tvb, offset_orig, ptp_tlv_tree);
 
     proto_tree_add_item(ptp_tlv_tree, hf_ptp_tlv_oe_organizationid, tvb, offset, 3, ENC_BIG_ENDIAN);
@@ -2900,15 +2900,15 @@ dissect_ptp_v2_tlv_org_fields(tvbuff_t *tvb, int offset_orig, proto_tree *ptp_tl
 }
 
 static int
-dissect_ptp_v2_tlvs(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_item *ti_root, proto_tree *tree, proto_tree *ptp_tree, uint8_t ptp_v2_messageid, uint16_t ptp_v2_flags, bool is_802_1as) {
-    int offset_orig = offset;
+dissect_ptp_v2_tlvs(tvbuff_t *tvb, unsigned offset, packet_info *pinfo, proto_item *ti_root, proto_tree *tree, proto_tree *ptp_tree, uint8_t ptp_v2_messageid, uint16_t ptp_v2_flags, bool is_802_1as) {
+    unsigned offset_orig = offset;
     proto_item *ti;
     proto_item *ti_tlv = ti_root;
 
     bool as_followup_tlv_present = false;
 
     while (true) {
-        int offset_loopstart = offset;
+        unsigned offset_loopstart = offset;
 
         if (tvb_reported_length_remaining(tvb, offset) < PTP_V2_TLV_HEADER_LENGTH) {
             /* broken TLV or maybe just a few bytes at end left */
@@ -4064,7 +4064,7 @@ dissect_ptp_v2_tlvs(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_item *t
             proto_tree *ptp_tlv_tree = proto_tree_add_subtree(ptp_tree, tvb, offset, tlv_length + PTP_V2_TLV_HEADER_LENGTH, ett_ptp_v2_tlv, &ti_tlv, "Path trace TLV");
             offset += dissect_ptp_v2_tlv_tlvtype_length(tvb, offset, ptp_tlv_tree);
 
-            int tlv_end = offset + tlv_length + PTP_V2_TLV_HEADER_LENGTH;
+            unsigned tlv_end = offset + tlv_length + PTP_V2_TLV_HEADER_LENGTH;
 
             while (offset + 8 <= tlv_end) {
                 proto_tree_add_item(ptp_tlv_tree, hf_ptp_v2_an_tlv_pathsequence, tvb, offset, 8, ENC_BIG_ENDIAN);
@@ -4288,7 +4288,7 @@ dissect_ptp_v2_tlvs(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_item *t
 
 static void
 dissect_ptp_v2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, bool ptpv2_oE) {
-    int offset = 0;
+    unsigned offset = 0;
 
     uint8_t ptp_v2_ver = 0;
     uint8_t ptp_v2_minorver = 0;
@@ -4703,7 +4703,7 @@ dissect_ptp_v2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, bool ptpv2_o
 
             dissect_ptp_v2_tlvs(tvb, offset, pinfo, ti_root, tree, ptp_tree, ptp_v2_messageid, ptp_v2_flags, is_802_1as);
 
-            if (ptp_analyze_messages) {
+            if (PINFO_FD_VISITED(pinfo) && ptp_analyze_messages) {
                 if (PTP_FRAME_INFO_SYNC_COMPLETE(frame_info)) {
                     if (frame_info->sync.syncInterval_valid) {
                         ti = proto_tree_add_double(ptp_tree, hf_ptp_v2_analysis_sync_period, tvb, 0, 0, frame_info->sync.syncInterval);
@@ -4767,7 +4767,7 @@ dissect_ptp_v2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, bool ptpv2_o
 
             dissect_ptp_v2_tlvs(tvb, offset, pinfo, ptp_tree, tree, ti_root, ptp_v2_messageid, ptp_v2_flags, is_802_1as);
 
-            if (ptp_analyze_messages) {
+            if (PINFO_FD_VISITED(pinfo) && ptp_analyze_messages) {
                 if (frame_info != NULL) {
                     if (PTP_FRAME_INFO_SYNC_COMPLETE(frame_info) && frame_info->sync.sync_two_step) {
                         if (frame_info->sync.calculated_timestamp_valid) {
@@ -4834,7 +4834,7 @@ dissect_ptp_v2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, bool ptpv2_o
 
             dissect_ptp_v2_tlvs(tvb, offset, pinfo, ptp_tree, tree, ti_root, ptp_v2_messageid, ptp_v2_flags, is_802_1as);
 
-            if (ptp_analyze_messages) {
+            if (PINFO_FD_VISITED(pinfo) && ptp_analyze_messages) {
                 if (frame_info != NULL) {
                     if PTP_FRAME_INFO_PDELAY_REQ_SEEN(frame_info) {
                         if (frame_info->pdelay.pdelayInterval_valid) {
@@ -4871,7 +4871,7 @@ dissect_ptp_v2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, bool ptpv2_o
 
             dissect_ptp_v2_tlvs(tvb, offset, pinfo, ptp_tree, tree, ti_root, ptp_v2_messageid, ptp_v2_flags, is_802_1as);
 
-            if (ptp_analyze_messages) {
+            if (PINFO_FD_VISITED(pinfo) && ptp_analyze_messages) {
                 if (frame_info != NULL) {
                     if (frame_info->pdelay.pdelay_req_frame_num != 0) {
                         ti = proto_tree_add_uint(ptp_tree, hf_ptp_v2_analysis_pdelayres_to_pdelayreq, tvb, 0, 0, frame_info->pdelay.pdelay_req_frame_num);
@@ -4880,13 +4880,17 @@ dissect_ptp_v2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, bool ptpv2_o
                         /* No Request found! */
                         expert_add_info(pinfo, ti_root, &ei_ptp_v2_pdresp_no_pdreq);
                     }
-                    if (frame_info->pdelay.pdelay_fup_frame_num != 0) {
-                        ti = proto_tree_add_uint(ptp_tree, hf_ptp_v2_analysis_pdelayres_to_pdelayfup, tvb, 0, 0, frame_info->pdelay.pdelay_fup_frame_num);
-                        proto_item_set_generated(ti);
-                    } else {
-                        /* No Follow Up found! */
-                        expert_add_info(pinfo, ti_root, &ei_ptp_v2_pdresp_no_pdfup);
+
+                    if ((ptp_v2_flags & PTP_V2_FLAGS_TWO_STEP_BITMASK) == PTP_V2_FLAGS_TWO_STEP_BITMASK) {
+                        if (frame_info->pdelay.pdelay_fup_frame_num != 0) {
+                            ti = proto_tree_add_uint(ptp_tree, hf_ptp_v2_analysis_pdelayres_to_pdelayfup, tvb, 0, 0, frame_info->pdelay.pdelay_fup_frame_num);
+                            proto_item_set_generated(ti);
+                        } else {
+                            /* No Follow Up found! */
+                            expert_add_info(pinfo, ti_root, &ei_ptp_v2_pdresp_no_pdfup);
+                        }
                     }
+
                     if (PTP_FRAME_INFO_PDELAY_COMPLETE(frame_info) && frame_info->pdelay.pdelay_res_two_step == false) {
                         /* Two step false but follow up received! */
                         /* According to 802.1AS-2011/2022 2-step must be true on pDelay Req */
@@ -4912,7 +4916,7 @@ dissect_ptp_v2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, bool ptpv2_o
 
             dissect_ptp_v2_tlvs(tvb, offset, pinfo, ptp_tree, tree, ti_root, ptp_v2_messageid, ptp_v2_flags, is_802_1as);
 
-            if (ptp_analyze_messages) {
+            if (PINFO_FD_VISITED(pinfo) && ptp_analyze_messages) {
                 if (frame_info != NULL) {
                     if PTP_FRAME_INFO_PDELAY_COMPLETE(frame_info) {
                         ti = proto_tree_add_double(ptp_tree, hf_ptp_v2_analysis_pdelay_mpd_unscaled, tvb, 0, 0, nstime_to_sec(&frame_info->pdelay.mean_propagation_delay_unscaled));

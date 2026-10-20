@@ -98,14 +98,14 @@ public:
      * @return The generated model index.
      */
     QModelIndex index(int row, int column,
-                      const QModelIndex &parent = QModelIndex()) const;
+                      const QModelIndex &parent = QModelIndex()) const override;
 
     /**
      * @brief Retrieves the parent index for the given index.
      * @param index The child model index.
      * @return The parent model index.
      */
-    QModelIndex parent(const QModelIndex &index) const;
+    QModelIndex parent(const QModelIndex &index) const override;
 
     /**
      * @brief Retrieves data from the model for a given index and role.
@@ -113,21 +113,21 @@ public:
      * @param role The requested data role.
      * @return The data associated with the index and role.
      */
-    QVariant data(const QModelIndex &index, int role) const;
+    QVariant data(const QModelIndex &index, int role) const override;
 
     /**
      * @brief Returns the number of rows under the given parent.
      * @param parent The parent model index (defaults to an invalid QModelIndex).
      * @return The number of rows.
      */
-    int rowCount(const QModelIndex &parent = QModelIndex()) const;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
 
     /**
      * @brief Returns the number of columns under the given parent.
      * @param parent The parent model index (defaults to an invalid QModelIndex).
      * @return The number of columns.
      */
-    int columnCount(const QModelIndex &parent = QModelIndex()) const;
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
 
     /**
      * @brief Populates the model with the currently registered dissector tables.
@@ -148,6 +148,18 @@ class DissectorTablesProxyModel : public QSortFilterProxyModel
 
 public:
     /**
+     * @brief Defines the search filtering scope.
+     */
+    enum SearchType
+    {
+        EveryWhere = 0x0,       /**< Search all text fields. */
+        OnlyName = 0x1,         /**< Search only names. */
+        OnlyDescription = 0x2,  /**< Search only descriptions. */
+    };
+    Q_ENUM(SearchType)
+    Q_DECLARE_FLAGS(SearchTypes, SearchType)
+
+    /**
      * @brief Constructs a new DissectorTablesProxyModel.
      * @param parent The parent QObject, defaults to Q_NULLPTR.
      */
@@ -159,7 +171,7 @@ public:
      * @param sourceParent The parent index in the source model.
      * @return True if the row is accepted by the current filter, false otherwise.
      */
-    virtual bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const;
+    virtual bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const override;
 
     /**
      * @brief Retrieves header data, potentially adjusted dynamically.
@@ -169,7 +181,7 @@ public:
      * @return The header data.
      */
     QVariant headerData(int section, Qt::Orientation orientation,
-                        int role = Qt::DisplayRole) const;
+                        int role = Qt::DisplayRole) const override;
 
     /**
      * @brief Adjusts the header based on the currently selected index.
@@ -181,7 +193,7 @@ public:
      * @brief Sets the filter string used to screen items.
      * @param filter The filter text.
      */
-    void setFilter(const QString& filter);
+    void setFilter(const QString& filter, SearchTypes type);
 
 protected:
     /**
@@ -190,14 +202,7 @@ protected:
      * @param source_right The second source index.
      * @return True if the left item should appear before the right item.
      */
-    bool lessThan(const QModelIndex &source_left, const QModelIndex &source_right) const;
-
-    /**
-     * @brief Checks if an individual item is accepted by the filter.
-     * @param item The DissectorTablesItem to check.
-     * @return True if accepted, false otherwise.
-     */
-    bool filterAcceptItem(DissectorTablesItem& item) const;
+    bool lessThan(const QModelIndex &source_left, const QModelIndex &source_right) const override;
 
 private:
 
@@ -209,6 +214,8 @@ private:
 
     /** The currently active filter string. */
     QString filter_;
+
+    DissectorTablesProxyModel::SearchTypes type_;
 };
 
 #endif // DISSECTOR_TABLES_MODEL_H

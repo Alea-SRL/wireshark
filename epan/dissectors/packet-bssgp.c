@@ -920,8 +920,7 @@ de_bssgp_flush_action(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo _U_, u
     curr_offset = offset;
 
     /* Action value */
-    oct = tvb_get_uint8(tvb,curr_offset);
-    proto_tree_add_item(tree, hf_bssgp_flush_action, tvb, curr_offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint8(tree, hf_bssgp_flush_action, tvb, curr_offset, 1, ENC_BIG_ENDIAN, &oct);
     curr_offset+=1;
     if (add_string)
         snprintf(add_string, string_len, " - %s", val_to_str_const(oct, bssgp_flush_action_vals, "Reserved"));
@@ -6872,7 +6871,7 @@ dissect_bssgp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
     ti = proto_tree_add_item(tree, proto_bssgp, tvb, 0, -1, ENC_NA);
     bssgp_tree = proto_item_add_subtree(ti, ett_bssgp);
 
-    /* Messge type IE*/
+    /* Message type IE*/
     msg_fcn_p = NULL;
     ett_tree = -1;
     hf_idx = -1;

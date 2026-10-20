@@ -107,6 +107,9 @@ typedef struct tcpheader {
 
 	/* header for TCP option Multipath Operation */
 	struct mptcpheader *th_mptcp;
+
+	uint32_t th_dup_count;      /* capture-level duplicate count (0 = not checked) */
+	uint32_t th_dup_orig_frame; /* frame number of first occurrence in dedup group */
 } tcp_info_t;
 
 /*
@@ -162,6 +165,7 @@ typedef struct _tcp_unacked_t {
 	uint32_t seq;
 	uint32_t nextseq;
 	bool     karn_flag; /* indication for the later Karn discovery */
+	bool     a_lost_packet; /* true when marked with TCP_A_LOST_PACKET */
 	nstime_t ts;
 } tcp_unacked_t;
 
@@ -183,6 +187,9 @@ struct tcp_acked {
 
 	uint32_t new_data_seq; /* For segments with old data,
 				 where new data starts */
+	uint32_t dup_count;	/* capture-level packet occurrence count; 0 = not yet checked */
+	uint32_t dup_orig_frame; /* frame number of the first occurrence of this packet */
+	wmem_array_t *dup_frame_list; /* shared list of all frame numbers in this dedup group */
 };
 
 /* One instance of this structure is created for each pdu that spans across
@@ -329,6 +336,7 @@ typedef struct tcp_analyze_seq_flow_info_t {
 	uint32_t lastack;	/* Last seen ack for the reverse flow */
 	uint32_t lastnondupack;	/* frame number of last seen non dupack */
 	uint32_t dupacknum;	/* dupack number */
+	bool     dupack_thresh;	/* dupack threshold was reached ? */
 	uint32_t nextseq;	/* highest seen nextseq */
 	uint32_t maxseqtobeacked;/* highest seen continuous seq number (without hole in the stream) from the fwd party,
 				 * this is the maximum seq number that can be acked by the rev party in normal case.
@@ -378,6 +386,7 @@ typedef struct _tcp_flow_t {
 	uint8_t mp_operations; /* tracking of the MPTCP operations */
 	bool is_first_ack;  /* indicates if this is the first ACK */
 	bool closing_initiator; /* tracking who is responsible of the connection end */
+	bool closing_initiator_rst; /* tracking who sent TCP RST first */
 	tcp_analyze_seq_flow_info_t* tcp_analyze_seq_info;
 
 	/* see TCP_A_* in packet-tcp.c */

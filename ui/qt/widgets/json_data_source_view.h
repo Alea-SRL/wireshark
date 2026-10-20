@@ -20,21 +20,23 @@
 
 class QTextLayout;
 
+/**
+ * @brief Represents a single line of text with associated formatting, highlight, and key-value span metadata.
+ */
 struct TextLine {
-    QString line;
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
-    QList<QTextLayout::FormatRange> fmt_list;
-#else
-    QVector<QTextLayout::FormatRange> fmt_list;
-#endif
-    int highlight_start;
-    int highlight_length;
-    int kv_start;
-    int kv_length;
+    QString line;             /**< The raw text content of this line. */
+    QList<QTextLayout::FormatRange>   fmt_list; /**< List of format ranges applied to this line for syntax or style highlighting. */
+    int highlight_start;  /**< Start position (in characters) of the active search or selection highlight within this line. */
+    int highlight_length; /**< Length in characters of the active search or selection highlight; 0 if no highlight. */
+    int kv_start;         /**< Start position (in characters) of the key-value pair span within this line. */
+    int kv_length;        /**< Length in characters of the key-value pair span; 0 if no key-value span. */
 };
 
+/**
+ * @brief Represents a logical block of text composed of one or more formatted lines.
+ */
 struct TextBlock {
-    QList<TextLine> text_lines;
+    QList<TextLine> text_lines; /**< Ordered list of text lines that make up this block. */
 };
 
 /**
@@ -75,7 +77,7 @@ public slots:
      * @brief Sets the monospace font used for rendering the JSON text.
      * @param mono_font The monospace font to apply.
      */
-    void setMonospaceFont(const QFont &mono_font);
+    void setMonospaceFont(const QFont &mono_font) override;
 
     /**
      * @brief Visually marks a field in the display.
@@ -84,26 +86,26 @@ public slots:
      * @param scroll_to True to automatically scroll the view to the marked field.
      * @param hover True if the field is being marked due to a hover action.
      */
-    void markField(int start, int length, bool scroll_to = true, bool hover = false);
+    void markField(int start, int length, bool scroll_to = true, bool hover = false) override;
 
     /**
      * @brief Clears the currently marked field.
      */
-    void unmarkField();
+    void unmarkField() override;
 
     /**
      * @brief Marks a protocol in the view (unused for JSON view).
      * @param start The starting byte offset.
      * @param length The length in bytes.
      */
-    void markProtocol(int start, int length) {Q_UNUSED(start) Q_UNUSED(length)}
+    void markProtocol(int start, int length)  override{Q_UNUSED(start) Q_UNUSED(length)}
 
     /**
      * @brief Marks the appendix in the view (unused for JSON view).
      * @param start The starting byte offset.
      * @param length The length in bytes.
      */
-    void markAppendix(int start, int length) {Q_UNUSED(start) Q_UNUSED(length)}
+    void markAppendix(int start, int length)  override{Q_UNUSED(start) Q_UNUSED(length)}
 
 protected:
     // virtual bool event(QEvent *event);
@@ -111,40 +113,40 @@ protected:
     /**
      * @brief Handles paint events to draw the JSON text.
      */
-    virtual void paintEvent(QPaintEvent *);
+    virtual void paintEvent(QPaintEvent *) override;
 
     /**
      * @brief Handles resize events to adjust the text layout.
      */
-    virtual void resizeEvent(QResizeEvent *);
+    virtual void resizeEvent(QResizeEvent *) override;
 
     /**
      * @brief Handles show events.
      */
-    virtual void showEvent(QShowEvent *);
+    virtual void showEvent(QShowEvent *) override;
 
     /**
      * @brief Handles key press events for navigation.
      */
-    virtual void keyPressEvent(QKeyEvent *);
+    virtual void keyPressEvent(QKeyEvent *) override;
 
     /**
      * @brief Handles mouse press events for selecting fields.
      * @param event The mouse event.
      */
-    virtual void mousePressEvent (QMouseEvent *event);
+    virtual void mousePressEvent (QMouseEvent *event) override;
 
     /**
      * @brief Handles mouse move events for hovering over fields.
      * @param event The mouse event.
      */
-    virtual void mouseMoveEvent (QMouseEvent * event);
+    virtual void mouseMoveEvent (QMouseEvent * event) override;
 
     /**
      * @brief Handles leave events to clear hover states.
      * @param event The leave event.
      */
-    virtual void leaveEvent(QEvent *event);
+    virtual void leaveEvent(QEvent *event) override;
 
 private:
     /**

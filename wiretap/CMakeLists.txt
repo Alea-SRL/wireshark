@@ -52,6 +52,7 @@ set(WIRETAP_C_MODULE_FILES
 	${CMAKE_CURRENT_SOURCE_DIR}/dbs-etherwatch.c
 	${CMAKE_CURRENT_SOURCE_DIR}/dpa400.c
 	${CMAKE_CURRENT_SOURCE_DIR}/dct3trace.c
+	${CMAKE_CURRENT_SOURCE_DIR}/dtsdi.c
 	${CMAKE_CURRENT_SOURCE_DIR}/ems.c
 	${CMAKE_CURRENT_SOURCE_DIR}/erf.c
 	${CMAKE_CURRENT_SOURCE_DIR}/eri_enb_log.c
@@ -88,6 +89,7 @@ set(WIRETAP_C_MODULE_FILES
 	${CMAKE_CURRENT_SOURCE_DIR}/pcapng-darwin-custom.c
 	${CMAKE_CURRENT_SOURCE_DIR}/pcapng-netflix-custom.c
 	${CMAKE_CURRENT_SOURCE_DIR}/pcapng-sysdig.c
+	${CMAKE_CURRENT_SOURCE_DIR}/pcapng-wireshark-custom.c
 	${CMAKE_CURRENT_SOURCE_DIR}/peak-trc.c
 	${CMAKE_CURRENT_SOURCE_DIR}/peekclassic.c
 	${CMAKE_CURRENT_SOURCE_DIR}/peektagged.c
@@ -103,6 +105,7 @@ set(WIRETAP_C_MODULE_FILES
 	${CMAKE_CURRENT_SOURCE_DIR}/tnef.c
 	${CMAKE_CURRENT_SOURCE_DIR}/toshiba.c
 	${CMAKE_CURRENT_SOURCE_DIR}/ttl.c
+	${CMAKE_CURRENT_SOURCE_DIR}/vector-asc.c
 	${CMAKE_CURRENT_SOURCE_DIR}/visual.c
 	${CMAKE_CURRENT_SOURCE_DIR}/vms.c
 	${CMAKE_CURRENT_SOURCE_DIR}/vwr.c
@@ -187,7 +190,7 @@ set_target_properties(wiretap PROPERTIES
 	PREFIX "lib"
 	COMPILE_DEFINITIONS "WS_BUILD_DLL"
 	LINK_FLAGS "${WS_LINK_FLAGS}"
-	VERSION "0.0.0" SOVERSION 0
+	VERSION "0.0.${PROJECT_PATCH_VERSION}" SOVERSION 0
 	FOLDER "DLLs"
 	INSTALL_RPATH "${LIBRARY_INSTALL_RPATH}"
 )
@@ -204,7 +207,7 @@ target_link_libraries(wiretap
 		${ZLIB_LIBRARIES}
 		${ZLIBNG_LIBRARIES}
 		${ZSTD_LIBRARIES}
-		${LZ4_LIBRARIES}
+		$<TARGET_NAME_IF_EXISTS:LZ4::LZ4>
 )
 
 target_include_directories(wiretap SYSTEM
@@ -212,7 +215,6 @@ target_include_directories(wiretap SYSTEM
 		${ZLIB_INCLUDE_DIRS}
 		${ZLIBNG_INCLUDE_DIRS}
 		${ZSTD_INCLUDE_DIRS}
-		${LZ4_INCLUDE_DIRS}
 )
 
 target_include_directories(wiretap PUBLIC
@@ -230,6 +232,14 @@ install(FILES ${WIRETAP_PUBLIC_HEADERS}
 	DESTINATION "${PROJECT_INSTALL_INCLUDEDIR}/wiretap"
 	COMPONENT "Development"
 	EXCLUDE_FROM_ALL
+)
+
+add_executable(test_wiretap EXCLUDE_FROM_ALL test_wiretap.c)
+target_link_libraries(test_wiretap wiretap $<TARGET_NAME_IF_EXISTS:LZ4::LZ4>)
+set_target_properties(test_wiretap PROPERTIES
+	FOLDER "Tests"
+	EXCLUDE_FROM_DEFAULT_BUILD True
+	COMPILE_FLAGS "${WERROR_COMMON_FLAGS}"
 )
 
 CHECKAPI(

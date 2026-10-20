@@ -100,7 +100,7 @@ try_decode_payload(tvbuff_t *tvb, packet_info *pinfo, proto_item *tree)
 static void
 try_uncompress(tvbuff_t *tvb, packet_info *pinfo, int offset, /*int len,*/ proto_item *ti)
 {
-    tvbuff_t *uncompress_tvb = tvb_uncompress_zlib(tvb, offset, tvb_captured_length(tvb) - offset);
+    tvbuff_t *uncompress_tvb = tvb_child_uncompress_zlib(tvb, tvb, offset, tvb_captured_length_remaining(tvb, offset));
     if (uncompress_tvb) {
         add_new_data_source(pinfo, uncompress_tvb, "Uncompressed Payload");
 
@@ -209,7 +209,7 @@ dissect_alc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
     /* A/331 specifies start_offset field */
     int64_t object_start_offset = -1;
     if (lct.is_sp) {
-        object_start_offset = tvb_get_uint32(tvb, offset, 4);
+        object_start_offset = tvb_get_uint32(tvb, offset, ENC_BIG_ENDIAN);
         proto_tree_add_item(alc_tree, hf_object_start_offset, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
     }

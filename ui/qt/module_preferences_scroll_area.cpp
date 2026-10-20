@@ -285,7 +285,7 @@ pref_show(pref_t *pref, void *user_data)
     case PREF_COLOR:
     {
         // XXX - Not needed yet. When it is needed we can add a label + QFrame which pops up a
-        // color picker similar to the Font and Colors prefs.
+        // color picker (pattern: a clickable swatch invoking QColorDialog).
         break;
     }
     case PREF_PROTO_TCP_SNDAMB_ENUM:
@@ -535,11 +535,9 @@ void ModulePreferencesScrollArea::updateWidgets()
                 MainWindow* topWidget = mainApp->mainWindow();
                 /* Ensure there is one unique or multiple selections. See issue 18642 */
                 if (topWidget->hasSelection() || topWidget->hasUniqueSelection()) {
-                    frame_data * fdata = topWidget->frameDataForRow((topWidget->selectedRows()).at(0));
-                    enum_cb->setCurrentIndex(enum_cb->findData(fdata->tcp_snd_manual_analysis));
-                    QList<int> rows = topWidget->selectedRows();
-                    foreach (int row, rows) {
-                        frame_data * fdata = topWidget->frameDataForRow(row);
+                    QList<frame_data *> frames = topWidget->selectedFrames();
+                    enum_cb->setCurrentIndex(enum_cb->findData(frames.at(0)->tcp_snd_manual_analysis));
+                    foreach (frame_data * fdata, frames) {
                         prefs_add_list_value(pref, fdata, pref_stashed);
                     }
                 }

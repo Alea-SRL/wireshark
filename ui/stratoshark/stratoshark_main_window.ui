@@ -394,6 +394,7 @@
      <addaction name="actionViewInternalsDissectorTables"/>
      <addaction name="actionViewInternalsSupportedProtocols"/>
      <addaction name="actionViewInternalsKeyboardShortcuts"/>
+     <addaction name="actionViewInternalsThemeDebug"/>
     </widget>
     <widget class="QMenu" name="menuAdditionalToolbars">
      <property name="title">
@@ -425,9 +426,12 @@
     <addaction name="actionViewColorizePacketList"/>
     <addaction name="actionViewColoringRules"/>
     <addaction name="menuColorizeConversation"/>
+    <addaction name="actionViewTaggingRules"/>
     <addaction name="separator"/>
     <addaction name="actionViewResetLayout"/>
     <addaction name="actionViewResizeColumns"/>
+    <addaction name="actionViewPinSelectedRows"/>
+    <addaction name="actionViewUnpinAllRows"/>
     <addaction name="separator"/>
     <addaction name="menuInternals"/>
     <addaction name="separator"/>
@@ -1679,6 +1683,22 @@
     <string notr="true">Ctrl+Shift+W</string>
    </property>
   </action>
+  <action name="actionViewPinSelectedRows">
+   <property name="text">
+    <string>Pin Selected Rows</string>
+   </property>
+   <property name="toolTip">
+    <string>Keep the selected packets at the top of the packet list, or unpin them if they are all pinned</string>
+   </property>
+  </action>
+  <action name="actionViewUnpinAllRows">
+   <property name="text">
+    <string>Unpin All Rows</string>
+   </property>
+   <property name="toolTip">
+    <string>Unpin all of the packets pinned to the top of the packet list</string>
+   </property>
+  </action>
   <action name="actionViewResizeColumns">
    <property name="text">
     <string>Resize Columns</string>
@@ -2047,12 +2067,28 @@
     <string>Show the current keyboard shortcuts</string>
    </property>
   </action>
+  <action name="actionViewInternalsThemeDebug">
+   <property name="text">
+    <string>&amp;Theme Debug</string>
+   </property>
+   <property name="toolTip">
+    <string>Show the active theme, main window geometry, and live widget info</string>
+   </property>
+  </action>
   <action name="actionViewColoringRules">
    <property name="text">
     <string>&amp;Coloring Rules…</string>
    </property>
    <property name="toolTip">
     <string>Edit the event list coloring rules.</string>
+   </property>
+  </action>
+  <action name="actionViewTaggingRules">
+   <property name="text">
+    <string>&amp;Tagging Rules…</string>
+   </property>
+   <property name="toolTip">
+    <string>Edit the event tagging rules.</string>
    </property>
   </action>
   <action name="actionViewShowPacketInNewWindow">

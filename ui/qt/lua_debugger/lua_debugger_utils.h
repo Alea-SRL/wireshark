@@ -429,15 +429,22 @@ inline void setExpanded(QTreeView *tree, QStandardItemModel *model, QStandardIte
 namespace LuaDebuggerPath
 {
 
+/**
+ * @brief Stores the foreground and background colors used to highlight invalid filter expressions in the Lua debugger UI.
+ */
 struct LuaDbgInvalidFilterColors
 {
-    QColor fg;
-    QColor bg;
+    QColor fg; /**< Foreground (text) color applied to an invalid filter expression. */
+    QColor bg; /**< Background color applied to an invalid filter expression. */
 };
 
 /**
  * @brief Return the foreground and background colors used to indicate an
  * invalid filter expression in the Lua debugger.
+ *
+ * Background is read from @c ThemeManager::FilterInvalid; foreground is
+ * derived locally via @c ColorMath::contrastingText against that
+ * background (WCAG luminance pick — black on light tints, white on dark).
  *
  * @return A struct containing the foreground and background colors.
  */
@@ -545,13 +552,16 @@ QString expressionWatchChildSubpath(const QString &parentSubpath, const QString 
  */
 bool variableChildrenShouldSortByName(const QString &parentPath);
 
+/**
+ * @brief Holds the display fields for a single row in a variable inspection tree view.
+ */
 struct VariableRowFields
 {
-    QString name;
-    QString value;
-    QString type;
-    bool canExpand = false;
-    QString childPath;
+    QString name;               /**< Display name of the variable or member field. */
+    QString value;              /**< Current value of the variable as a formatted string. */
+    QString type;               /**< Type name of the variable (e.g., "int", "QString"). */
+    bool canExpand = false;     /**< True if this row has children and can be expanded in the tree. */
+    QString childPath;          /**< Path identifier used to fetch child rows when this row is expanded. */
 };
 
 /**
@@ -816,11 +826,14 @@ extern const QString kLuaDbgHeaderToolButtonStyle;
 void luaDbgDrawBreakpointDot(QPainter &painter, qreal dotLeft, qreal dotTop, qreal radius, bool enabled,
                              bool hasExtras = false, int alpha = 255);
 
+/**
+ * @brief Controls the state of the header toggle icon in the Lua debugger breakpoint list.
+ */
 enum class LuaDbgBpHeaderIconMode
 {
-    NoBreakpoints,
-    ActivateAll,
-    DeactivateAll,
+    NoBreakpoints, /**< No breakpoints are defined; header icon reflects an empty list */
+    ActivateAll,   /**< At least one breakpoint is inactive; header icon offers to activate all */
+    DeactivateAll, /**< All breakpoints are active; header icon offers to deactivate all */
 };
 
 /**

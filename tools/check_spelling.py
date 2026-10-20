@@ -5,19 +5,27 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-import os
-import sys
-import re
 import argparse
-import signal
+import concurrent.futures
 import glob
-
-from spellchecker import SpellChecker
+import os
+import re
+import signal
+import sys
+import urllib.request
 from collections import Counter
 from html.parser import HTMLParser
-import urllib.request
-import concurrent.futures
-from check_common import bcolors, getFilesFromOpen, getFilesFromCommits, isGeneratedFile, removeComments, Result
+
+from spellchecker import SpellChecker
+
+from check_common import (
+    Result,
+    bcolors,
+    getFilesFromCommits,
+    getFilesFromOpen,
+    isGeneratedFile,
+    removeComments,
+)
 
 # Looks for spelling errors among strings found in source or documentation files.
 # N.B.,
@@ -99,7 +107,7 @@ class File:
         self.file = file
         self.values = []
 
-        filename, extension = os.path.splitext(file)
+        _, extension = os.path.splitext(file)
         # TODO: add '.lua'?  Would also need to check string and comment formats...
         self.code_file = extension in {'.c', '.cpp', '.h', '.cnf'}
 
@@ -114,10 +122,9 @@ class File:
             return False
 
         # Don't consider if mixed cases.
-        if not (word.islower() or word.isupper()):
+        if not (word.islower() or word.isupper()) and word != (word[0].upper() + word[1:]):
             # But make an exception if only the first letter is uppercase.
-            if not word == (word[0].upper() + word[1:]):
-                return False
+            return False
 
         # Try splitting into 2 words recognised at various points.
         # Allow 3-letter words.
@@ -133,10 +140,7 @@ class File:
     # If word before 'id' is recognised, accept word.
     def wordBeforeId(self, word):
         if word.lower().endswith('id'):
-            if not spell.unknown([word[0:len(word)-2]]):
-                return True
-            else:
-                return False
+            return bool(not spell.unknown([word[0:len(word) - 2]]))
 
     def checkMultiWordsRecursive(self, word):
         length = len(word)
@@ -156,12 +160,9 @@ class File:
 
     def numberPlusUnits(self, word):
         m = re.search(r'^([0-9]+)([a-zA-Z]+)$', word)
-        if m:
-            if m.group(2).lower() in {"bit", "bits", "gb", "kbps", "gig", "mb", "th", "mhz", "v", "hz", "k",
-                                      "mbps", "m", "g", "ms", "nd", "nds", "rd", "kb", "kbit", "ghz",
-                                      "khz", "km", "ms", "usec", "sec", "gbe", "ns", "ksps", "qam", "mm"}:
-                return True
-        return False
+        return (m and m.group(2).lower() in {"bit", "bits", "gb", "kbps", "gig", "mb", "th", "mhz", "v", "hz", "k",
+                                        "mbps", "m", "g", "ms", "nd", "nds", "rd", "kb", "kbit", "ghz",
+                                        "khz", "km", "usec", "sec", "gbe", "ns", "ksps", "qam", "mm"})
 
     # Check the spelling of all the words we have found
     def spellCheck(self, result):
@@ -208,10 +209,8 @@ class File:
                 word = word.rstrip('1234567890')
 
                 # Single and collective possession
-                if word.endswith("’s"):
-                    word = word[:-2]
-                if word.endswith("s’"):
-                    word = word[:-2]
+                word = word.removesuffix("’s")
+                word = word.removesuffix("s’")
 
                 if self.numberPlusUnits(word):
                     continue
@@ -472,11 +471,11 @@ if __name__ == '__main__':
                     spell.word_frequency.remove_words([word])
                     # print('Removed', word)
                     removed += 1
-                except Exception:
+                except RuntimeError:
                     pass
 
             print('Removed', removed, 'known bad words')
-        except Exception:
+        except RuntimeError:
             print('Failed to fetch and/or parse Wikipedia mispellings!')
 
 
@@ -487,7 +486,7 @@ if __name__ == '__main__':
         for f in args.file:
             if not os.path.isfile(f):
                 print('Chosen file', f, 'does not exist.')
-                exit(1)
+                sys.exit(1)
             else:
                 files.append(f)
     if args.commits:
@@ -503,7 +502,7 @@ if __name__ == '__main__':
             for f in glob.glob(g):
                 if not os.path.isfile(f):
                     print('Chosen file', f, 'does not exist.')
-                    exit(1)
+                    sys.exit(1)
                 else:
                     files.append(f)
 
@@ -511,7 +510,7 @@ if __name__ == '__main__':
         for folder in args.folder:
             if not os.path.isdir(folder):
                 print('Folder', folder, 'not found!')
-                exit(1)
+                sys.exit(1)
 
             # Find files from folder.
             print('Looking for files in', folder)
@@ -553,11 +552,11 @@ if __name__ == '__main__':
                 missing_words += result.local_missing_words
 
             if result.should_exit:
-                exit(1)
+                sys.exit(1)
 
 
     # Show the most commonly not-recognised words.
-    print('')
+    print()
     counter = Counter(missing_words).most_common(int(args.show_most_common))
     if len(counter) > 0:
         for c in counter:

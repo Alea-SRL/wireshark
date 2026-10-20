@@ -29,15 +29,16 @@ class QAction;
 class QMenu;
 class QSplitter;
 class QStackedWidget;
-class QTextCodec;
 
 class DataSourceTab;
-class DisplayFilterCombo;
+class DisplayFilterEntry;
 class FieldInformation;
 class FunnelAction;
+class InterfaceListManager;
 class MainStatusBar;
 class PacketDiagram;
 class PacketList;
+class PacketListPane;
 class ProfileSwitcher;
 class ProtoTree;
 class WelcomePage;
@@ -88,6 +89,13 @@ public:
     QList<int> selectedRows(bool useFrameNum = false);
 
     /**
+     * @brief Retrieves the selected packets, including any selected in
+     * the pinned-row strip that are filtered out of the packet list.
+     * @return The selected packets, or the current one if none is selected.
+     */
+    QList<frame_data *> selectedFrames();
+
+    /**
      * @brief Inserts a column into the view.
      * @param name The name of the column.
      * @param abbrev The abbreviation of the column.
@@ -101,12 +109,6 @@ public:
      */
     void gotoFrame(int packet_num);
 
-    /**
-     * @brief Retrieves frame data for a specific row.
-     * @param row The index of the row.
-     * @return Pointer to the frame data for the specified row.
-     */
-    frame_data* frameDataForRow(int row) const;
 
     /**
      * @brief Retrieves the current display filter.
@@ -119,6 +121,21 @@ public:
      * @return Pointer to the MainStatusBar.
      */
     MainStatusBar *statusBar();
+
+    /**
+     * @brief Returns a pointer to the current capture file object.
+     * @return Pointer to the internal CaptureFile instance.
+     */
+    CaptureFile *captureFile() { return &capture_file_; }
+
+    /**
+     * @brief Returns the local interface enumeration/statistics coordinator.
+     *
+     * The manager owns the live InterfaceStatistics; reach it via
+     * interfaceListManager()->statistics().
+     * @return Pointer to the InterfaceListManager owned by this window.
+     */
+    InterfaceListManager *interfaceListManager() const;
 
     // Used for managing custom packet menus
 
@@ -157,11 +174,13 @@ public slots:
     void setDisplayFilter(QString filter, FilterAction::Action action, FilterAction::ActionType filterType);
 
     /**
-     * @brief Filters the packets.
-     * @param new_filter The filter string.
-     * @param force True to force the filter application.
+     * @brief Sets and applies a new display filter to the open capture file.
+     * @param new_filter New filter expression; empty string shows all packets.
+     * @param force      @c true to reapply even if the filter is unchanged.
+     *
+     * @note The force parameter is currently ignored.
      */
-    virtual void filterPackets(QString new_filter, bool force) = 0;
+    void filterPackets(QString new_filter = QString(), bool force = true);
 
     /**
      * @brief Shows the preferences dialog for a specific module.
@@ -308,6 +327,14 @@ protected:
     /** Pointer to the packet list widget. */
     PacketList *packet_list_;
 
+    /** Pointer to the pane that contains the packet list widget along
+     * with its pinned-rows strip. This is the widget actually inserted
+     * into the splitter hierarchy by getLayoutWidget()/layoutPanes(); it
+     * owns and constructs packet_list_ itself, so every other reference
+     * to packet_list_ elsewhere keeps operating on the real PacketList,
+     * only its container in the splitter changes. */
+    PacketListPane *packet_list_pane_;
+
     /** Pointer to the protocol tree widget. */
     ProtoTree *proto_tree_;
 
@@ -318,7 +345,7 @@ protected:
     PacketDiagram *packet_diagram_;
 
     /** Pointer to the display filter combo box. */
-    DisplayFilterCombo *df_combo_box_;
+    DisplayFilterEntry *df_combo_box_;
 
     /** Pointer to the main status bar. */
     MainStatusBar *main_status_bar_;
@@ -326,11 +353,14 @@ protected:
     /** Pointer to the profile switcher widget. */
     ProfileSwitcher *profile_switcher_;
 
+    /** Coordinator for local interface enumeration; owns the live statistics. */
+    InterfaceListManager *interface_list_manager_;
+
     /** Flag indicating if the capturing title is used. */
     bool use_capturing_title_;
 
-    /** Map of text codecs used for different strings. */
-    QMap<QString, QTextCodec *> text_codec_map_;
+    /** Map of display name to iconv encoding name. */
+    QMap<QString, const char *> text_codec_map_;
 
     // Recent captures menu support - set by subclasses
 
@@ -339,7 +369,7 @@ protected:
 
     /** Action representing no recent files available. */
     QAction *no_recent_files_action_;
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_MACOS)
     /** The dock menu specific to macOS. */
     QMenu *dock_menu_;
 #endif
@@ -390,6 +420,13 @@ protected slots:
      * @brief Updates the main title bar text.
      */
     void updateTitlebar();
+
+    /**
+     * @brief Applies a new display filter to the open capture file.
+     * @param new_filter New filter expression; empty string shows all packets.
+     * @param force      @c true to reapply even if the filter is unchanged.
+     */
+    virtual void applyFilter(QString new_filter, bool force) = 0;
 
 private:
     /**
@@ -463,7 +500,6 @@ signals:
      * @param success True if the display filter was valid and applied.
      */
     void displayFilterSuccess(bool success);
-
 };
 
 #endif // MAINWINDOW_H

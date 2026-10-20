@@ -9,8 +9,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#ifndef INTERFACE_TREE_MODEL_H
-#define INTERFACE_TREE_MODEL_H
+#pragma once
 
 #include <config.h>
 #include <wireshark.h>
@@ -27,7 +26,11 @@
 
 typedef QList<int> PointList;
 
-/*
+class InterfaceStatistics;
+
+/**
+ * @brief Column indices for the interface tree model shared across interface-related views.
+ *
  * When sorting, QSortFilterProxyModel creates its own mapping instead
  * of using the QModelIndex mapping with mapToSource to determine which
  * column in the proxy model maps to which column in the source. Its own
@@ -38,24 +41,25 @@ typedef QList<int> PointList;
  */
 enum InterfaceTreeColumns
 {
-    IFTREE_COL_EXTCAP,         // InterfaceFrame interfaceTree
-    IFTREE_COL_EXTCAP_PATH,
-    IFTREE_COL_HIDDEN,         // ManageInterfaceDialog localView
-    IFTREE_COL_DISPLAY_NAME,   // InterfaceFrame interfaceTree
-    IFTREE_COL_DESCRIPTION,    // ManageInterfaceDialog localView
-    IFTREE_COL_NAME,           // ManageInterfaceDialog localView
-    IFTREE_COL_COMMENT,        // ManageInterfaceDialog localView
-    IFTREE_COL_STATS,          // InterfaceFrame interfaceTree
-    IFTREE_COL_DLT,
-    IFTREE_COL_PROMISCUOUSMODE,
-    IFTREE_COL_TYPE,
-    IFTREE_COL_ACTIVE,
-    IFTREE_COL_SNAPLEN,
-    IFTREE_COL_BUFFERLEN,
-    IFTREE_COL_MONITOR_MODE,
-    IFTREE_COL_CAPTURE_FILTER,
-    IFTREE_COL_PIPE_PATH,      // ManageInterfaceDialog pipeView
-    IFTREE_COL_MAX /* is not being displayed, it is the definition for the maximum numbers of columns */
+    IFTREE_COL_EXTCAP,          /**< Extcap plugin indicator icon — InterfaceFrame interfaceTree */
+    IFTREE_COL_EXTCAP_PATH,     /**< Filesystem path to the extcap executable */
+    IFTREE_COL_HIDDEN,          /**< Whether the interface is hidden from the capture list — ManageInterfaceDialog localView */
+    IFTREE_COL_DISPLAY_NAME,    /**< Human-readable display name for the interface — InterfaceFrame interfaceTree */
+    IFTREE_COL_DESCRIPTION,     /**< OS-supplied interface description string — ManageInterfaceDialog localView */
+    IFTREE_COL_NAME,            /**< System interface name (e.g. eth0, en0) — ManageInterfaceDialog localView */
+    IFTREE_COL_COMMENT,         /**< User-editable free-text comment for the interface — ManageInterfaceDialog localView */
+    IFTREE_COL_STATS,           /**< Live packet rate sparkline or traffic statistics — InterfaceFrame interfaceTree */
+    IFTREE_COL_DLT,             /**< Selected data link type (DLT) for the interface */
+    IFTREE_COL_PROMISCUOUSMODE, /**< Whether promiscuous mode capture is enabled */
+    IFTREE_COL_TYPE,            /**< Interface type (e.g. wired, wireless, pipe, extcap) */
+    IFTREE_COL_ACTIVE,          /**< Whether the interface is selected for the next capture */
+    IFTREE_COL_SNAPLEN,         /**< Snapshot length (in bytes) applied to each captured packet */
+    IFTREE_COL_BUFFERLEN,       /**< Kernel capture buffer size in megabytes */
+    IFTREE_COL_MONITOR_MODE,    /**< Whether 802.11 monitor mode is enabled (wireless interfaces only) */
+    IFTREE_COL_OPTIMIZE,        /**< Whether the capture filter is compiled with optimization enabled */
+    IFTREE_COL_CAPTURE_FILTER,  /**< BPF capture filter string applied to this interface */
+    IFTREE_COL_PIPE_PATH,       /**< Filesystem path or URI for a pipe interface — ManageInterfaceDialog pipeView */
+    IFTREE_COL_MAX              /**< Sentinel: total number of columns; not displayed */
 };
 
 /**
@@ -82,14 +86,14 @@ public:
      * @param parent The parent model index (defaults to an invalid QModelIndex).
      * @return The number of rows.
      */
-    int rowCount(const QModelIndex &parent = QModelIndex()) const;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
 
     /**
      * @brief Returns the number of columns in the table model.
      * @param parent The parent model index (defaults to an invalid QModelIndex).
      * @return The number of columns.
      */
-    int columnCount(const QModelIndex &parent = QModelIndex()) const;
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
 
     /**
      * @brief Retrieves data from the model for a given index and role.
@@ -97,7 +101,7 @@ public:
      * @param role The data role requested (defaults to Qt::DisplayRole).
      * @return The data associated with the index and role.
      */
-    QVariant data (const QModelIndex &index, int role = Qt::DisplayRole) const;
+    QVariant data (const QModelIndex &index, int role = Qt::DisplayRole) const override;
 
     /**
      * @brief Retrieves the header data for a specific section and role.
@@ -106,26 +110,17 @@ public:
      * @param role The data role requested.
      * @return The header data.
      */
-    QVariant headerData(int section, Qt::Orientation orientation, int role) const;
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
 
     /**
-     * @brief Triggers an update of the statistics (like sparklines) for a specific row.
-     * @param row The row index of the interface to update.
+     * @brief Sets the statistics provider supplying sparkline/activity data.
+     *
+     * The model does not own it; it reads pointsFor()/isActive() in data() and
+     * connects to its update signals to repaint the stats column and re-sort on
+     * activity changes. Pass nullptr to detach.
+     * @param statistics The interface statistics, or nullptr.
      */
-    void updateStatistic(unsigned int row);
-
-#ifdef HAVE_LIBPCAP
-    /**
-     * @brief Sets the statistics cache used to query live interface metrics.
-     * @param stat_cache Pointer to the if_stat_cache_t structure.
-     */
-    void setCache(if_stat_cache_t *stat_cache);
-
-    /**
-     * @brief Stops all active statistics gathering and polling for interfaces.
-     */
-    void stopStatistic();
-#endif
+    void setStatistics(InterfaceStatistics *statistics);
 
     /**
      * @brief Retrieves any current interface-related error messages.
@@ -167,11 +162,22 @@ public:
     /** A default placeholder string for unavailable numeric values. */
     static const QString DefaultNumericValue;
 
+    /** The maximum length of a bookmark name in characers */
+    // Arbitrary, but at that point we should add a "description" field.
+    static const int maxBookmarkNameLength = 200;
+
 public slots:
     /**
      * @brief Slot triggered when the global list of available interfaces changes.
      */
     void interfaceListChanged();
+
+private slots:
+    /** @brief Repaints the statistics column when a new sample arrives. */
+    void onStatisticsUpdated();
+
+    /** @brief Re-sorts (via layoutChanged) when the active interface set changes. */
+    void onActivityChanged();
 
 private:
     /**
@@ -181,16 +187,6 @@ private:
      */
     QVariant toolTipForInterface(int idx) const;
 
-    /** Map storing a list of data points for sparkline generation per interface. */
-    QMap<QString, PointList> points;
-
-    /** Map tracking whether an interface is currently considered active for data polling. */
-    QMap<QString, bool> active;
-
-#ifdef HAVE_LIBPCAP
-    /** Pointer to the core interface statistics cache. */
-    if_stat_cache_t *stat_cache_;
-#endif // HAVE_LIBPCAP
+    /** Statistics provider (not owned) supplying sparkline/activity data. */
+    InterfaceStatistics *interface_stats_;
 };
-
-#endif // INTERFACE_TREE_MODEL_H
