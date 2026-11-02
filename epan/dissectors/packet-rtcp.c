@@ -3433,7 +3433,7 @@ dissect_rtcp_app( tvbuff_t *tvb,packet_info *pinfo, unsigned offset, proto_tree 
             return offset;
         } else if (false) {
             offset = dissect_rtcp_app_mcpt(tvb, pinfo, offset, tree, packet_len, subtype_item, rtcp_subtype);
-        } else if (g_ascii_strncasecmp(ascii_name, "MCPC", 4) == 0) {
+        } else if (false) {
             offset = dissect_rtcp_app_mcpc(tvb, pinfo, offset, tree, packet_len, subtype_item, rtcp_subtype);
         } else if (g_ascii_strncasecmp(ascii_name, "MCCP", 4) == 0) {
             offset = dissect_rtcp_app_mccp(tvb, pinfo, offset, tree, packet_len, subtype_item, rtcp_subtype);
